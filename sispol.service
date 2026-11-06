@@ -1,0 +1,22 @@
+[Unit]
+Description=Sis.Pol. - Sistema de Gestión Policial y Pericial (Node.js Express + React)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/sispol
+ExecStart=/usr/bin/node /var/www/sispol/server.ts
+Restart=always
+RestartSec=5
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=sispol
+Environment=NODE_ENV=production
+Environment=PORT=3000
+
+# Límites y seguridad recomendados
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
