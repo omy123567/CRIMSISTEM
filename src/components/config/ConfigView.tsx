@@ -28,6 +28,7 @@ import {
   Sliders,
   FolderTree,
   Clock,
+  AlertTriangle,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { AdministrarModulosModal } from '../layout/AdministrarModulosModal';
@@ -40,6 +41,7 @@ import {
   exportZipBackup,
   importGeneralJsonBackup,
   importZipBackup,
+  vaciarBaseDeDatosCompleta,
 } from '../../services/backupService';
 import { db, seedInitialDataIfEmpty } from '../../db/database';
 import { GestionPeriodoDatos } from './GestionPeriodoDatos';
@@ -74,6 +76,45 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAdminModulosOpen, setIsAdminModulosOpen] = useState(false);
   const [isControlNumeradorOpen, setIsControlNumeradorOpen] = useState(false);
+  const [isVaciarModalOpen, setIsVaciarModalOpen] = useState(false);
+  const [crearBackupAntesDeVaciar, setCrearBackupAntesDeVaciar] = useState(true);
+  const [palabraConfirmacionVaciar, setPalabraConfirmacionVaciar] = useState('');
+  const [isWipingData, setIsWipingData] = useState(false);
+
+  const handleVaciarTodo = async () => {
+    const texto = palabraConfirmacionVaciar.trim().toUpperCase();
+    if (texto !== 'VACIAR' && texto !== 'CONFIRMAR') {
+      alert('Debe escribir exactamente "VACIAR" o "CONFIRMAR" para autorizar la acción.');
+      return;
+    }
+
+    try {
+      setIsWipingData(true);
+      const res = await vaciarBaseDeDatosCompleta(
+        crearBackupAntesDeVaciar,
+        currentUser?.apellidoYNombre || currentUser?.username || 'Administrador'
+      );
+      await loadCounts();
+      onReloadAllData();
+      setIsVaciarModalOpen(false);
+      setPalabraConfirmacionVaciar('');
+      setBackupStatusMsg({
+        text: `Base de datos vaciada con éxito (${res.totalEliminados} registros eliminados). ${
+          crearBackupAntesDeVaciar
+            ? 'Se descargó automáticamente el respaldo JSON previo.'
+            : ''
+        } Ya puede comenzar a ingresar sus propios datos.`,
+      });
+      setTimeout(() => setBackupStatusMsg(null), 7000);
+    } catch (err: any) {
+      setBackupStatusMsg({
+        text: `Error al vaciar los datos: ${err?.message || 'Error desconocido'}`,
+        isError: true,
+      });
+    } finally {
+      setIsWipingData(false);
+    }
+  };
 
   // Sincronizar cuando cambia activeDelegacionId o config
   useEffect(() => {
@@ -569,6 +610,58 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           setTimeout(() => setBackupStatusMsg(null), 5000);
         }}
       />
+
+      {/* SECCIÓN: VACIADO INTEGRAL DEL SISTEMA PARA CARGA DE DATOS PROPIOS */}
+      <div className="bg-red-50/60 p-5 rounded-xl border border-red-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-red-200 pb-3">
+          <div className="flex items-center gap-2">
+            <Trash2 className="w-5 h-5 text-red-700" />
+            <div>
+              <h2 className="text-sm font-bold text-red-950">
+                Puesta a Cero del Sistema (Cargar Mis Propios Datos)
+              </h2>
+              <p className="text-xs text-red-700">
+                Elimine todos los registros cargados de prueba para comenzar a operar con datos reales de su dependencia.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPalabraConfirmacionVaciar('');
+              setCrearBackupAntesDeVaciar(true);
+              setIsVaciarModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-red-700 hover:bg-red-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs self-start sm:self-center"
+          >
+            <Trash2 className="w-4 h-4 text-red-200" />
+            <span>Vaciar Todos los Datos Cargados</span>
+          </button>
+        </div>
+
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-slate-700">
+          <div className="space-y-1">
+            <p className="font-semibold text-slate-800">
+              ¿Desea limpiar el sistema y comenzar desde cero con el personal, expedientes y guardias de su propia división?
+            </p>
+            <p className="text-slate-600 text-[11px]">
+              Esta función borra en un solo clic todo el personal, expedientes, secuestros, inspecciones y libros de guardia.
+              <strong> Incluye la opción de generar y descargar automáticamente una copia de seguridad en JSON antes de vaciar.</strong> Se mantendrán las configuraciones de membrete y los usuarios creados.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPalabraConfirmacionVaciar('');
+              setCrearBackupAntesDeVaciar(true);
+              setIsVaciarModalOpen(true);
+            }}
+            className="px-3.5 py-2 bg-white border border-red-300 hover:bg-red-100/70 text-red-800 font-bold rounded-lg text-xs shrink-0 cursor-pointer shadow-2xs"
+          >
+            Configurar Vaciado y Respaldo
+          </button>
+        </div>
+      </div>
 
       {/* SECCIÓN I: MEMBRETE INSTITUCIONAL PARA REPORTES OFICIALES (SEGÚN IMAGEN OFICIAL) */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-5">
@@ -1412,6 +1505,113 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
             onSaveConfig(upd);
           }}
         />
+      )}
+
+      {/* Modal de Confirmación y Descarga Previa para Vaciar Base de Datos */}
+      {isVaciarModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-red-200 space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-start gap-3">
+              <div className="p-3 bg-red-100 text-red-700 rounded-xl shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900">
+                  Vaciar Sistema para Cargar Mis Propios Datos
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Esta acción eliminará todos los registros cargados de prueba o anteriores para dejar la base de datos limpia.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl space-y-2 text-xs text-red-900">
+              <span className="font-bold block flex items-center gap-1.5">
+                <Trash2 className="w-4 h-4 text-red-700" />
+                Registros que se vaciarán permanentemente:
+              </span>
+              <ul className="list-disc list-inside space-y-0.5 text-red-800 text-[11px]">
+                <li>Personal policial, legajos y agentes</li>
+                <li>Expedientes judiciales y casos falta de oficio</li>
+                <li>Libros y partes diarios de guardia (incluyendo novedades de Cibercrimen)</li>
+                <li>Intervenciones periciales, inspecciones oculares e informes técnicos</li>
+                <li>Móviles policiales, reparaciones y recargos de servicio</li>
+                <li>Accidentología, forenses y series de folios</li>
+              </ul>
+              <p className="text-[11px] font-semibold pt-1 border-t border-red-200 text-red-950">
+                ✓ Se preservarán: Las cuentas de usuario y el membrete institucional configurado.
+              </p>
+            </div>
+
+            {/* Opción de Backup Previo */}
+            <label className="flex items-start gap-3 p-3 bg-blue-50 border border-blue-200 rounded-xl cursor-pointer hover:bg-blue-100/60 transition-colors">
+              <input
+                type="checkbox"
+                checked={crearBackupAntesDeVaciar}
+                onChange={(e) => setCrearBackupAntesDeVaciar(e.target.checked)}
+                className="mt-0.5 w-4 h-4 text-blue-900 rounded border-slate-300 focus:ring-blue-500"
+              />
+              <div className="text-xs">
+                <span className="font-bold text-blue-950 block">
+                  Crear y descargar automáticamente copia de seguridad completa (JSON) antes de vaciar
+                </span>
+                <span className="text-[11px] text-blue-800">
+                  Recomendado: se guardará un archivo JSON con todos los datos actuales en sus descargas.
+                </span>
+              </div>
+            </label>
+
+            {/* Confirmación por palabra clave */}
+            <div className="space-y-1.5 text-xs">
+              <label className="block font-bold text-slate-800">
+                Para confirmar la eliminación total, escriba la palabra <span className="text-red-700 font-mono font-bold">VACIAR</span>:
+              </label>
+              <input
+                type="text"
+                value={palabraConfirmacionVaciar}
+                onChange={(e) => setPalabraConfirmacionVaciar(e.target.value)}
+                placeholder='Escriba "VACIAR" o "CONFIRMAR"'
+                className="w-full px-3 py-2 border-2 border-slate-300 focus:border-red-600 rounded-xl font-bold tracking-wider text-slate-900 text-center uppercase outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isWipingData}
+                onClick={() => {
+                  setIsVaciarModalOpen(false);
+                  setPalabraConfirmacionVaciar('');
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={
+                  isWipingData ||
+                  (palabraConfirmacionVaciar.trim().toUpperCase() !== 'VACIAR' &&
+                    palabraConfirmacionVaciar.trim().toUpperCase() !== 'CONFIRMAR')
+                }
+                onClick={handleVaciarTodo}
+                className="flex items-center gap-1.5 px-4 py-2 bg-red-700 hover:bg-red-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition-colors"
+              >
+                {isWipingData ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Vaciando datos...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Vaciar Todo y Comenzar de Cero</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -513,3 +513,100 @@ export async function importZipBackup(file: File): Promise<{ success: boolean; m
     return { success: false, message: `Error leyendo el paquete ZIP: ${error?.message || 'Archivo corrupto'}` };
   }
 }
+
+/**
+ * Vacía todos los datos operativos y registros de prueba/demo para permitir
+ * la carga de datos propios institucionales desde cero.
+ * Permite generar y descargar una copia de seguridad JSON previa.
+ */
+export async function vaciarBaseDeDatosCompleta(
+  crearBackupPrevio: boolean = true,
+  usuarioNombre?: string
+): Promise<{ success: boolean; backupJson?: string; totalEliminados: number }> {
+  let backupJson: string | undefined;
+  if (crearBackupPrevio) {
+    backupJson = await exportGeneralJsonBackup();
+    try {
+      const blob = new Blob([backupJson], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.download = `SisPol_CopiaSeguridad_Antes_De_Vaciar_${timestamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Error al descargar copia de seguridad previa:', e);
+    }
+  }
+
+  let totalEliminados = 0;
+  const tablasOperativas = [
+    db.personal,
+    db.expedientes,
+    db.casosFaltaOficio,
+    db.moviles,
+    db.reparaciones,
+    db.recargos,
+    db.partesGuardia,
+    db.intervenciones,
+    db.inspeccionesOculares,
+    db.informesTecnicos,
+    db.accidentologia,
+    db.forenses,
+    db.licenciados,
+    db.seriesNumerario,
+    db.folios,
+  ];
+
+  for (const table of tablasOperativas) {
+    try {
+      const count = await table.count();
+      totalEliminados += count;
+      await table.clear();
+    } catch (err) {
+      console.error('Error limpiando tabla:', err);
+    }
+  }
+
+  // Reiniciar numeradores en la configuración
+  try {
+    const configActual = await db.configuracion.toCollection().first();
+    if (configActual) {
+      await db.configuracion.update(configActual.id, {
+        inicioNroIntervencionCriminalistica: 1,
+        ultimoNroIntervencionCriminalistica: 0,
+        inicioNroIntervencionAccidentologica: 1,
+        ultimoNroIntervencionAccidentologica: 0,
+        inicioNroIO: 1,
+        ultimoNroIO: 0,
+      });
+    }
+  } catch (err) {
+    console.error('Error al reiniciar numeradores:', err);
+  }
+
+  // Registrar auditoría del vaciado del sistema
+  try {
+    await db.auditoria.add({
+      id: 'aud-' + Date.now(),
+      fechaHora: new Date().toISOString(),
+      usuarioId: 'admin',
+      username: usuarioNombre || 'Administrador',
+      apellidoYNombre: usuarioNombre || 'Administrador',
+      rol: 'superusuario',
+      delegacionId: 'sistema',
+      modulo: 'Configuración / Vaciado Integral',
+      accion: 'ELIMINAR',
+      descripcion: `Vaciado total de registros operativos para inicio de datos propios (${totalEliminados} registros eliminados). Copia previa generada: ${crearBackupPrevio ? 'SÍ' : 'NO'}.`,
+      detalles: JSON.stringify({ totalEliminados, backupGenerado: crearBackupPrevio, fecha: new Date().toISOString() }),
+    });
+  } catch (e) {
+    console.error('Error registrando auditoría:', e);
+  }
+
+  return { success: true, backupJson, totalEliminados };
+}
+

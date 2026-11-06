@@ -30,6 +30,7 @@ import {
   ShieldAlert,
   Stethoscope,
   Sparkles,
+  Download,
 } from 'lucide-react';
 
 import { GestionPersonalGuardiaModal } from './GestionPersonalGuardiaModal';
@@ -41,6 +42,7 @@ import { ParteVisualPreview } from './ParteVisualPreview';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { UsuarioSistema } from '../../types/police';
 import { Cpu } from 'lucide-react';
+import { generarPdfParteGuardia } from '../../services/pdfService';
 
 interface GuardiasTableViewProps {
   partesList: ParteNovedadesGuardia[];
@@ -551,15 +553,25 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Reemplazo explícito: Vista Preliminar */}
+                          {/* Reemplazo explícito: Vista Preliminar y Descargar PDF */}
                           <button
                             type="button"
                             onClick={() => setPreviewParte(p)}
-                            className="px-2.5 py-1 text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded font-bold text-[11px] flex items-center gap-1 transition-colors"
+                            className="px-2.5 py-1 text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
                             title="Vista Preliminar Oficial del Parte de Novedades (PDF y Reporte)"
                           >
                             <Eye className="w-3.5 h-3.5 text-blue-700" />
                             <span>Vista Preliminar</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => generarPdfParteGuardia(p, config)}
+                            className="px-2 py-1 text-slate-700 hover:text-blue-950 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded font-semibold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Descargar documento PDF oficial firmado"
+                          >
+                            <Download className="w-3.5 h-3.5 text-blue-800" />
+                            <span className="hidden xl:inline">Descargar PDF</span>
                           </button>
 
                           <button

@@ -587,6 +587,7 @@ export interface RegistroCibercrimenGuardia {
     unidadRegional?: string;
     destino?: string;
   };
+  resumenTarea?: string; // Resumen de la tarea realizada / Síntesis operativa
   observaciones?: string;
 }
 

@@ -4,7 +4,7 @@ import {
   IntervencionParte,
   ConfiguracionSistema,
 } from '../../types/police';
-import { Download, Printer, Plus, Edit2, Trash2, X } from 'lucide-react';
+import { Download, Printer, Plus, Edit2, Trash2, X, Eye } from 'lucide-react';
 import { generarPdfParteGuardia } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
 
@@ -31,9 +31,15 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
     isOpen: boolean;
     interv: IntervencionParte | null;
   }>({ isOpen: false, interv: null });
+  const [pdfPreviewUrl, setPdfPreviewUrl] = React.useState<string | null>(null);
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handlePreviewPdf = () => {
+    const url = generarPdfParteGuardia(parte, config, true);
+    setPdfPreviewUrl(url);
   };
 
   const handleExportPdf = () => {
@@ -83,11 +89,23 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
           </button>
 
           <button
+            type="button"
+            onClick={handlePreviewPdf}
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-sm"
+            title="Abrir Vista Preliminar interactiva del PDF"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>Vista Preliminar PDF</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleExportPdf}
             className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-sm"
+            title="Descargar documento PDF oficial firmado"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Exportar PDF Oficial</span>
+            <span>Descargar PDF</span>
           </button>
 
           {onClose && (
@@ -425,6 +443,78 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
           )}
         </div>
 
+        {/* SECCIÓN FINAL DIVISIÓN CIBERCRIMEN (REGISTRO COMPLETO DE LA GUARDIA CON RESUMEN DE TAREAS) */}
+        {parte.cibercrimenRegistros && parte.cibercrimenRegistros.length > 0 && (
+          <div className="border-2 border-slate-900 overflow-hidden space-y-0">
+            {/* Header Oficial Azul de la División Cibercrimen */}
+            <div className="bg-[#11264d] text-white text-center font-bold text-xs py-2 px-3 tracking-wider uppercase border-b-2 border-slate-900">
+              DIVISIÓN CIBERCRIMEN
+            </div>
+            <div className="bg-[#d9e6f3] text-[#11264d] text-center font-bold text-[10.5px] py-1 px-3 border-b border-slate-900 uppercase">
+              REGISTRO DE NOVEDADES OPERATIVAS & PERICIALES INFORMÁTICAS DE LA GUARDIA
+            </div>
+
+            <table className="w-full border-collapse text-[11px]">
+              <thead>
+                <tr className="bg-slate-100 border-b border-slate-900 text-slate-800 font-bold text-[10px]">
+                  <th className="p-1.5 px-2 border-r border-slate-900 w-12 text-center">Nº</th>
+                  <th className="p-1.5 px-2 border-r border-slate-900 w-16 text-center">HORA</th>
+                  <th className="p-1.5 px-2 border-r border-slate-900 w-44 text-left">PERSONAL A CARGO</th>
+                  <th className="p-1.5 px-2 border-r border-slate-900 w-40 text-left">DEPENDENCIA</th>
+                  <th className="p-1.5 px-2 border-r border-slate-900 text-left">TAREA REALIZADA & RESUMEN</th>
+                  <th className="p-1.5 px-2 text-left w-36">PERSONA / PPI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parte.cibercrimenRegistros.map((c, cIdx) => {
+                  const tareaDesc = c.tareaRealizada === 'Otro' ? c.otraTarea || 'Otro' : c.tareaRealizada;
+                  const personaDni = c.apellidoYNombre ? `${c.apellidoYNombre} (DNI: ${c.dni || '---'})` : null;
+                  const ppi = c.conPersonalPolicialInvolucrado
+                    ? `${c.personalPolicial?.jerarquia || ''} (Plaza: ${c.personalPolicial?.plaza || 's/p'}) - ${c.personalPolicial?.destino || ''}`
+                    : null;
+
+                  return (
+                    <tr key={c.id || cIdx} className="border-b border-slate-900 last:border-b-0 hover:bg-slate-50">
+                      <td className="p-1.5 px-2 border-r border-slate-900 text-center font-bold font-mono">
+                        {String(cIdx + 1).padStart(2, '0')}
+                      </td>
+                      <td className="p-1.5 px-2 border-r border-slate-900 text-center font-mono font-bold">
+                        {c.horaRegistro || '---'} hs
+                      </td>
+                      <td className="p-1.5 px-2 border-r border-slate-900 font-semibold text-slate-900">
+                        {c.personalACargo}
+                      </td>
+                      <td className="p-1.5 px-2 border-r border-slate-900 font-medium text-slate-800">
+                        {c.dependenciaSolicitante}
+                      </td>
+                      <td className="p-1.5 px-2 border-r border-slate-900 space-y-1.5">
+                        <div className="font-bold text-slate-900">{tareaDesc}</div>
+                        {c.resumenTarea && (
+                          <div className="text-[10.5px] text-slate-700 bg-slate-50 p-2 rounded border border-slate-200 whitespace-pre-line leading-relaxed">
+                            <span className="font-bold text-blue-950 block text-[9px] uppercase tracking-wider mb-1">
+                              Resumen de la Tarea Realizada:
+                            </span>
+                            {c.resumenTarea}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-1.5 px-2 text-slate-800 text-[10px]">
+                        {personaDni && (
+                          <div className="font-semibold text-slate-900">{personaDni}</div>
+                        )}
+                        {ppi && (
+                          <div className="text-red-700 font-bold font-mono mt-0.5">PPI: {ppi}</div>
+                        )}
+                        {!personaDni && !ppi && <span className="text-slate-400">---</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {/* Botón de cierre inferior */}
         {onClose && (
           <div className="flex justify-end pt-4 border-t border-slate-200 print:hidden">
@@ -454,6 +544,63 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
         }}
         onClose={() => setDeleteIntervConfirm({ isOpen: false, interv: null })}
       />
+
+      {/* MODAL VISTA PRELIMINAR DEL DOCUMENTO PDF INTERACTIVO */}
+      {pdfPreviewUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-xs overflow-hidden"
+          onClick={() => setPdfPreviewUrl(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-5xl h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del visor PDF */}
+            <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between border-b border-slate-800 shrink-0">
+              <div className="flex items-center gap-2">
+                <Eye className="w-4 h-4 text-indigo-400" />
+                <span className="font-bold text-xs sm:text-sm text-slate-100">
+                  Vista Preliminar de Impresión PDF Oficial
+                </span>
+                <span className="bg-blue-800 text-blue-100 text-[10px] px-2 py-0.5 rounded font-mono">
+                  {parte.tipoGuardia || parte.grupoGuardia}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    generarPdfParteGuardia(parte, config);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm transition-colors cursor-pointer"
+                  title="Descargar archivo PDF"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Descargar PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPdfPreviewUrl(null)}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                  title="Cerrar visor"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Visor interactivo iframe del PDF */}
+            <div className="flex-1 w-full bg-slate-200">
+              <iframe
+                src={pdfPreviewUrl}
+                title="Vista Preliminar PDF Parte de Guardia"
+                className="w-full h-full border-none"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

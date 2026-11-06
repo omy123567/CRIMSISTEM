@@ -150,8 +150,9 @@ export function drawPoliceFooter(doc: jsPDF, config: ConfiguracionSistema) {
  */
 export function generarPdfParteGuardia(
   parte: ParteNovedadesGuardia,
-  config: ConfiguracionSistema
-) {
+  config: ConfiguracionSistema,
+  previewOnly?: boolean
+): string {
   const doc = new jsPDF('p', 'mm', 'a4');
   let currentY = drawPoliceHeader(
     doc,
@@ -362,6 +363,140 @@ export function generarPdfParteGuardia(
     currentY = (doc as any).lastAutoTable.finalY + 4;
   });
 
+  // SECCIÓN OFICIAL AL FINAL: DIVISIÓN CIBERCRIMEN
+  if (parte.cibercrimenRegistros && parte.cibercrimenRegistros.length > 0) {
+    if (currentY > 195) {
+      doc.addPage();
+      currentY = drawPoliceHeader(doc, config, 'PARTE DE NOVEDADES DE GUARDIA (CONTINUACIÓN)', 10);
+    }
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [
+        [
+          {
+            content: 'DIVISIÓN CIBERCRIMEN',
+            colSpan: 4,
+            styles: {
+              halign: 'center',
+              fontStyle: 'bold',
+              fillColor: [30, 27, 75],
+              textColor: [255, 255, 255],
+              fontSize: 9.5,
+              cellPadding: 2.2,
+            },
+          },
+        ],
+        [
+          {
+            content: 'REGISTRO DE ACTUACIONES, RESGUARDO DE EVIDENCIA Y TAREAS PERICIALES INFORMÁTICAS',
+            colSpan: 4,
+            styles: {
+              halign: 'center',
+              fontStyle: 'bold',
+              fillColor: [240, 243, 250],
+              textColor: [30, 27, 75],
+              fontSize: 8,
+              cellPadding: 1.5,
+            },
+          },
+        ],
+      ],
+      body: [],
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 1.5, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+      margin: { left: 14, right: 14 },
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 2.5;
+
+    parte.cibercrimenRegistros.forEach((ciber, cIdx) => {
+      if (currentY > 215) {
+        doc.addPage();
+        currentY = drawPoliceHeader(doc, config, 'PARTE DE NOVEDADES DE GUARDIA - DIVISIÓN CIBERCRIMEN', 10);
+      }
+
+      const ciberRows: any[] = [
+        [
+          { content: 'HORA:', styles: { fontStyle: 'bold', cellWidth: 26 } },
+          { content: `${ciber.horaRegistro || '---'} hs.`, styles: { fontStyle: 'bold', cellWidth: 64 } },
+          { content: 'PERSONAL A CARGO:', styles: { fontStyle: 'bold', cellWidth: 40 } },
+          { content: ciber.personalACargo, styles: { fontStyle: 'bold', cellWidth: 52 } },
+        ],
+        [
+          { content: 'DEPENDENCIA:', styles: { fontStyle: 'bold' } },
+          { content: ciber.dependenciaSolicitante, colSpan: 3, styles: {} },
+        ],
+        [
+          { content: 'TAREA REALIZADA:', styles: { fontStyle: 'bold' } },
+          {
+            content: ciber.tareaRealizada === 'Otro' ? ciber.otraTarea || 'Otro' : ciber.tareaRealizada,
+            styles: { fontStyle: 'bold', textColor: [30, 27, 75] },
+          },
+          { content: 'PERSONA / DNI:', styles: { fontStyle: 'bold' } },
+          {
+            content: ciber.apellidoYNombre ? `${ciber.apellidoYNombre} (DNI: ${ciber.dni || '---'})` : 'Sin datos de persona / causante',
+            styles: {},
+          },
+        ],
+      ];
+
+      if (ciber.conPersonalPolicialInvolucrado) {
+        const ppiTxt = `SÍ: ${ciber.personalPolicial?.jerarquia || ''} (Plaza: ${ciber.personalPolicial?.plaza || 's/p'}) - Destino: ${ciber.personalPolicial?.destino || '---'} - ${ciber.personalPolicial?.unidadRegional || ''}`;
+        ciberRows.push([
+          { content: 'PERSONAL POLICIAL INVOLUCRADO (PPI):', colSpan: 2, styles: { fontStyle: 'bold', textColor: [180, 30, 30] } },
+          { content: ppiTxt, colSpan: 2, styles: { fontStyle: 'bold' } },
+        ]);
+      }
+
+      // Resumen de la Tarea Realizada
+      ciberRows.push([
+        {
+          content: 'RESUMEN DE LA TAREA REALIZADA',
+          colSpan: 4,
+          styles: { halign: 'center', fontStyle: 'bold', fillColor: [243, 244, 246], textColor: [30, 27, 75] },
+        },
+      ]);
+      ciberRows.push([
+        {
+          content: ciber.resumenTarea || 'Sin resumen registrado.',
+          colSpan: 4,
+          styles: { cellPadding: 2.2, fontStyle: 'normal' },
+        },
+      ]);
+
+      if (ciber.observaciones) {
+        ciberRows.push([
+          { content: 'OBSERVACIONES:', styles: { fontStyle: 'bold' } },
+          { content: ciber.observaciones, colSpan: 3, styles: {} },
+        ]);
+      }
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [
+          [
+            {
+              content: String(cIdx + 1).padStart(2, '0'),
+              styles: { halign: 'center', fontStyle: 'bold', cellWidth: 16, fillColor: [49, 46, 129], textColor: [255, 255, 255] },
+            },
+            {
+              content: `ACTUACIÓN CIBERCRIMEN Nº ${String(cIdx + 1).padStart(2, '0')} - ${(ciber.tareaRealizada === 'Otro' ? ciber.otraTarea || 'OTRO' : ciber.tareaRealizada).toUpperCase()}`,
+              colSpan: 3,
+              styles: { halign: 'center', fontStyle: 'bold', fillColor: [49, 46, 129], textColor: [255, 255, 255], fontSize: 8.5 },
+            },
+          ],
+        ],
+        body: ciberRows,
+        theme: 'grid',
+        styles: { fontSize: 7.8, cellPadding: 1.5, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+        margin: { left: 14, right: 14 },
+      });
+
+      currentY = (doc as any).lastAutoTable.finalY + 3.5;
+    });
+  }
+
   // Firma oficial exclusiva del Jefe (Ubicada a la derecha)
   if (currentY > 235) {
     doc.addPage();
@@ -380,7 +515,13 @@ export function generarPdfParteGuardia(
   doc.text('Firma, Aclaración y Sello Oficial', 155, currentY + 22, { align: 'center' });
 
   drawPoliceFooter(doc, config);
-  doc.save(`Parte_Guardia_${parte.grupoGuardia.replace(/\s+/g, '_')}_${parte.fechaInicio}.pdf`);
+
+  const filename = `Parte_Guardia_${parte.grupoGuardia.replace(/\s+/g, '_')}_${parte.fechaInicio}.pdf`;
+  if (!previewOnly) {
+    doc.save(filename);
+  }
+
+  return doc.output('bloburl').toString();
 }
 
 /**

@@ -52,6 +52,7 @@ export const GestionCibercrimenGuardiaModal: React.FC<GestionCibercrimenGuardiaM
       unidadRegional: config.unidadesRegionales?.[0] || 'U.R. N° 1',
       destino: config.destinosPoliciales?.[0] || '',
     },
+    resumenTarea: '',
     observaciones: '',
   });
 
@@ -110,6 +111,7 @@ export const GestionCibercrimenGuardiaModal: React.FC<GestionCibercrimenGuardiaM
         unidadRegional: config.unidadesRegionales?.[0] || 'U.R. N° 1',
         destino: config.destinosPoliciales?.[0] || '',
       },
+      resumenTarea: '',
       observaciones: '',
     });
   };
@@ -386,6 +388,21 @@ export const GestionCibercrimenGuardiaModal: React.FC<GestionCibercrimenGuardiaM
                 )}
               </div>
 
+              {/* Resumen de la Tarea Realizada */}
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">
+                  Resumen de la Tarea Realizada / Síntesis Operativa *
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={nuevo.resumenTarea || ''}
+                  onChange={(e) => setNuevo({ ...nuevo, resumenTarea: e.target.value })}
+                  placeholder="Detalle sintéticamente la tarea realizada (ej. Extracción forense de grabaciones de seguridad del sistema DVR, preservación de evidencia digital, análisis de dispositivos...)"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-medium text-slate-800"
+                />
+              </div>
+
               <div className="flex justify-end gap-2 pt-2 border-t border-indigo-200">
                 <button
                   type="button"
@@ -413,7 +430,7 @@ export const GestionCibercrimenGuardiaModal: React.FC<GestionCibercrimenGuardiaM
                   <th className="py-2 px-3">Hora</th>
                   <th className="py-2 px-3">Personal a Cargo</th>
                   <th className="py-2 px-3">Dependencia Solicitante</th>
-                  <th className="py-2 px-3">Tarea Realizada</th>
+                  <th className="py-2 px-3">Tarea & Resumen</th>
                   <th className="py-2 px-3">Persona / DNI</th>
                   <th className="py-2 px-3">PPI</th>
                   <th className="py-2 px-2 text-right">Acción</th>
@@ -432,7 +449,7 @@ export const GestionCibercrimenGuardiaModal: React.FC<GestionCibercrimenGuardiaM
                       <td className="py-2 px-3 font-mono font-bold text-slate-800">{r.horaRegistro || '---'}</td>
                       <td className="py-2 px-3 font-medium text-slate-900">{r.personalACargo}</td>
                       <td className="py-2 px-3 text-slate-700">{r.dependenciaSolicitante}</td>
-                      <td className="py-2 px-3">
+                      <td className="py-2 px-3 max-w-[280px]">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           r.tareaRealizada === 'Resguardo de Evidencia'
                             ? 'bg-purple-100 text-purple-900'
@@ -442,6 +459,11 @@ export const GestionCibercrimenGuardiaModal: React.FC<GestionCibercrimenGuardiaM
                         }`}>
                           {r.tareaRealizada === 'Otro' ? r.otraTarea || 'Otro' : r.tareaRealizada}
                         </span>
+                        {r.resumenTarea && (
+                          <p className="text-[11px] text-slate-600 mt-1 line-clamp-2 italic bg-slate-50 p-1 rounded border border-slate-200">
+                            "{r.resumenTarea}"
+                          </p>
+                        )}
                       </td>
                       <td className="py-2 px-3">
                         {r.apellidoYNombre ? (
