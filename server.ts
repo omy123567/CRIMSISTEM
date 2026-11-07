@@ -181,6 +181,7 @@ No agregues introducciones ni despedidas de chat. Devuelve ÚNICAMENTE los punto
         middlewareMode: true,
         host: '0.0.0.0',
         port: PORT,
+        hmr: false,
       },
       appType: 'spa',
     });

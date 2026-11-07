@@ -1,6 +1,124 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
+    <script>
+      // Preview Environment WebSocket & Error Handler for Vite
+      (function() {
+        // Intercept console.error to filter out Vite WebSocket connection messages
+        var origConsoleError = console.error;
+        console.error = function() {
+          var args = Array.prototype.slice.call(arguments);
+          var text = args.map(function(a) {
+            return (a && (a.message || a.stack)) || String(a);
+          }).join(' ');
+          if (
+            text.indexOf('WebSocket') !== -1 ||
+            text.indexOf('failed to connect to websocket') !== -1 ||
+            text.indexOf('closed without opened') !== -1 ||
+            text.indexOf('[vite] failed') !== -1
+          ) {
+            return;
+          }
+          return origConsoleError.apply(console, args);
+        };
+
+        // Suppress unhandled promise rejections related to Vite WebSocket
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event.reason;
+          var text = (reason && (reason.stack || reason.message)) ? (reason.stack || reason.message) : String(reason);
+          if (
+            text.indexOf('WebSocket') !== -1 ||
+            text.indexOf('vite') !== -1 ||
+            text.indexOf('closed without opened') !== -1
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        // Suppress window error events for Vite WebSocket
+        window.addEventListener('error', function(event) {
+          var text = (event.message || '') + ' ' + (event.filename || '');
+          if (
+            text.indexOf('WebSocket') !== -1 ||
+            text.indexOf('vite') !== -1 ||
+            text.indexOf('closed without opened') !== -1
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        // Mock WebSocket for Vite HMR so it resolves successfully without erroring
+        var NativeWebSocket = window.WebSocket;
+        if (NativeWebSocket) {
+          function MockViteWebSocket(url, protocols) {
+            var urlStr = String(url || '');
+            var isVite = urlStr.indexOf('vite') !== -1 ||
+                         protocols === 'vite-hmr' ||
+                         (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1);
+
+            if (isVite) {
+              var listeners = {};
+              var instance = {
+                readyState: 1, // OPEN
+                OPEN: 1,
+                CLOSED: 3,
+                CLOSING: 2,
+                CONNECTING: 0,
+                url: urlStr,
+                protocol: 'vite-hmr',
+                bufferedAmount: 0,
+                binaryType: 'blob',
+                extensions: '',
+                send: function() {},
+                close: function() {
+                  instance.readyState = 3;
+                  if (typeof instance.onclose === 'function') {
+                    instance.onclose({ code: 1000, reason: 'Clean close', wasClean: true });
+                  }
+                },
+                addEventListener: function(event, callback) {
+                  if (!listeners[event]) listeners[event] = [];
+                  listeners[event].push(callback);
+                  if (event === 'open') {
+                    setTimeout(function() {
+                      try { callback({ type: 'open' }); } catch (e) {}
+                    }, 0);
+                  }
+                },
+                removeEventListener: function(event, callback) {
+                  if (listeners[event]) {
+                    listeners[event] = listeners[event].filter(function(cb) { return cb !== callback; });
+                  }
+                },
+                dispatchEvent: function() { return true; },
+                onopen: null,
+                onclose: null,
+                onerror: null,
+                onmessage: null,
+              };
+
+              setTimeout(function() {
+                if (typeof instance.onopen === 'function') {
+                  try { instance.onopen({ type: 'open' }); } catch (e) {}
+                }
+              }, 0);
+
+              return instance;
+            }
+            return new NativeWebSocket(url, protocols);
+          }
+
+          MockViteWebSocket.CONNECTING = 0;
+          MockViteWebSocket.OPEN = 1;
+          MockViteWebSocket.CLOSING = 2;
+          MockViteWebSocket.CLOSED = 3;
+          MockViteWebSocket.prototype = NativeWebSocket.prototype;
+          window.WebSocket = MockViteWebSocket;
+        }
+      })();
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Sis.Pol. - Sistema de Gestión Policial y Operativa</title>
