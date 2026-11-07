@@ -15,6 +15,8 @@ import {
   Shield,
   KeyRound,
 } from 'lucide-react';
+import { PWAInstallButton } from '../common/PWAInstallButton';
+import { OfflineIndicator } from '../common/OfflineIndicator';
 
 interface NavbarProps {
   config: ConfiguracionSistema;
@@ -210,20 +212,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
-            {/* Offline-First Badge */}
-            <div
-              onClick={onOpenBackups}
-              title="Almacenamiento Local Offline-First (IndexedDB Activo). Haga clic para ver estado de respaldos."
-              className="hidden md:flex items-center gap-1.5 text-[11px] bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 px-2.5 py-1.5 rounded cursor-pointer hover:bg-emerald-900 transition-colors"
-            >
-              <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="font-medium">LocalDB</span>
-              {isOnline ? (
-                <Wifi className="w-3 h-3 text-emerald-400" />
-              ) : (
-                <WifiOff className="w-3 h-3 text-amber-400" />
-              )}
-            </div>
+            {/* Indicador de Sincronización con Servidor Central / Modo Offline */}
+            <OfflineIndicator />
+
+            {/* Botón de Instalación Multiplataforma (PWA Android, Windows, iOS, Mac, Linux) */}
+            <PWAInstallButton />
 
             {/* Usuario Actual & Menú de Sesión */}
             {currentUser && (

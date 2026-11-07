@@ -1,0 +1,1287 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-11-07T12:23:30.780Z",
+  "configuracion": [
+    {
+      "id": "global-config",
+      "delegacionId": "del-laguna-blanca",
+      "nombreInstitucion": "POLICÍA DE LA PROVINCIA DE FORMOSA",
+      "unidadRegional": "DIVISIÓN INVESTIGACIÓN CIBERCRIMEN",
+      "dependencia": "DELEGACIÓN POLICÍA CIENTÍFICA LAGUNA BLANCA",
+      "siglasDependencia": "DPC",
+      "subtituloReportes": "CRIMINI-SISTEM - GESTIÓN POLICIAL Y PERICIAL",
+      "diasRetencionAuditoria": 90,
+      "pieDePagina": "Documento Reservado de Uso Oficial Interno - Prohibida su divulgación sin autorización judicial.",
+      "logoIzquierdoUrl": "/assets/aistudio/image_0de80603.png",
+      "textoDebajoLogoIzquierdo": "\"La seguridad pública es una construcción colectiva\"",
+      "logoDerechoUrl": "/assets/aistudio/ChatGPT_Image_25_mar_2026__11_53_05_a.m.-removebg-preview_0693dcbf.png",
+      "textoDebajoLogoDerecho": "D.G.P.C.",
+      "direccionDependencia": "Calle San Martín e H. Irigoyen - Bº Centro - Laguna Blanca - C.P. 3613",
+      "contactoDependencia": "Tel.: 3704-040169 / E-mail: pol.delgcrimlagunablanca@formosa.gov.ar",
+      "lineasMembrete": [
+        {
+          "id": "l-1",
+          "texto": "POLICÍA DE LA PROVINCIA DE FORMOSA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "xl",
+          "color": "azul"
+        },
+        {
+          "id": "l-2",
+          "texto": "DIVISIÓN INVESTIGACIÓN CIBERCRIMEN",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "l-3",
+          "texto": "DELEGACIÓN POLICÍA CIENTÍFICA LAGUNA BLANCA",
+          "negrita": true,
+          "subrayado": true,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "l-4",
+          "texto": "Calle San Martín e H. Irigoyen - Bº Centro - Laguna Blanca - C.P. 3613",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        },
+        {
+          "id": "l-5",
+          "texto": "Tel.: 3704-040169 / E-mail: pol.delgcrimlagunablanca@formosa.gov.ar",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        }
+      ],
+      "jerarquias": [
+        "Comisario General",
+        "Comisario Mayor",
+        "Comisario Inspector",
+        "Comisario",
+        "Subcomisario",
+        "Oficial Principal",
+        "Oficial Inspector",
+        "Oficial Subinspector",
+        "Oficial Ayudante",
+        "Suboficial Mayor",
+        "Suboficial Principal",
+        "Sargento Ayudante",
+        "Sargento 1°",
+        "Sargento",
+        "Cabo 1°",
+        "Cabo",
+        "Agente"
+      ],
+      "gruposGuardia": [
+        "Guardia A",
+        "Guardia B",
+        "Guardia C",
+        "Guardia D",
+        "Brigada de Investigaciones",
+        "Oficina de Sumarios",
+        "Sección Criminalística Pericial",
+        "Sección Accidentología Vial",
+        "Secretaría General"
+      ],
+      "tiposGuardia": [
+        "Brigada",
+        "Servicios - Técnicos",
+        "Administrativa",
+        "Pericial",
+        "Prevención",
+        "Guardia de Prevención y Seguridad",
+        "Comando Radioeléctrico"
+      ],
+      "medicosForensesCatalogo": [
+        "Dr. Guillermo Navarro (Médico Legista Forense)",
+        "Dra. Claudia Montenegro (Médica Forense de Turno)",
+        "Dr. Marcelo Gómez (Médico de Policía)",
+        "Dr. Raúl Esteche (Médico Forense de Guardia)",
+        "Dra. Silvina Aranda (Médica Legista)"
+      ],
+      "tiposRequerimiento": [
+        "Escalamiento de datos",
+        "Resguardo de Evidencia",
+        "Resguardo c/ Escalamiento",
+        "Descarga de filmaciones",
+        "Extracción forense de teléfono",
+        "Análisis informático",
+        "Informe pericial",
+        "Inspección ocular pericial",
+        "Balística y Rastros",
+        "Planimetría y Fotografía"
+      ],
+      "tiposOficio": [
+        "Instrucción Penal Preparatoria (IPP)",
+        "Causa Penal",
+        "Exhorto Judicial",
+        "Medida Cautelar",
+        "Expediente Contravencional",
+        "Actuación de Oficio",
+        "Requerimiento Fiscal Preliminar"
+      ],
+      "juzgadosFiscalias": [
+        "UFI N° 1 - Delitos Complejos",
+        "UFI N° 2 - Delitos Culposos y Siniestros Viales",
+        "UFI N° 3 - Delitos Contra la Propiedad",
+        "Juzgado de Garantías N° 1",
+        "Juzgado de Garantías N° 2",
+        "Juzgado Correccional N° 1",
+        "Fiscalía de Instrucción Penal en Turno"
+      ],
+      "dependenciasPoliciales": [
+        "Comisaría Seccional 1ra",
+        "Comisaría Seccional 2da",
+        "Comisaría Seccional 3ra",
+        "Comisaría Seccional 4ta",
+        "Comisaría Seccional 5ta",
+        "Comisaría de la Mujer y la Familia",
+        "Dirección General de Investigaciones",
+        "División Comando Radioeléctrico",
+        "División Tránsito Policial"
+      ],
+      "unidadesRegionales": [
+        "Unidad Regional Uno (Formosa Capital)",
+        "Unidad Regional Dos (Pirané)",
+        "Unidad Regional Tres (Clorinda)",
+        "Unidad Regional Cuatro (Laguna Blanca)",
+        "Unidad Regional Cinco (Las Lomitas)",
+        "Unidad Regional Seis (Ingeniero Juárez)",
+        "Unidad Regional Siete (General Güemes)"
+      ],
+      "destinosPoliciales": [
+        "División Policía Científica Laguna Blanca",
+        "División Investigación Cibercrimen",
+        "Comisaría Laguna Blanca",
+        "Comisaría Clorinda",
+        "Destacamento Riacho He-Hé",
+        "Comisaría El Espinillo",
+        "Comisaría Misión Tacaaglé",
+        "División Comando Radioeléctrico Policial",
+        "División Tránsito Policial",
+        "Dirección General de Policía Científica",
+        "Comisaría Seccional 1ra",
+        "Comisaría Seccional 2da",
+        "Comisaría Seccional 3ra",
+        "Comisaría Seccional 4ta"
+      ],
+      "hechosCriminalistica": [
+        "SECUESTRO Y APREHENSION",
+        "SECUESTRO DE MOTOCICLETA RECUPERADA",
+        "CONSTATACIÓN RELACIONADO A SINIESTRO VIAL",
+        "HOMICIDIO EN OCASIÓN DE ROBO",
+        "HURTO CALIFICADO",
+        "ROBO AGRAVADO POR USO DE ARMA",
+        "HALLAZGO DE ARMA DE FUEGO",
+        "AVERIGUACIÓN DE ILÍCITO",
+        "INSPECCIÓN OCULAR POR INCENDIO",
+        "SUICIDIO - AUTOAGRESIÓN"
+      ],
+      "viasSolicitud": [
+        "Telefónica",
+        "Radial (Frecuencia Policial)",
+        "Nota Oficial Escrita",
+        "Correo Electrónico Oficial",
+        "Presencial en Guardia"
+      ],
+      "tiposRecargo": [
+        "Operativo nocturno saturación",
+        "Prevención bancaria y comercial",
+        "Evento deportivo masivo",
+        "Custodia judicial fija",
+        "Control vehicular y alcoholemia",
+        "Refuerzo de guardia fin de semana",
+        "Operativo especial de verano/invierno"
+      ],
+      "condicionesInvolucrado": [
+        "Demorado / Aprehendido",
+        "Denunciante",
+        "Damnificado / Víctima",
+        "Testigo",
+        "Imputado",
+        "Conductor",
+        "Acompañante",
+        "Sospechoso",
+        "Examinado Forense",
+        "Otro"
+      ],
+      "funcionesGuardiaCatalogo": [
+        "Oficial de servicio – Perito de turno",
+        "Oficial de guardia – Perito de turno",
+        "Chofer – Fotógrafo",
+        "Servicio despeje / prevención",
+        "Perito auxiliar en Criminalística",
+        "Planímetro de turno",
+        "Fotógrafo pericial",
+        "Técnico de laboratorio",
+        "Operador de guardia"
+      ],
+      "supabaseSyncHabilitado": false,
+      "inicioNroIntervencionCriminalistica": 3800,
+      "ultimoNroIntervencionCriminalistica": 3814,
+      "inicioNroIntervencionAccidentologica": 2500,
+      "ultimoNroIntervencionAccidentologica": 2584,
+      "ultimaHoraIntervencion": "18:28 hs.",
+      "inicioNroIO": 1,
+      "ultimoNroIO": 2,
+      "estructuraModulos": [
+        {
+          "id": "dashboard",
+          "label": "Dashboard Ejecutivo",
+          "desc": "KPIs y Estadísticas",
+          "orden": 1,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "personal",
+          "label": "Personal y Legajos",
+          "desc": "Nómina, Armas y Chalecos",
+          "orden": 2,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "grupos",
+          "label": "Grupos",
+          "desc": "Secciones de Guardia & Nómina",
+          "orden": 3,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "expedientes",
+          "label": "Expedientes Judiciales",
+          "desc": "Oficios, Tareas y PPI",
+          "orden": 4,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "falta-oficio",
+          "label": "Casos Falta de Oficio",
+          "desc": "Urgencias preliminares",
+          "orden": 5,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "moviles",
+          "label": "Parque Automotor",
+          "desc": "Móviles y Reparaciones",
+          "orden": 6,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "recargos",
+          "label": "Recargos Operativos",
+          "desc": "Servicios extraordinarios",
+          "orden": 7,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "guardias",
+          "label": "Parte de Novedades",
+          "desc": "Guardia & Criminalística",
+          "orden": 8,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "inspecciones",
+          "label": "Inspecciones Oculares",
+          "desc": "Intervenciones Criminalísticas",
+          "orden": 9,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "intervenciones",
+          "label": "Intervenciones",
+          "desc": "LC & Siniestros Viales",
+          "orden": 10,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "causas-policiales",
+          "label": "Causas c/ Pers. Policial",
+          "desc": "Hechos con Efectivos Policiales",
+          "orden": 11,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "personas",
+          "label": "Personas",
+          "desc": "Involucrados & Testigos",
+          "orden": 12,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "vehiculos",
+          "label": "Vehículos",
+          "desc": "Rodados en Siniestros Viales",
+          "orden": 13,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "forense",
+          "label": "Forense Policial",
+          "desc": "Médico y Examinados",
+          "orden": 14,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "licenciados",
+          "label": "Licenciado",
+          "desc": "Personal Profesional",
+          "orden": 15,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "informes-tecnicos",
+          "label": "Informes Técnicos",
+          "desc": "Oficios, Dictámenes & Elevación",
+          "orden": 16,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "numerario",
+          "label": "Control de Folios",
+          "desc": "Numerario y Asignación de Folios",
+          "orden": 17,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "usuarios",
+          "label": "Gestión de Usuarios",
+          "desc": "Roles, Permisos & Cuentas",
+          "orden": 18,
+          "padreId": null,
+          "visible": true
+        },
+        {
+          "id": "config",
+          "label": "Configuración & Membrete",
+          "desc": "Ajustes, Membrete & Backups",
+          "orden": 19,
+          "padreId": null,
+          "visible": true
+        }
+      ]
+    }
+  ],
+  "usuarios": [
+    {
+      "id": "usr-cibercrimen-lb",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "email": "divcibercrimenlagunablanca@gmail.com",
+      "username": "cibercrimen",
+      "password": "cibercrimen2026",
+      "delegacionId": "del-laguna-blanca",
+      "rol": "superusuario",
+      "puedeVerOtrasDelegaciones": true,
+      "delegacionesPermitidas": [
+        "del-laguna-blanca",
+        "del-clorinda",
+        "del-formosa-central",
+        "del-las-lomitas",
+        "del-el-colorado",
+        "del-pirane"
+      ],
+      "modulosPermitidos": [
+        "dashboard",
+        "personal",
+        "grupos",
+        "expedientes",
+        "falta-oficio",
+        "moviles",
+        "recargos",
+        "guardias",
+        "inspecciones",
+        "intervenciones",
+        "personas",
+        "vehiculos",
+        "forense",
+        "licenciados",
+        "informes-tecnicos",
+        "numerario",
+        "accidentologia",
+        "usuarios",
+        "config"
+      ],
+      "puedeEliminar": true,
+      "activo": true,
+      "dni": "30445566",
+      "nombre": "División Cibercrimen",
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "updatedAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "usr-superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "email": "superadmin.dpc@formosa.gov.ar",
+      "username": "superadmin",
+      "password": "admin123",
+      "delegacionId": "del-laguna-blanca",
+      "rol": "superusuario",
+      "puedeVerOtrasDelegaciones": true,
+      "delegacionesPermitidas": [
+        "del-laguna-blanca",
+        "del-clorinda",
+        "del-formosa-central",
+        "del-las-lomitas",
+        "del-el-colorado",
+        "del-pirane"
+      ],
+      "modulosPermitidos": [
+        "dashboard",
+        "personal",
+        "grupos",
+        "expedientes",
+        "falta-oficio",
+        "moviles",
+        "recargos",
+        "guardias",
+        "inspecciones",
+        "intervenciones",
+        "personas",
+        "vehiculos",
+        "forense",
+        "licenciados",
+        "informes-tecnicos",
+        "numerario",
+        "accidentologia",
+        "usuarios",
+        "config"
+      ],
+      "puedeEliminar": true,
+      "activo": true,
+      "dni": "28001122",
+      "nombre": "Comisario Mayor D.G.P.C.",
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "updatedAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "usr-admin-lb",
+      "apellidoYNombre": "Crio. Insp. ALVAREZ Marcos",
+      "email": "alvarez.marcos@formosa.gov.ar",
+      "username": "admin.lb",
+      "password": "laguna123",
+      "delegacionId": "del-laguna-blanca",
+      "rol": "Administrador",
+      "puedeVerOtrasDelegaciones": false,
+      "delegacionesPermitidas": [
+        "del-laguna-blanca"
+      ],
+      "modulosPermitidos": [
+        "dashboard",
+        "personal",
+        "grupos",
+        "expedientes",
+        "falta-oficio",
+        "moviles",
+        "recargos",
+        "guardias",
+        "inspecciones",
+        "intervenciones",
+        "personas",
+        "vehiculos",
+        "forense",
+        "licenciados",
+        "informes-tecnicos",
+        "numerario",
+        "accidentologia",
+        "usuarios",
+        "config"
+      ],
+      "puedeEliminar": true,
+      "activo": true,
+      "dni": "32456789",
+      "nombre": "ALVAREZ Marcos",
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "updatedAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "usr-operador-lb",
+      "apellidoYNombre": "Of. Ppal. GOMEZ Valeria",
+      "email": "gomez.valeria@formosa.gov.ar",
+      "username": "operador.lb",
+      "password": "operador123",
+      "delegacionId": "del-laguna-blanca",
+      "rol": "Operador",
+      "puedeVerOtrasDelegaciones": false,
+      "delegacionesPermitidas": [
+        "del-laguna-blanca"
+      ],
+      "modulosPermitidos": [
+        "dashboard",
+        "guardias",
+        "inspecciones",
+        "expedientes",
+        "falta-oficio",
+        "personas",
+        "vehiculos"
+      ],
+      "puedeEliminar": false,
+      "activo": true,
+      "dni": "35112449",
+      "nombre": "GOMEZ Valeria",
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "updatedAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "usr-admin-clorinda",
+      "apellidoYNombre": "Subcrio. FERNANDEZ Raúl",
+      "email": "fernandez.raul@formosa.gov.ar",
+      "username": "admin.clorinda",
+      "password": "clorinda123",
+      "delegacionId": "del-clorinda",
+      "rol": "Administrador",
+      "puedeVerOtrasDelegaciones": false,
+      "delegacionesPermitidas": [
+        "del-clorinda"
+      ],
+      "modulosPermitidos": [
+        "dashboard",
+        "personal",
+        "grupos",
+        "expedientes",
+        "falta-oficio",
+        "moviles",
+        "recargos",
+        "guardias",
+        "inspecciones",
+        "personas",
+        "vehiculos",
+        "forense",
+        "usuarios",
+        "config"
+      ],
+      "puedeEliminar": true,
+      "activo": true,
+      "dni": "30882199",
+      "nombre": "FERNANDEZ Raúl",
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "updatedAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "usr-supervisor-regional",
+      "apellidoYNombre": "Crio. Mayor BENITEZ Hugo",
+      "email": "benitez.hugo@formosa.gov.ar",
+      "username": "supervisor.dpc",
+      "password": "super123",
+      "delegacionId": "del-formosa-central",
+      "rol": "Administrador",
+      "puedeVerOtrasDelegaciones": true,
+      "delegacionesPermitidas": [
+        "del-formosa-central",
+        "del-laguna-blanca",
+        "del-clorinda"
+      ],
+      "modulosPermitidos": [
+        "dashboard",
+        "expedientes",
+        "guardias",
+        "inspecciones",
+        "moviles",
+        "recargos"
+      ],
+      "puedeEliminar": false,
+      "activo": true,
+      "dni": "27554901",
+      "nombre": "BENITEZ Hugo",
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "updatedAt": "2026-11-07T12:23:30.779Z"
+    }
+  ],
+  "delegaciones": [
+    {
+      "id": "del-laguna-blanca",
+      "nombre": "DELEGACIÓN POLICÍA CIENTÍFICA LAGUNA BLANCA",
+      "siglas": "DPC-LB",
+      "unidadRegional": "DIVISIÓN INVESTIGACIÓN CIBERCRIMEN",
+      "ciudad": "Laguna Blanca",
+      "direccion": "Calle San Martín e H. Irigoyen - Bº Centro - Laguna Blanca - C.P. 3613",
+      "telefono": "3704-040169",
+      "email": "pol.delgcrimlagunablanca@formosa.gov.ar",
+      "logoIzquierdoUrl": "/assets/aistudio/image_0de80603.png",
+      "textoDebajoLogoIzquierdo": "\"La seguridad pública es una construcción colectiva\"",
+      "logoDerechoUrl": "/assets/aistudio/ChatGPT_Image_25_mar_2026__11_53_05_a.m.-removebg-preview_0693dcbf.png",
+      "textoDebajoLogoDerecho": "D.G.P.C.",
+      "pieDePagina": "Documento Reservado de Uso Oficial Interno - Delegación Policía Científica Laguna Blanca.",
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "lineasMembrete": [
+        {
+          "id": "l-1",
+          "texto": "POLICÍA DE LA PROVINCIA DE FORMOSA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "xl",
+          "color": "azul"
+        },
+        {
+          "id": "l-2",
+          "texto": "DIVISIÓN INVESTIGACIÓN CIBERCRIMEN",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "l-3",
+          "texto": "DELEGACIÓN POLICÍA CIENTÍFICA LAGUNA BLANCA",
+          "negrita": true,
+          "subrayado": true,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "l-4",
+          "texto": "Calle San Martín e H. Irigoyen - Bº Centro - Laguna Blanca - C.P. 3613",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        },
+        {
+          "id": "l-5",
+          "texto": "Tel.: 3704-040169 / E-mail: pol.delgcrimlagunablanca@formosa.gov.ar",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        }
+      ]
+    },
+    {
+      "id": "del-clorinda",
+      "nombre": "DELEGACIÓN POLICÍA CIENTÍFICA CLORINDA",
+      "siglas": "DPC-CLO",
+      "unidadRegional": "UNIDAD REGIONAL TRES - CLORINDA",
+      "ciudad": "Clorinda",
+      "direccion": "Av. San Martín N° 850 - Clorinda - C.P. 3610",
+      "telefono": "3718-422100",
+      "email": "pol.delgcrimclorinda@formosa.gov.ar",
+      "logoIzquierdoUrl": "/assets/aistudio/image_0de80603.png",
+      "textoDebajoLogoIzquierdo": "\"La seguridad pública es una construcción colectiva\"",
+      "logoDerechoUrl": "/assets/aistudio/ChatGPT_Image_25_mar_2026__11_53_05_a.m.-removebg-preview_0693dcbf.png",
+      "textoDebajoLogoDerecho": "D.G.P.C.",
+      "pieDePagina": "Documento Reservado de Uso Oficial Interno - Delegación Policía Científica Clorinda.",
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "lineasMembrete": [
+        {
+          "id": "lc-1",
+          "texto": "POLICÍA DE LA PROVINCIA DE FORMOSA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "xl",
+          "color": "azul"
+        },
+        {
+          "id": "lc-2",
+          "texto": "DIRECCIÓN GENERAL DE POLICÍA CIENTÍFICA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lc-3",
+          "texto": "DELEGACIÓN POLICÍA CIENTÍFICA CLORINDA",
+          "negrita": true,
+          "subrayado": true,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lc-4",
+          "texto": "Av. San Martín N° 850 - Clorinda - C.P. 3610",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        },
+        {
+          "id": "lc-5",
+          "texto": "Tel.: 3718-422100 / E-mail: pol.delgcrimclorinda@formosa.gov.ar",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        }
+      ]
+    },
+    {
+      "id": "del-formosa-central",
+      "nombre": "DELEGACIÓN POLICÍA CIENTÍFICA FORMOSA CAPITAL",
+      "siglas": "DPC-FSA",
+      "unidadRegional": "DIRECCIÓN GENERAL DE POLICÍA CIENTÍFICA CENTRAL",
+      "ciudad": "Formosa Capital",
+      "direccion": "Calle Saavedra N° 350 - Formosa Capital - C.P. 3600",
+      "telefono": "3704-428900",
+      "email": "pol.cientificaformosa@formosa.gov.ar",
+      "logoIzquierdoUrl": "/assets/aistudio/image_0de80603.png",
+      "textoDebajoLogoIzquierdo": "\"La seguridad pública es una construcción colectiva\"",
+      "logoDerechoUrl": "/assets/aistudio/ChatGPT_Image_25_mar_2026__11_53_05_a.m.-removebg-preview_0693dcbf.png",
+      "textoDebajoLogoDerecho": "D.G.P.C.",
+      "pieDePagina": "Documento Reservado de Uso Oficial Interno - Dirección General Policía Científica Central.",
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "lineasMembrete": [
+        {
+          "id": "lf-1",
+          "texto": "POLICÍA DE LA PROVINCIA DE FORMOSA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "xl",
+          "color": "azul"
+        },
+        {
+          "id": "lf-2",
+          "texto": "DIRECCIÓN GENERAL DE POLICÍA CIENTÍFICA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lf-3",
+          "texto": "DELEGACIÓN POLICÍA CIENTÍFICA FORMOSA CAPITAL",
+          "negrita": true,
+          "subrayado": true,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lf-4",
+          "texto": "Calle Saavedra N° 350 - Formosa Capital - C.P. 3600",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        },
+        {
+          "id": "lf-5",
+          "texto": "Tel.: 3704-428900 / E-mail: pol.cientificaformosa@formosa.gov.ar",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        }
+      ]
+    },
+    {
+      "id": "del-las-lomitas",
+      "nombre": "DELEGACIÓN POLICÍA CIENTÍFICA LAS LOMITAS",
+      "siglas": "DPC-LL",
+      "unidadRegional": "UNIDAD REGIONAL CINCO - LAS LOMITAS",
+      "ciudad": "Las Lomitas",
+      "direccion": "Ruta Nacional 81 Km 1450 - Las Lomitas - C.P. 3630",
+      "telefono": "3715-432010",
+      "email": "pol.delgcrimlaslomitas@formosa.gov.ar",
+      "logoIzquierdoUrl": "/assets/aistudio/image_0de80603.png",
+      "textoDebajoLogoIzquierdo": "\"La seguridad pública es una construcción colectiva\"",
+      "logoDerechoUrl": "/assets/aistudio/ChatGPT_Image_25_mar_2026__11_53_05_a.m.-removebg-preview_0693dcbf.png",
+      "textoDebajoLogoDerecho": "D.G.P.C.",
+      "pieDePagina": "Documento Reservado de Uso Oficial Interno - Delegación Las Lomitas.",
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "lineasMembrete": [
+        {
+          "id": "lll-1",
+          "texto": "POLICÍA DE LA PROVINCIA DE FORMOSA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "xl",
+          "color": "azul"
+        },
+        {
+          "id": "lll-2",
+          "texto": "DIRECCIÓN GENERAL DE POLICÍA CIENTÍFICA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lll-3",
+          "texto": "DELEGACIÓN POLICÍA CIENTÍFICA LAS LOMITAS",
+          "negrita": true,
+          "subrayado": true,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lll-4",
+          "texto": "Ruta Nacional 81 Km 1450 - Las Lomitas - C.P. 3630",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        },
+        {
+          "id": "lll-5",
+          "texto": "Tel.: 3715-432010 / E-mail: pol.delgcrimlaslomitas@formosa.gov.ar",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        }
+      ]
+    },
+    {
+      "id": "del-el-colorado",
+      "nombre": "DELEGACIÓN POLICÍA CIENTÍFICA EL COLORADO",
+      "siglas": "DPC-COL",
+      "unidadRegional": "UNIDAD REGIONAL DOS - PIRANÉ / EL COLORADO",
+      "ciudad": "El Colorado",
+      "direccion": "Av. 25 de Mayo y Calle Fontana - El Colorado - C.P. 3603",
+      "telefono": "3704-481120",
+      "email": "pol.delgcrimelcolorado@formosa.gov.ar",
+      "logoIzquierdoUrl": "/assets/aistudio/image_0de80603.png",
+      "textoDebajoLogoIzquierdo": "\"La seguridad pública es una construcción colectiva\"",
+      "logoDerechoUrl": "/assets/aistudio/ChatGPT_Image_25_mar_2026__11_53_05_a.m.-removebg-preview_0693dcbf.png",
+      "textoDebajoLogoDerecho": "D.G.P.C.",
+      "pieDePagina": "Documento Reservado de Uso Oficial Interno - Delegación El Colorado.",
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "lineasMembrete": [
+        {
+          "id": "lcol-1",
+          "texto": "POLICÍA DE LA PROVINCIA DE FORMOSA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "xl",
+          "color": "azul"
+        },
+        {
+          "id": "lcol-2",
+          "texto": "DIRECCIÓN GENERAL DE POLICÍA CIENTÍFICA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lcol-3",
+          "texto": "DELEGACIÓN POLICÍA CIENTÍFICA EL COLORADO",
+          "negrita": true,
+          "subrayado": true,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lcol-4",
+          "texto": "Av. 25 de Mayo y Calle Fontana - El Colorado - C.P. 3603",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        },
+        {
+          "id": "lcol-5",
+          "texto": "Tel.: 3704-481120 / E-mail: pol.delgcrimelcolorado@formosa.gov.ar",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        }
+      ]
+    },
+    {
+      "id": "del-pirane",
+      "nombre": "DELEGACIÓN POLICÍA CIENTÍFICA PIRANÉ",
+      "siglas": "DPC-PIR",
+      "unidadRegional": "UNIDAD REGIONAL DOS - PIRANÉ",
+      "ciudad": "Pirané",
+      "direccion": "Calle Alberdi N° 420 - Pirané - C.P. 3622",
+      "telefono": "3717-461300",
+      "email": "pol.delgcrimpirane@formosa.gov.ar",
+      "logoIzquierdoUrl": "/assets/aistudio/image_0de80603.png",
+      "textoDebajoLogoIzquierdo": "\"La seguridad pública es una construcción colectiva\"",
+      "logoDerechoUrl": "/assets/aistudio/ChatGPT_Image_25_mar_2026__11_53_05_a.m.-removebg-preview_0693dcbf.png",
+      "textoDebajoLogoDerecho": "D.G.P.C.",
+      "pieDePagina": "Documento Reservado de Uso Oficial Interno - Delegación Pirané.",
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z",
+      "lineasMembrete": [
+        {
+          "id": "lpir-1",
+          "texto": "POLICÍA DE LA PROVINCIA DE FORMOSA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "xl",
+          "color": "azul"
+        },
+        {
+          "id": "lpir-2",
+          "texto": "DIRECCIÓN GENERAL DE POLICÍA CIENTÍFICA",
+          "negrita": true,
+          "subrayado": false,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lpir-3",
+          "texto": "DELEGACIÓN POLICÍA CIENTÍFICA PIRANÉ",
+          "negrita": true,
+          "subrayado": true,
+          "tamano": "lg",
+          "color": "azul"
+        },
+        {
+          "id": "lpir-4",
+          "texto": "Calle Alberdi N° 420 - Pirané - C.P. 3622",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        },
+        {
+          "id": "lpir-5",
+          "texto": "Tel.: 3717-461300 / E-mail: pol.delgcrimpirane@formosa.gov.ar",
+          "negrita": false,
+          "subrayado": false,
+          "tamano": "sm",
+          "color": "gris"
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "id": "rol-superusuario",
+      "nombre": "Superusuario",
+      "descripcion": "Control absoluto e irrestricto de toda la plataforma, delegaciones y auditoría forense del sistema.",
+      "color": "purple",
+      "esSistema": true,
+      "modulosPermitidos": [
+        "dashboard",
+        "personal",
+        "grupos",
+        "expedientes",
+        "falta-oficio",
+        "moviles",
+        "recargos",
+        "guardias",
+        "inspecciones",
+        "intervenciones",
+        "causas-policiales",
+        "accidentologia",
+        "personas",
+        "vehiculos",
+        "forense",
+        "licenciados",
+        "informes-tecnicos",
+        "numerario",
+        "usuarios",
+        "auditoria",
+        "config"
+      ],
+      "acciones": {
+        "puedeCrear": true,
+        "puedeVer": true,
+        "puedeModificar": true,
+        "puedeEliminar": true,
+        "puedeExportarPdf": true,
+        "puedeExportarCsv": true,
+        "puedeVerOtrasDelegaciones": true,
+        "puedeModificarActuacionesCargadas": true,
+        "puedeAdministrarModulos": true,
+        "puedeResetearContadores": true,
+        "puedeRecargarOtrasDelegaciones": true,
+        "puedeGestionarUsuarios": true,
+        "puedeConfirmarFotografias": true
+      },
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "rol-admin",
+      "nombre": "Administrador",
+      "descripcion": "Gestión integral departamental, control de personal, usuarios de delegación y orden de módulos.",
+      "color": "blue",
+      "esSistema": true,
+      "modulosPermitidos": [
+        "dashboard",
+        "personal",
+        "grupos",
+        "expedientes",
+        "falta-oficio",
+        "moviles",
+        "recargos",
+        "guardias",
+        "inspecciones",
+        "intervenciones",
+        "causas-policiales",
+        "accidentologia",
+        "personas",
+        "vehiculos",
+        "forense",
+        "licenciados",
+        "informes-tecnicos",
+        "numerario",
+        "usuarios",
+        "config"
+      ],
+      "acciones": {
+        "puedeCrear": true,
+        "puedeVer": true,
+        "puedeModificar": true,
+        "puedeEliminar": true,
+        "puedeExportarPdf": true,
+        "puedeExportarCsv": true,
+        "puedeVerOtrasDelegaciones": true,
+        "puedeModificarActuacionesCargadas": true,
+        "puedeAdministrarModulos": true,
+        "puedeResetearContadores": false,
+        "puedeRecargarOtrasDelegaciones": true,
+        "puedeGestionarUsuarios": true,
+        "puedeConfirmarFotografias": true
+      },
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "rol-perito",
+      "nombre": "Oficial de Servicio / Perito",
+      "descripcion": "Personal pericial a cargo de inspecciones oculares, levantamiento de rastros, accidentología y pericias.",
+      "color": "emerald",
+      "esSistema": false,
+      "modulosPermitidos": [
+        "dashboard",
+        "personal",
+        "guardias",
+        "inspecciones",
+        "intervenciones",
+        "causas-policiales",
+        "accidentologia",
+        "expedientes",
+        "falta-oficio",
+        "vehiculos",
+        "personas",
+        "forense",
+        "licenciados",
+        "informes-tecnicos",
+        "numerario"
+      ],
+      "acciones": {
+        "puedeCrear": true,
+        "puedeVer": true,
+        "puedeModificar": true,
+        "puedeEliminar": false,
+        "puedeExportarPdf": true,
+        "puedeExportarCsv": true,
+        "puedeVerOtrasDelegaciones": false,
+        "puedeModificarActuacionesCargadas": true,
+        "puedeAdministrarModulos": false,
+        "puedeResetearContadores": false,
+        "puedeRecargarOtrasDelegaciones": false,
+        "puedeGestionarUsuarios": false,
+        "puedeConfirmarFotografias": true
+      },
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "rol-operador",
+      "nombre": "Operador de Guardia",
+      "descripcion": "Efectivo asignado a la carga y seguimiento de novedades operativas del turno de guardia.",
+      "color": "slate",
+      "esSistema": true,
+      "modulosPermitidos": [
+        "dashboard",
+        "guardias",
+        "inspecciones",
+        "intervenciones",
+        "vehiculos",
+        "personas",
+        "accidentologia",
+        "expedientes",
+        "falta-oficio"
+      ],
+      "acciones": {
+        "puedeCrear": true,
+        "puedeVer": true,
+        "puedeModificar": false,
+        "puedeEliminar": false,
+        "puedeExportarPdf": true,
+        "puedeExportarCsv": false,
+        "puedeVerOtrasDelegaciones": false,
+        "puedeModificarActuacionesCargadas": false,
+        "puedeAdministrarModulos": false,
+        "puedeResetearContadores": false,
+        "puedeRecargarOtrasDelegaciones": false,
+        "puedeGestionarUsuarios": false,
+        "puedeConfirmarFotografias": false
+      },
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "rol-instructor",
+      "nombre": "Instructor Judicial / Sumariante",
+      "descripcion": "Gestión de expedientes judiciales, oficios, requerimientos de fiscalías y resguardo de evidencia.",
+      "color": "indigo",
+      "esSistema": false,
+      "modulosPermitidos": [
+        "dashboard",
+        "expedientes",
+        "falta-oficio",
+        "inspecciones",
+        "causas-policiales",
+        "personas",
+        "vehiculos",
+        "informes-tecnicos",
+        "numerario"
+      ],
+      "acciones": {
+        "puedeCrear": true,
+        "puedeVer": true,
+        "puedeModificar": true,
+        "puedeEliminar": false,
+        "puedeExportarPdf": true,
+        "puedeExportarCsv": true,
+        "puedeVerOtrasDelegaciones": false,
+        "puedeModificarActuacionesCargadas": false,
+        "puedeAdministrarModulos": false,
+        "puedeResetearContadores": false,
+        "puedeRecargarOtrasDelegaciones": false,
+        "puedeGestionarUsuarios": false
+      },
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "rol-auditor",
+      "nombre": "Auditor de Gestión",
+      "descripcion": "Supervisión y control de calidad institucional, auditoría de folios, novedades y estadísticas.",
+      "color": "amber",
+      "esSistema": false,
+      "modulosPermitidos": [
+        "dashboard",
+        "personal",
+        "expedientes",
+        "guardias",
+        "inspecciones",
+        "intervenciones",
+        "accidentologia",
+        "numerario",
+        "auditoria"
+      ],
+      "acciones": {
+        "puedeCrear": false,
+        "puedeVer": true,
+        "puedeModificar": false,
+        "puedeEliminar": false,
+        "puedeExportarPdf": true,
+        "puedeExportarCsv": true,
+        "puedeVerOtrasDelegaciones": true,
+        "puedeModificarActuacionesCargadas": false,
+        "puedeAdministrarModulos": false,
+        "puedeResetearContadores": false,
+        "puedeRecargarOtrasDelegaciones": false,
+        "puedeGestionarUsuarios": false
+      },
+      "activo": true,
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    }
+  ],
+  "seriesNumerario": [
+    {
+      "id": "serie-oficio-jefatura",
+      "nombre": "Oficio Jefatura",
+      "prefijo": "Oficio J N°",
+      "anio": 2026,
+      "limiteFolios": 1000,
+      "columnas": 20,
+      "color": "blue",
+      "delegacionId": "del-laguna-blanca",
+      "descripcion": "Oficios judiciales y comunicaciones oficiales emitidas por Jefatura de Delegación",
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "serie-oficio-vicedireccion",
+      "nombre": "Oficio Vicedirección",
+      "prefijo": "Oficio V N°",
+      "anio": 2026,
+      "limiteFolios": 1000,
+      "columnas": 20,
+      "color": "indigo",
+      "delegacionId": "del-laguna-blanca",
+      "descripcion": "Oficios, informes elevados y resoluciones de Vicedirección y Subjefatura",
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "serie-memorandums",
+      "nombre": "Memorándums",
+      "prefijo": "Mem. N°",
+      "anio": 2026,
+      "limiteFolios": 1000,
+      "columnas": 20,
+      "color": "emerald",
+      "delegacionId": "del-laguna-blanca",
+      "descripcion": "Memorándums internos, disposiciones operativas y directivas de servicio",
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "serie-expedientes",
+      "nombre": "Expedientes",
+      "prefijo": "Exp. N°",
+      "anio": 2026,
+      "limiteFolios": 1000,
+      "columnas": 20,
+      "color": "amber",
+      "delegacionId": "del-laguna-blanca",
+      "descripcion": "Control de folios para carátulas de expedientes periciales y sumarios",
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    },
+    {
+      "id": "serie-circulares",
+      "nombre": "Circulares",
+      "prefijo": "Circ. N°",
+      "anio": 2026,
+      "limiteFolios": 1000,
+      "columnas": 20,
+      "color": "purple",
+      "delegacionId": "del-laguna-blanca",
+      "descripcion": "Circulares generales y notificaciones de interés institucional",
+      "createdAt": "2026-11-07T12:23:30.779Z"
+    }
+  ],
+  "personal": [],
+  "grupos": [],
+  "expedientes": [],
+  "casosFaltaOficio": [],
+  "moviles": [],
+  "reparaciones": [],
+  "recargos": [],
+  "partesGuardia": [],
+  "inspeccionesOculares": [],
+  "forenses": [],
+  "licenciados": [],
+  "informesTecnicos": [],
+  "intervenciones": [],
+  "accidentologia": [],
+  "folios": [],
+  "auditoria": []
+}

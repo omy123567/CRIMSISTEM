@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { db } from '../db/database';
+import { wipeAllDataFromServer, pushAllLocalDataToServer } from './apiService';
 
 export interface DatabaseCounts {
   personal: number;
@@ -493,7 +494,13 @@ export async function importGeneralJsonBackup(jsonString: string): Promise<{ suc
       if (data.folios?.length) await db.folios.bulkPut(data.folios);
     });
 
-    return { success: true, message: 'Base de datos restaurada correctamente.' };
+    try {
+      await pushAllLocalDataToServer();
+    } catch (e) {
+      console.warn('No se pudo replicar restauración al servidor central:', e);
+    }
+
+    return { success: true, message: 'Base de datos restaurada correctamente y sincronizada con el servidor.' };
   } catch (error: any) {
     return { success: false, message: `Error al procesar el archivo: ${error?.message || 'Error desconocido'}` };
   }
@@ -605,6 +612,13 @@ export async function vaciarBaseDeDatosCompleta(
     });
   } catch (e) {
     console.error('Error registrando auditoría:', e);
+  }
+
+  // Notificar y vaciar en el servidor Ubuntu central
+  try {
+    await wipeAllDataFromServer();
+  } catch (e) {
+    console.warn('Error al vaciar en el servidor central:', e);
   }
 
   return { success: true, backupJson, totalEliminados };

@@ -4,6 +4,14 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import {
+  getDatabase,
+  saveDatabase,
+  saveItem,
+  deleteItem,
+  wipeOperationalData,
+  getDatabaseStatus,
+} from './server/dbManager';
 
 dotenv.config();
 
@@ -14,7 +22,94 @@ async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+  // Central Database Persistence API
+  app.get('/api/data', (req, res) => {
+    try {
+      const data = getDatabase();
+      res.json(data);
+    } catch (err: any) {
+      console.error('[API GET /api/data] Error:', err);
+      res.status(500).json({ error: 'Error al obtener base de datos central.' });
+    }
+  });
+
+  app.get('/api/data/status', (req, res) => {
+    try {
+      const status = getDatabaseStatus();
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ error: 'Error al obtener estado de la base de datos.' });
+    }
+  });
+
+  app.post('/api/data/item', (req, res) => {
+    try {
+      const { collection, item } = req.body;
+      if (!collection || !item) {
+        res.status(400).json({ error: 'Colección e item son requeridos.' });
+        return;
+      }
+      saveItem(collection, item);
+      res.json({ success: true, item });
+    } catch (err: any) {
+      console.error('[API POST /api/data/item] Error:', err);
+      res.status(500).json({ error: 'Error al guardar item en la base de datos.' });
+    }
+  });
+
+  app.delete('/api/data/item/:collection/:id', (req, res) => {
+    try {
+      const { collection, id } = req.params;
+      deleteItem(collection as any, id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[API DELETE /api/data/item] Error:', err);
+      res.status(500).json({ error: 'Error al eliminar item de la base de datos.' });
+    }
+  });
+
+  app.post('/api/data/wipe', (req, res) => {
+    try {
+      wipeOperationalData();
+      res.json({ success: true, message: 'Todos los datos operativos fueron eliminados correctamente del servidor.' });
+    } catch (err: any) {
+      console.error('[API POST /api/data/wipe] Error:', err);
+      res.status(500).json({ error: 'Error al vaciar datos operativos del servidor.' });
+    }
+  });
+
+  app.post('/api/data/sync', (req, res) => {
+    try {
+      const { fullDatabase } = req.body;
+      if (fullDatabase && typeof fullDatabase === 'object') {
+        saveDatabase(fullDatabase);
+        res.json({ success: true, timestamp: fullDatabase.lastUpdated || new Date().toISOString() });
+        return;
+      }
+      res.status(400).json({ error: 'Objeto de base de datos no proporcionado.' });
+    } catch (err: any) {
+      console.error('[API POST /api/data/sync] Error:', err);
+      res.status(500).json({ error: 'Error al sincronizar base de datos central.' });
+    }
+  });
+
+  app.post('/api/data/restore', (req, res) => {
+    try {
+      const { data } = req.body;
+      if (!data || typeof data !== 'object') {
+        res.status(400).json({ error: 'Datos de restauración inválidos.' });
+        return;
+      }
+      saveDatabase(data);
+      res.json({ success: true, message: 'Base de datos central restaurada con éxito.' });
+    } catch (err: any) {
+      console.error('[API POST /api/data/restore] Error:', err);
+      res.status(500).json({ error: 'Error al restaurar base de datos central.' });
+    }
+  });
 
   // Initialize Gemini SDK with User-Agent header as required
   const ai = new GoogleGenAI({

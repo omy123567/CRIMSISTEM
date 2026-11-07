@@ -49,6 +49,11 @@ import { AuditoriaView } from './components/auditoria/AuditoriaView';
 import { LoginView } from './components/auth/LoginView';
 import { CambiarPasswordModal } from './components/auth/CambiarPasswordModal';
 import { registrarAuditoria } from './services/auditService';
+import {
+  syncWithServer,
+  saveItemToServer,
+  deleteItemFromServer,
+} from './services/apiService';
 import { PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
@@ -99,9 +104,11 @@ export default function App() {
     return currentUser?.delegacionId || 'del-laguna-blanca';
   });
 
-  // Carga de datos desde IndexedDB
+  // Carga de datos desde Servidor Central Ubuntu e IndexedDB
   const reloadAllData = useCallback(async () => {
     try {
+      // 1. Sincronizar primero con el servidor central Ubuntu si hay conexión
+      await syncWithServer();
       await seedInitialDataIfEmpty();
 
       const confArray = await db.configuracion.toArray();
@@ -191,6 +198,26 @@ export default function App() {
 
   useEffect(() => {
     reloadAllData();
+
+    // Sincronización periódica automática con el servidor cada 25 segundos
+    const syncInterval = setInterval(() => {
+      syncWithServer().then((synced) => {
+        if (synced) reloadAllData();
+      });
+    }, 25000);
+
+    // Sincronización al enfocar la pestaña o pantalla
+    const handleFocus = () => {
+      syncWithServer().then((synced) => {
+        if (synced) reloadAllData();
+      });
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(syncInterval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [reloadAllData]);
 
   // Si cambia el usuario y no tiene delegación seleccionada, sincronizar con su delegación
@@ -412,6 +439,7 @@ export default function App() {
       delegacionId: p.delegacionId || activeDelegacionId,
     };
     await db.personal.put(entity);
+    saveItemToServer('personal', entity);
     setPersonalList((prev) => {
       const idx = prev.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
@@ -426,6 +454,7 @@ export default function App() {
   const handleDeletePersonal = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.personal.delete(id);
+    deleteItemFromServer('personal', id);
     setPersonalList((prev) => prev.filter((p) => p.id !== id));
   };
 
@@ -436,6 +465,7 @@ export default function App() {
       delegacionId: g.delegacionId || activeDelegacionId,
     };
     await db.grupos.put(entity);
+    saveItemToServer('grupos', entity);
     setGruposList((prev) => {
       const idx = prev.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
@@ -450,6 +480,7 @@ export default function App() {
   const handleDeleteGrupo = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.grupos.delete(id);
+    deleteItemFromServer('grupos', id);
     setGruposList((prev) => prev.filter((g) => g.id !== id));
   };
 
@@ -460,6 +491,7 @@ export default function App() {
       delegacionId: exp.delegacionId || activeDelegacionId,
     };
     await db.expedientes.put(entity);
+    saveItemToServer('expedientes', entity);
     setExpedientesList((prev) => {
       const idx = prev.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
@@ -474,6 +506,7 @@ export default function App() {
   const handleDeleteExpediente = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.expedientes.delete(id);
+    deleteItemFromServer('expedientes', id);
     setExpedientesList((prev) => prev.filter((e) => e.id !== id));
   };
 
@@ -484,6 +517,7 @@ export default function App() {
       delegacionId: c.delegacionId || activeDelegacionId,
     };
     await db.casosFaltaOficio.put(entity);
+    saveItemToServer('casosFaltaOficio', entity);
     setCasosFaltaOficioList((prev) => {
       const idx = prev.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
@@ -498,6 +532,7 @@ export default function App() {
   const handleDeleteCasoFaltaOficio = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.casosFaltaOficio.delete(id);
+    deleteItemFromServer('casosFaltaOficio', id);
     setCasosFaltaOficioList((prev) => prev.filter((c) => c.id !== id));
   };
 
@@ -508,6 +543,7 @@ export default function App() {
       delegacionId: nuevoExp.delegacionId || activeDelegacionId,
     };
     await db.expedientes.put(expWithDel);
+    saveItemToServer('expedientes', expWithDel);
     setExpedientesList((prev) => [expWithDel, ...prev]);
 
     for (const casoId of casosIds) {
@@ -521,6 +557,7 @@ export default function App() {
           fechaRecepcionOficio: expWithDel.fechaRegistro,
         };
         await db.casosFaltaOficio.put(updated);
+        saveItemToServer('casosFaltaOficio', updated);
       }
     }
 
@@ -546,6 +583,7 @@ export default function App() {
       delegacionId: m.delegacionId || activeDelegacionId,
     };
     await db.moviles.put(entity);
+    saveItemToServer('moviles', entity);
     setMovilesList((prev) => {
       const idx = prev.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
@@ -560,12 +598,14 @@ export default function App() {
   const handleDeleteMovil = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.moviles.delete(id);
+    deleteItemFromServer('moviles', id);
     setMovilesList((prev) => prev.filter((m) => m.id !== id));
   };
 
   // --- CRUD REPARACIONES ---
   const handleSaveReparacion = async (r: ReparacionMecanica) => {
     await db.reparaciones.put(r);
+    saveItemToServer('reparaciones', r);
     setReparacionesList((prev) => [r, ...prev]);
 
     const movil = movilesList.find((m) => m.id === r.movilId);
@@ -588,6 +628,7 @@ export default function App() {
   const handleDeleteReparacion = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.reparaciones.delete(id);
+    deleteItemFromServer('reparaciones', id);
     setReparacionesList((prev) => prev.filter((r) => r.id !== id));
   };
 
@@ -599,6 +640,7 @@ export default function App() {
       delegacionId: rec.delegacionId || activeDelegacionId,
     };
     await db.recargos.put(entity);
+    saveItemToServer('recargos', entity);
     setRecargosList((prev) => {
       const idx = prev.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
@@ -622,6 +664,7 @@ export default function App() {
     if (!verificarPermisoEliminar()) return;
     const rec = recargosList.find((r) => r.id === id);
     await db.recargos.delete(id);
+    deleteItemFromServer('recargos', id);
     setRecargosList((prev) => prev.filter((r) => r.id !== id));
 
     if (rec) {
@@ -643,6 +686,7 @@ export default function App() {
       delegacionId: p.delegacionId || activeDelegacionId,
     };
     await db.partesGuardia.put(entity);
+    saveItemToServer('partesGuardia', entity);
     setPartesGuardiaList((prev) => {
       const idx = prev.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
@@ -665,6 +709,7 @@ export default function App() {
   const handleDeleteParte = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.partesGuardia.delete(id);
+    deleteItemFromServer('partesGuardia', id);
     setPartesGuardiaList((prev) => prev.filter((p) => p.id !== id));
 
     await registrarAuditoria({
@@ -680,6 +725,7 @@ export default function App() {
     const isNew = !intervencionesList.some((i) => i.id === inter.id);
     // 1. Guardar en tabla directa de intervenciones
     await db.intervenciones.put(inter);
+    saveItemToServer('intervenciones', inter);
     setIntervencionesList((prev) => {
       const idx = prev.findIndex((i) => i.id === inter.id);
       if (idx >= 0) {
@@ -833,6 +879,7 @@ export default function App() {
   const handleDeleteIntervencion = async (interId: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.intervenciones.delete(interId);
+    deleteItemFromServer('intervenciones', interId);
     setIntervencionesList((prev) => prev.filter((i) => i.id !== interId));
 
     const parte = partesGuardiaList.find((p) =>
@@ -858,6 +905,7 @@ export default function App() {
       delegacionId: ins.delegacionId || activeDelegacionId,
     };
     await db.inspeccionesOculares.put(entity);
+    saveItemToServer('inspeccionesOculares', entity);
     setInspeccionesList((prev) => {
       const idx = prev.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
@@ -882,12 +930,14 @@ export default function App() {
   const handleDeleteInspeccion = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.inspeccionesOculares.delete(id);
+    deleteItemFromServer('inspeccionesOculares', id);
     setInspeccionesList((prev) => prev.filter((i) => i.id !== id));
   };
 
   // --- CRUD FORENSES ---
   const handleSaveForense = async (f: ForenseTurno) => {
     await db.forenses.put(f);
+    saveItemToServer('forenses', f);
     setForensesList((prev) => {
       const idx = prev.findIndex((item) => item.id === f.id);
       if (idx >= 0) {
@@ -902,6 +952,7 @@ export default function App() {
   const handleDeleteForense = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.forenses.delete(id);
+    deleteItemFromServer('forenses', id);
     setForensesList((prev) => prev.filter((f) => f.id !== id));
   };
 
@@ -912,6 +963,7 @@ export default function App() {
       delegacionId: lic.delegacionId || activeDelegacionId,
     };
     await db.licenciados.put(entity);
+    saveItemToServer('licenciados', entity);
     setLicenciadosList((prev) => {
       const idx = prev.findIndex((l) => l.id === entity.id);
       if (idx >= 0) {
@@ -926,6 +978,7 @@ export default function App() {
   const handleDeleteLicenciado = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.licenciados.delete(id);
+    deleteItemFromServer('licenciados', id);
     setLicenciadosList((prev) => prev.filter((l) => l.id !== id));
   };
 
@@ -936,6 +989,7 @@ export default function App() {
       delegacionId: inf.delegacionId || activeDelegacionId,
     };
     await db.informesTecnicos.put(entity);
+    saveItemToServer('informesTecnicos', entity);
     setInformesTecnicosList((prev) => {
       const idx = prev.findIndex((i) => i.id === entity.id);
       if (idx >= 0) {
@@ -950,12 +1004,14 @@ export default function App() {
   const handleDeleteInformeTecnico = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     await db.informesTecnicos.delete(id);
+    deleteItemFromServer('informesTecnicos', id);
     setInformesTecnicosList((prev) => prev.filter((i) => i.id !== id));
   };
 
   // --- CRUD USUARIOS ---
   const handleSaveUsuario = async (u: UsuarioSistema) => {
     await db.usuarios.put(u);
+    saveItemToServer('usuarios', u);
     setUsuariosList((prev) => {
       const idx = prev.findIndex((item) => item.id === u.id);
       if (idx >= 0) {
@@ -979,6 +1035,7 @@ export default function App() {
       return;
     }
     await db.usuarios.delete(id);
+    deleteItemFromServer('usuarios', id);
     setUsuariosList((prev) => prev.filter((u) => u.id !== id));
   };
 
@@ -986,6 +1043,7 @@ export default function App() {
   const handleSaveRol = async (rol: RolSistema) => {
     const isNew = !rolesList.some((r) => r.id === rol.id);
     await db.roles.put(rol);
+    saveItemToServer('roles', rol);
     setRolesList((prev) => {
       const idx = prev.findIndex((item) => item.id === rol.id);
       if (idx >= 0) {
@@ -1015,6 +1073,7 @@ export default function App() {
       return;
     }
     await db.roles.delete(id);
+    deleteItemFromServer('roles', id);
     setRolesList((prev) => prev.filter((r) => r.id !== id));
 
     await registrarAuditoria({
@@ -1029,6 +1088,7 @@ export default function App() {
   // --- CRUD DELEGACIONES ---
   const handleSaveDelegacion = async (d: DelegacionPolicial) => {
     await db.delegaciones.put(d);
+    saveItemToServer('delegaciones', d);
     setDelegacionesList((prev) => {
       const idx = prev.findIndex((item) => item.id === d.id);
       if (idx >= 0) {
@@ -1047,6 +1107,9 @@ export default function App() {
       delegacionId: f.delegacionId || activeDelegacionId,
     }));
     await db.folios.bulkPut(withDelegacion);
+    for (const fol of withDelegacion) {
+      saveItemToServer('folios', fol);
+    }
     setFoliosList((prev) => {
       const map = new Map<string, FolioAsignado>();
       prev.forEach((f) => map.set(f.id, f));
@@ -1065,6 +1128,7 @@ export default function App() {
 
   const handleUpdateFolio = async (folio: FolioAsignado) => {
     await db.folios.put(folio);
+    saveItemToServer('folios', folio);
     setFoliosList((prev) => prev.map((f) => (f.id === folio.id ? folio : f)));
 
     await registrarAuditoria({
@@ -1085,6 +1149,9 @@ export default function App() {
       );
       const ids = foliosGrupo.map((f) => f.id);
       await db.folios.bulkDelete(ids);
+      for (const id of ids) {
+        deleteItemFromServer('folios', id);
+      }
       setFoliosList((prev) => prev.filter((f) => !ids.includes(f.id)));
 
       await registrarAuditoria({
@@ -1096,6 +1163,7 @@ export default function App() {
       });
     } else {
       await db.folios.delete(folio.id);
+      deleteItemFromServer('folios', folio.id);
       setFoliosList((prev) => prev.filter((f) => f.id !== folio.id));
 
       await registrarAuditoria({
@@ -1114,6 +1182,7 @@ export default function App() {
       delegacionId: serie.delegacionId || activeDelegacionId,
     };
     await db.seriesNumerario.put(entity);
+    saveItemToServer('seriesNumerario', entity);
     setSeriesNumerarioList((prev) => {
       const idx = prev.findIndex((s) => s.id === entity.id);
       if (idx >= 0) {
@@ -1138,6 +1207,7 @@ export default function App() {
     const s = seriesNumerarioList.find((item) => item.id === id);
     await db.folios.where('serieId').equals(id).delete();
     await db.seriesNumerario.delete(id);
+    deleteItemFromServer('seriesNumerario', id);
     setSeriesNumerarioList((prev) => prev.filter((item) => item.id !== id));
     setFoliosList((prev) => prev.filter((f) => f.serieId !== id));
 
@@ -1157,6 +1227,9 @@ export default function App() {
     const s = seriesNumerarioList.find((item) => item.id === serieId);
     const foliosAEliminar = foliosList.filter((f) => f.serieId === serieId);
     await db.folios.where('serieId').equals(serieId).delete();
+    for (const fol of foliosAEliminar) {
+      deleteItemFromServer('folios', fol.id);
+    }
     setFoliosList((prev) => prev.filter((f) => f.serieId !== serieId));
 
     await registrarAuditoria({
@@ -1171,6 +1244,7 @@ export default function App() {
   // --- ACCIDENTOLOGÍA VIAL CON PERSONAL POLICIAL INVOLUCRADO ---
   const handleSaveAccidentologia = async (registro: AccidentologiaRegistro) => {
     await db.accidentologia.put(registro);
+    saveItemToServer('accidentologia', registro);
     setAccidentologiaList((prev) => {
       const exists = prev.some((r) => r.id === registro.id);
       return exists ? prev.map((r) => (r.id === registro.id ? registro : r)) : [registro, ...prev];
@@ -1189,6 +1263,7 @@ export default function App() {
     if (!verificarPermisoEliminar()) return;
     const target = accidentologiaList.find((r) => r.id === id);
     await db.accidentologia.delete(id);
+    deleteItemFromServer('accidentologia', id);
     setAccidentologiaList((prev) => prev.filter((r) => r.id !== id));
 
     await registrarAuditoria({
@@ -1211,6 +1286,7 @@ export default function App() {
       updatedAt: new Date().toISOString(),
     };
     await db.usuarios.put(updatedUser);
+    saveItemToServer('usuarios', updatedUser);
 
     setUsuariosList((prev) =>
       prev.map((u) => (u.id === userId ? updatedUser : u))
@@ -1243,6 +1319,7 @@ export default function App() {
       delegacionId: activeDelegacionId,
     };
     await db.configuracion.put(configDelegacion);
+    saveItemToServer('configuracion', configDelegacion);
     setConfig(configDelegacion);
   };
 

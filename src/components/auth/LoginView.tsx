@@ -119,7 +119,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         )}
 
         {/* Formulario de Login */}
-        <form onSubmit={handleLogin} className="space-y-3.5 text-xs">
+        <form onSubmit={handleLogin} autoComplete="off" className="space-y-3.5 text-xs">
           <div>
             <label className="block text-slate-300 font-semibold mb-1">
               Usuario institucional o Correo:
@@ -129,7 +129,9 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <input
                 type="text"
                 required
-                autoComplete="username"
+                autoComplete="off"
+                name="sispol_user"
+                id="sispol_user"
                 value={usernameOrEmail}
                 onChange={(e) => setUsernameOrEmail(e.target.value)}
                 placeholder="ej: usuario o correo institucional"
@@ -150,7 +152,9 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <input
                 type={showPassword ? 'text' : 'password'}
                 required
-                autoComplete="current-password"
+                autoComplete="new-password"
+                name="sispol_password"
+                id="sispol_password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"

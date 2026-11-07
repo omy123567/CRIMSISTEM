@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'sispol-server',
-      script: 'node',
+      script: './node_modules/.bin/tsx',
       args: 'server.ts',
       cwd: './',
       instances: 1,
