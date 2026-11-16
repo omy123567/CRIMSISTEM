@@ -25,12 +25,16 @@ import {
 import { MovilModal } from './MovilModal';
 import { ReparacionModal } from './ReparacionModal';
 import { FichaTecnicaPdfModal } from './FichaTecnicaPdfModal';
+import { ReporteMovilesModal } from './ReporteMovilesModal';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { DelegacionPolicial, UsuarioSistema } from '../../types/police';
 
 interface MovilesViewProps {
   movilesList: MovilPolicial[];
   reparacionesList: ReparacionMecanica[];
   config: ConfiguracionSistema;
+  delegacionesList?: DelegacionPolicial[];
+  currentUser?: UsuarioSistema;
   onSaveMovil: (m: MovilPolicial) => void;
   onDeleteMovil: (id: string) => void;
   onSaveReparacion: (r: ReparacionMecanica) => void;
@@ -43,6 +47,8 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
   movilesList,
   reparacionesList,
   config,
+  delegacionesList = [],
+  currentUser,
   onSaveMovil,
   onDeleteMovil,
   onSaveReparacion,
@@ -66,6 +72,7 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
 
   const [isFichaPdfOpen, setIsFichaPdfOpen] = useState(false);
   const [movilParaFicha, setMovilParaFicha] = useState<MovilPolicial | null>(null);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   const [movilHistorialId, setMovilHistorialId] = useState<string | null>(null);
 
@@ -86,8 +93,15 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
     });
   }, [movilesList, searchTerm, filtroTipo, filtroEstado]);
 
-  // Semáforo de documentación: calcula si está vigente, por vencer (<30 días) o vencido
-  const getDocumentStatus = (fechaStr?: string) => {
+  const diasAvisoRto = config.recordatorioRtoDias ?? 30;
+  const kmAvisoService = config.recordatorioServiceKm ?? 500;
+  const intervaloServiceKm = config.intervaloServiceKm ?? 10000;
+
+  // Semáforo de documentación: calcula si está vigente, por vencer (<diasAvisoRto días) o vencido
+  const getDocumentStatus = (fechaStr?: string, tipoVehiculo?: string) => {
+    if (tipoVehiculo === 'Motovehículo' || (tipoVehiculo as any) === 'Motocicleta') {
+      return { label: 'RTO Exento (Moto)', color: 'bg-slate-100 text-slate-600 border-slate-200' };
+    }
     if (!fechaStr) return { label: 'Sin datos', color: 'bg-slate-100 text-slate-600' };
     const hoy = new Date();
     const fecha = new Date(fechaStr);
@@ -96,7 +110,7 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
     if (diffDias < 0) {
       return { label: `VENCIDO (${Math.abs(diffDias)}d)`, color: 'bg-red-100 text-red-800 border-red-300 font-bold' };
     }
-    if (diffDias <= 30) {
+    if (diffDias <= diasAvisoRto) {
       return { label: `Por Vencer (${diffDias}d)`, color: 'bg-amber-100 text-amber-800 border-amber-300 font-bold' };
     }
     return { label: 'Vigente', color: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-medium' };
@@ -104,15 +118,48 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
 
   // Alerta de mantenimiento preventivo (Service)
   const getServiceStatus = (movil: MovilPolicial) => {
-    const kmRestantes = movil.proximoServiceKm - movil.kilometrajeActual;
+    const proxService = movil.proximoServiceKm || (movil.ultimoServiceKm ? movil.ultimoServiceKm + intervaloServiceKm : 10000);
+    const kmRestantes = proxService - movil.kilometrajeActual;
     if (kmRestantes <= 0) {
-      return { label: `¡EXCEDIDO por ${Math.abs(kmRestantes)} Km!`, alert: true, color: 'text-red-700 bg-red-50 border-red-200' };
+      return { label: `¡EXCEDIDO por ${Math.abs(kmRestantes)} Km!`, alert: true, color: 'text-red-700 bg-red-50 border-red-200 font-bold' };
     }
-    if (kmRestantes <= 1500) {
-      return { label: `Próximo service en ${kmRestantes} Km`, alert: true, color: 'text-amber-800 bg-amber-50 border-amber-200' };
+    if (kmRestantes <= kmAvisoService) {
+      return { label: `Próximo service en ${kmRestantes} Km`, alert: true, color: 'text-amber-800 bg-amber-50 border-amber-200 font-bold' };
     }
-    return { label: `En regla (Resta: ${kmRestantes} Km)`, alert: false, color: 'text-emerald-800 bg-emerald-50 border-emerald-200' };
+    return { label: `En regla (Resta: ${kmRestantes} Km)`, alert: false, color: 'text-emerald-800 bg-emerald-50 border-emerald-200 font-medium' };
   };
+
+  // Móviles que requieren atención preventiva
+  const movilesConAlerta = useMemo(() => {
+    return movilesList.flatMap((m) => {
+      const items: Array<{ id: string; nroMovilInterno: string; texto: string; esVencido: boolean }> = [];
+      const esMoto = m.tipo === 'Motovehículo' || (m.tipo as any) === 'Motocicleta';
+      if (!esMoto && m.vencimientoRTO) {
+        const diffDias = Math.ceil((new Date(m.vencimientoRTO).getTime() - Date.now()) / (1000 * 3600 * 24));
+        if (diffDias <= diasAvisoRto) {
+          items.push({
+            id: 'rto-' + m.id,
+            nroMovilInterno: m.nroMovilInterno,
+            texto: diffDias <= 0 ? `RTO Vencido (${m.vencimientoRTO})` : `RTO vence en ${diffDias}d`,
+            esVencido: diffDias <= 0,
+          });
+        }
+      }
+
+      const prox = m.proximoServiceKm || (m.ultimoServiceKm ? m.ultimoServiceKm + intervaloServiceKm : 10000);
+      const faltante = prox - m.kilometrajeActual;
+      if (faltante <= kmAvisoService) {
+        items.push({
+          id: 'serv-' + m.id,
+          nroMovilInterno: m.nroMovilInterno,
+          texto: faltante <= 0 ? `Service vencido (+${Math.abs(faltante)} km)` : `Service a ${faltante} km`,
+          esVencido: faltante <= 0,
+        });
+      }
+
+      return items;
+    });
+  }, [movilesList, diasAvisoRto, kmAvisoService, intervaloServiceKm]);
 
   return (
     <div className="space-y-5">
@@ -127,64 +174,100 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
               {movilesList.length} móviles
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Control de flota, odómetro, services preventivos, RTO, pólizas e historial de reparaciones mecánicas.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Alternancia de vistas (4 modos) */}
-          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 text-slate-600">
-            <button
-              onClick={() => setViewMode('cards')}
-              title="Vista de Tarjetas"
-              className={`p-1.5 rounded-md ${
-                viewMode === 'cards' ? 'bg-white text-blue-900 shadow-xs' : 'hover:text-slate-900'
-              }`}
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('compact')}
-              title="Vista Compacta"
-              className={`p-1.5 rounded-md ${
-                viewMode === 'compact' ? 'bg-white text-blue-900 shadow-xs' : 'hover:text-slate-900'
-              }`}
-            >
-              <List className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              title="Tabla Detallada"
-              className={`p-1.5 rounded-md ${
-                viewMode === 'table' ? 'bg-white text-blue-900 shadow-xs' : 'hover:text-slate-900'
-              }`}
-            >
-              <TableIcon className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('grouped')}
-              title="Agrupado por Estado Operativo"
-              className={`p-1.5 rounded-md ${
-                viewMode === 'grouped' ? 'bg-white text-blue-900 shadow-xs' : 'hover:text-slate-900'
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-            </button>
+            <p className="text-xs text-slate-500 mt-1">
+              Control de flota, odómetro, services preventivos, RTO, pólizas e historial de reparaciones mecánicas.
+            </p>
           </div>
 
-          <button
-            onClick={() => {
-              setSelectedMovil(null);
-              setIsMovilModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nuevo Móvil</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Alternancia de vistas (4 modos) */}
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 text-slate-600">
+              <button
+                onClick={() => setViewMode('cards')}
+                title="Vista de Tarjetas"
+                className={`p-1.5 rounded-md ${
+                  viewMode === 'cards' ? 'bg-white text-blue-900 shadow-xs' : 'hover:text-slate-900'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('compact')}
+                title="Vista Compacta"
+                className={`p-1.5 rounded-md ${
+                  viewMode === 'compact' ? 'bg-white text-blue-900 shadow-xs' : 'hover:text-slate-900'
+                }`}
+              >
+                <List className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                title="Tabla Detallada"
+                className={`p-1.5 rounded-md ${
+                  viewMode === 'table' ? 'bg-white text-blue-900 shadow-xs' : 'hover:text-slate-900'
+                }`}
+              >
+                <TableIcon className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('grouped')}
+                title="Agrupado por Estado Operativo"
+                className={`p-1.5 rounded-md ${
+                  viewMode === 'grouped' ? 'bg-white text-blue-900 shadow-xs' : 'hover:text-slate-900'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+              </button>
+            </div>
+
+            <button
+              onClick={() => setIsReportModalOpen(true)}
+              className="flex items-center gap-1.5 bg-blue-800 hover:bg-blue-900 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+              title="Generar reportes del parque automotor filtrados por tipo, estado, delegación y fechas"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Generar Reporte</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setSelectedMovil(null);
+                setIsMovilModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nuevo Móvil</span>
+            </button>
+          </div>
         </div>
-      </div>
+
+        {/* Banner de Alertas Preventivas: RTO & Services Próximos */}
+        {movilesConAlerta.length > 0 && (
+          <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 shadow-2xs flex items-start gap-3 text-xs">
+            <AlertTriangle className="w-5 h-5 text-amber-700 mt-0.5 shrink-0" />
+            <div className="flex-1 space-y-1.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <span className="font-extrabold text-amber-950 uppercase tracking-wide">
+                  Control de Alertas Preventivas de Flota ({movilesConAlerta.length} unidad(es) requieren atención)
+                </span>
+                <span className="text-[11px] text-amber-800 font-semibold">
+                  Alerta RTO: <strong>{diasAvisoRto} días</strong> (motos exentas) • Alerta Service: <strong>{kmAvisoService} km</strong>
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-0.5">
+                {movilesConAlerta.slice(0, 6).map((al) => (
+                  <div key={al.id} className="bg-white border border-amber-200 rounded-lg px-2.5 py-1 text-slate-800 font-medium shadow-2xs flex items-center gap-1.5">
+                    <Car className="w-3.5 h-3.5 text-blue-900" />
+                    <span className="font-bold text-slate-900">{al.nroMovilInterno}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className={al.esVencido ? 'text-red-700 font-bold' : 'text-amber-800 font-semibold'}>{al.texto}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
       {/* Barra de Filtros */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
@@ -240,7 +323,7 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredList.map((m) => {
             const service = getServiceStatus(m);
-            const rtoStatus = getDocumentStatus(m.vencimientoRTO);
+            const rtoStatus = getDocumentStatus(m.vencimientoRTO, m.tipo);
             const segStatus = getDocumentStatus(m.vencimientoSeguro);
             const reps = reparacionesList.filter((r) => r.movilId === m.id);
 
@@ -487,7 +570,7 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredList.map((m) => {
                 const s = getServiceStatus(m);
-                const rto = getDocumentStatus(m.vencimientoRTO);
+                const rto = getDocumentStatus(m.vencimientoRTO, m.tipo);
                 const seg = getDocumentStatus(m.vencimientoSeguro);
 
                 return (
@@ -668,6 +751,17 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
           }
         }}
         onClose={() => setMovilDeleteConfirm({ isOpen: false, movil: null })}
+      />
+
+      {/* Modal Generador de Reportes de Móviles */}
+      <ReporteMovilesModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        movilesList={movilesList}
+        reparacionesList={reparacionesList}
+        config={config}
+        delegacionesList={delegacionesList}
+        currentUser={currentUser}
       />
     </div>
   );

@@ -28,6 +28,7 @@ const COLLECTIONS = [
   'delegaciones',
   'roles',
   'configuracion',
+  'novedadesDelegaciones',
 ] as const;
 
 type CollectionName = (typeof COLLECTIONS)[number];

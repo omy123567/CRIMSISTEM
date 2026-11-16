@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { InspeccionOcular, ConfiguracionSistema, Personal } from '../../types/police';
+import React, { useState, useMemo } from 'react';
+import { InspeccionOcular, ConfiguracionSistema, Personal, ParteNovedadesGuardia } from '../../types/police';
 import { X, Camera, Eye, Upload, Trash2, CheckCircle2, ShieldCheck, UserCheck, AlertCircle, Sliders, ShieldAlert } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { ImageEditorModal } from '../common/ImageEditorModal';
@@ -7,6 +7,7 @@ import { ImageEditorModal } from '../common/ImageEditorModal';
 interface InspeccionModalProps {
   inspeccion?: InspeccionOcular | null;
   personalList?: Personal[];
+  partesGuardiaList?: ParteNovedadesGuardia[];
   config: ConfiguracionSistema;
   onSave: (io: InspeccionOcular) => void;
   onClose: () => void;
@@ -15,6 +16,7 @@ interface InspeccionModalProps {
 export const InspeccionModal: React.FC<InspeccionModalProps> = ({
   inspeccion,
   personalList = [],
+  partesGuardiaList = [],
   config,
   onSave,
   onClose,
@@ -22,7 +24,50 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
   const isEditing = Boolean(inspeccion);
   const añoActual = new Date().getFullYear();
 
-  const personalOptions = personalList.map((p) => `${p.jerarquia} ${p.apellidoYNombre}`);
+  // Requerimiento: "en Perito/Fotografo deben ser los que estan cargados en el parte de novedades, pudiendo agregar otros de otro grupo. Agrega buscador para poder seleccionar mas rapido la opcion que corresponda."
+  const personalOptions = React.useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+
+    // 1. Personal cargado en partes de novedades de guardia
+    partesGuardiaList.forEach((parte) => {
+      parte.funcionesPersonal?.forEach((f) => {
+        if (f.personalNombre?.trim() && !seen.has(f.personalNombre.trim().toLowerCase())) {
+          seen.add(f.personalNombre.trim().toLowerCase());
+          list.push(`${f.personalNombre.trim()} [Guardia: ${parte.grupoGuardia}]`);
+        }
+      });
+      parte.intervenciones?.forEach((i) => {
+        if (i.perito?.trim() && !seen.has(i.perito.trim().toLowerCase())) {
+          seen.add(i.perito.trim().toLowerCase());
+          list.push(`${i.perito.trim()} [Guardia / Perito]`);
+        }
+        if (i.fotografo?.trim() && !seen.has(i.fotografo.trim().toLowerCase())) {
+          seen.add(i.fotografo.trim().toLowerCase());
+          list.push(`${i.fotografo.trim()} [Guardia / Fotógrafo]`);
+        }
+        if (i.personalTecnico?.peritoAuxiliar?.trim() && !seen.has(i.personalTecnico.peritoAuxiliar.trim().toLowerCase())) {
+          seen.add(i.personalTecnico.peritoAuxiliar.trim().toLowerCase());
+          list.push(`${i.personalTecnico.peritoAuxiliar.trim()} [Técnico Guardia]`);
+        }
+        if (i.personalTecnico?.choferFotografo?.trim() && !seen.has(i.personalTecnico.choferFotografo.trim().toLowerCase())) {
+          seen.add(i.personalTecnico.choferFotografo.trim().toLowerCase());
+          list.push(`${i.personalTecnico.choferFotografo.trim()} [Técnico Guardia]`);
+        }
+      });
+    });
+
+    // 2. Todo el personal institucional (otros grupos)
+    personalList.forEach((p) => {
+      const full = `${p.jerarquia} ${p.apellidoYNombre}`.trim();
+      if (!seen.has(full.toLowerCase())) {
+        seen.add(full.toLowerCase());
+        list.push(full);
+      }
+    });
+
+    return list;
+  }, [partesGuardiaList, personalList]);
 
   const [formData, setFormData] = useState<InspeccionOcular>(() => {
     if (inspeccion) return { ...inspeccion };
@@ -66,7 +111,7 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
-        setFormData((prev) => {
+        setFormData((prev: InspeccionOcular) => {
           const updatedFotos = [...(prev.fotosAdjuntas || []), dataUrl];
           return {
             ...prev,
@@ -81,7 +126,7 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
   };
 
   const handleRemovePhoto = (idx: number) => {
-    setFormData((prev) => {
+    setFormData((prev: InspeccionOcular) => {
       const list = [...(prev.fotosAdjuntas || [])];
       list.splice(idx, 1);
       return {
@@ -599,7 +644,7 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
 
             {formData.fotosAdjuntas && formData.fotosAdjuntas.length > 0 && (
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 pt-2">
-                {formData.fotosAdjuntas.map((foto, idx) => (
+                {formData.fotosAdjuntas.map((foto: string, idx: number) => (
                   <div
                     key={idx}
                     className="relative aspect-square rounded-lg border border-slate-300 overflow-hidden group shadow-xs"
@@ -663,7 +708,7 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
           imageSrc={formData.fotosAdjuntas[editorPhotoIdx]}
           title={`Editor de Foto Nº ${editorPhotoIdx + 1} - ${formData.nroIO}`}
           onSave={(editedUrl) => {
-            setFormData((prev) => {
+            setFormData((prev: InspeccionOcular) => {
               const updated = [...(prev.fotosAdjuntas || [])];
               updated[editorPhotoIdx] = editedUrl;
               return { ...prev, fotosAdjuntas: updated };

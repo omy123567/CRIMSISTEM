@@ -95,19 +95,7 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
         fechaHoraDesde: parte.fechaHoraDesde || `${parte.fechaInicio || hoyStr} ${parte.horaInicio || '08:00'}:00`,
         fechaHoraHasta: parte.fechaHoraHasta || `${parte.fechaFin || hoyStr} ${parte.horaFin || '14:00'}:00`,
         racionamientoCount: parte.racionamientoCount ?? 2,
-        forensesTurno: parte.forensesTurno && parte.forensesTurno.length > 0
-          ? parte.forensesTurno
-          : [
-              {
-                id: 'fg-1',
-                medicoNombre: parte.forense?.medicoNombre || (config.medicosForensesCatalogo?.[0] || 'Dr. Guillermo Navarro'),
-                turno: 'Guardia Noche (19:00 a 07:00 hs)',
-                horaIngreso: '19:00',
-                horaEgreso: '07:00',
-                totalExaminados: parte.forense?.totalExaminados || 0,
-                examinadosHastaHs: parte.forense?.examinadosHastaHs || '07:00 hs.',
-              },
-            ],
+        forensesTurno: parte.forensesTurno || [],
       };
     }
 
@@ -156,21 +144,11 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
         }));
       })(),
       forense: {
-        medicoNombre: config.medicosForensesCatalogo?.[0] || 'Dr. Guillermo Navarro (Médico Legista Forense)',
+        medicoNombre: '',
         totalExaminados: 0,
-        examinadosHastaHs: '13:00 hs.',
+        examinadosHastaHs: '',
       },
-      forensesTurno: [
-        {
-          id: 'fg-' + Date.now(),
-          medicoNombre: config.medicosForensesCatalogo?.[0] || 'Dr. Guillermo Navarro (Médico Legista Forense)',
-          turno: 'Guardia Mañana',
-          horaIngreso: '08:00',
-          horaEgreso: '14:00',
-          totalExaminados: 0,
-          examinadosHastaHs: '13:00 hs.',
-        },
-      ],
+      forensesTurno: [],
       movilesAfectados: movilesList.slice(0, 2).map((m) => ({
         id: 'ma-' + m.id,
         movilId: m.id,
@@ -225,6 +203,10 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
 
   // Checkbox: Posibilidad de agregar otro efectivo de otro grupo
   const [agregarDeOtroGrupo, setAgregarDeOtroGrupo] = useState(false);
+  const [habilitarAsignarExclusivo, setHabilitarAsignarExclusivo] = useState(true);
+  const [habilitarForenses, setHabilitarForenses] = useState(() => {
+    return Boolean(parte?.forensesTurno && parte.forensesTurno.length > 0);
+  });
 
   // Todo el personal para cuando el check está activo
   const personalOtrosGrupos = useMemo(() => {
@@ -258,6 +240,55 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
       ...prev,
       funcionesPersonal: prev.funcionesPersonal.filter((f) => f.id !== id),
     }));
+  };
+
+  const cargarNominaDeGrupo = (grupoNombre: string) => {
+    const foundGrp = gruposList.find((g) => g.nombre === grupoNombre || g.id === grupoNombre);
+    const fnsDefault = config.funcionesGuardiaCatalogo || [
+      'Oficial de servicio – Perito de turno',
+      'Oficial de guardia – Perito de turno',
+      'Chofer – Fotógrafo',
+      'Servicio despeje / prevención',
+      'Perito auxiliar en Criminalística',
+    ];
+
+    if (foundGrp && foundGrp.funcionesSugeridas && foundGrp.funcionesSugeridas.length > 0) {
+      const fns = foundGrp.funcionesSugeridas.map((fs, idx) => ({
+        id: 'f-grp-' + Date.now() + '-' + idx,
+        funcion: fs.funcion,
+        personalNombre: fs.personalNombre,
+      }));
+      setFormData((prev) => ({ ...prev, funcionesPersonal: fns }));
+      return;
+    }
+
+    let members: Personal[] = [];
+    if (foundGrp) {
+      members = personalList.filter(
+        (p) =>
+          foundGrp.personalIds.includes(p.id) ||
+          p.seccionGrupo === foundGrp.nombre ||
+          (foundGrp.id && p.seccionGrupo === foundGrp.id)
+      );
+    }
+    if (members.length === 0) {
+      members = personalList.filter((p) => p.seccionGrupo === grupoNombre);
+    }
+
+    if (members.length > 0) {
+      const fns = members.map((m, idx) => ({
+        id: 'f-grp-' + Date.now() + '-' + idx,
+        funcion: fnsDefault[idx] || 'Servicio despeje / prevención',
+        personalNombre: `${m.jerarquia} ${m.apellidoYNombre}`,
+        personalId: m.id,
+      }));
+      setFormData((prev) => ({ ...prev, funcionesPersonal: fns }));
+    }
+  };
+
+  const handleCambiarGrupo = (nuevoGrupo: string) => {
+    setFormData((prev) => ({ ...prev, grupoGuardia: nuevoGrupo }));
+    cargarNominaDeGrupo(nuevoGrupo);
   };
 
   // Forenses de turno (Múltiples forenses / relevos con reloj)
@@ -314,20 +345,37 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
 
   // Móviles afectados
   const [nuevoMovilDesc, setNuevoMovilDesc] = useState('');
+  const [nuevoMovilKm, setNuevoMovilKm] = useState<number | ''>('');
+
   const handleAddMovilAfectado = () => {
     if (!nuevoMovilDesc.trim()) return;
+    const fleetMatch = movilesList.find(
+      (m) =>
+        `${m.nroMovilInterno} ${m.marca} ${m.modelo} (${m.dominioPatente})`.toLowerCase() === nuevoMovilDesc.trim().toLowerCase() ||
+        m.id === nuevoMovilDesc.trim() ||
+        m.dominioPatente.toLowerCase() === nuevoMovilDesc.trim().toLowerCase()
+    );
+
+    const km = typeof nuevoMovilKm === 'number' && nuevoMovilKm > 0
+      ? nuevoMovilKm
+      : fleetMatch?.kilometrajeActual || 0;
+
     setFormData((prev) => ({
       ...prev,
       movilesAfectados: [
         ...prev.movilesAfectados,
         {
           id: 'ma-' + Date.now(),
+          movilId: fleetMatch?.id,
           descripcion: nuevoMovilDesc.trim(),
           estado: 'En servicio',
+          kmActual: km,
+          condicionGeneral: fleetMatch?.condicionGeneral || 'Bueno',
         },
       ],
     }));
     setNuevoMovilDesc('');
+    setNuevoMovilKm('');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -433,38 +481,13 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
                 <label className="block font-semibold text-slate-700 mb-1">Grupo / Sección *</label>
                 <select
                   value={formData.grupoGuardia}
-                  onChange={(e) => {
-                    const nuevoGrupo = e.target.value;
-                    const foundGrp = gruposList.find((g) => g.nombre === nuevoGrupo || g.id === nuevoGrupo);
-                    let fns = formData.funcionesPersonal;
-
-                    if (foundGrp && foundGrp.personalIds.length > 0) {
-                      const members = personalList.filter((p) => foundGrp.personalIds.includes(p.id));
-                      const fnsDefault = config.funcionesGuardiaCatalogo || [
-                        'Oficial de servicio – Perito de turno',
-                        'Oficial de guardia – Perito de turno',
-                        'Chofer – Fotógrafo',
-                        'Servicio despeje / prevención',
-                      ];
-                      fns = members.map((m, idx) => ({
-                        id: 'f-grp-' + Date.now() + '-' + idx,
-                        funcion: fnsDefault[idx] || 'Servicio despeje / prevención',
-                        personalNombre: `${m.jerarquia} ${m.apellidoYNombre}`,
-                      }));
-                    }
-
-                    setFormData((prev) => ({
-                      ...prev,
-                      grupoGuardia: nuevoGrupo,
-                      funcionesPersonal: fns,
-                    }));
-                  }}
+                  onChange={(e) => handleCambiarGrupo(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-800"
                 >
                   {gruposDeEstaDelegacion.length > 0 ? (
                     gruposDeEstaDelegacion.map((g) => (
                       <option key={g.id} value={g.nombre}>
-                        {g.nombre} ({g.personalIds.length} efectivos)
+                        {g.nombre} ({g.personalIds?.length || 0} efectivos)
                       </option>
                     ))
                   ) : (
@@ -477,6 +500,7 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
                 </select>
               </div>
             </div>
+
 
             {/* Fecha y Hora de Inicio y Finalización (Calendario y Reloj) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200">
@@ -556,16 +580,28 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
                 </span>
               </div>
 
-              {/* Checkbox para permitir agregar efectivo de otro grupo */}
-              <label className="flex items-center gap-2 cursor-pointer bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-950 font-bold text-xs select-none">
-                <input
-                  type="checkbox"
-                  checked={agregarDeOtroGrupo}
-                  onChange={(e) => setAgregarDeOtroGrupo(e.target.checked)}
-                  className="w-4 h-4 text-blue-900 rounded"
-                />
-                <span>¿Agregar efectivo de otro grupo?</span>
-              </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => cargarNominaDeGrupo(formData.grupoGuardia)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900 text-white font-bold text-xs hover:bg-blue-800 transition-colors shadow-2xs cursor-pointer"
+                  title="Cargar y sincronizar la nómina de efectivos desde el módulo Grupos"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>👥 Cargar Nómina de {formData.grupoGuardia} ({personalDelegacionYGrupo.length} efectivos)</span>
+                </button>
+
+                {/* Checkbox para permitir agregar efectivo de otro grupo */}
+                <label className="flex items-center gap-2 cursor-pointer bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-950 font-bold text-xs select-none">
+                  <input
+                    type="checkbox"
+                    checked={agregarDeOtroGrupo}
+                    onChange={(e) => setAgregarDeOtroGrupo(e.target.checked)}
+                    className="w-4 h-4 text-blue-900 rounded cursor-pointer"
+                  />
+                  <span>¿Agregar efectivo de otro grupo?</span>
+                </label>
+              </div>
             </div>
 
             {/* Filas de Funciones asignadas */}
@@ -624,45 +660,59 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
 
             {/* Fila para agregar nuevo efectivo y función */}
             <div className="pt-2 border-t border-slate-200 space-y-1.5">
-              <span className="font-bold text-slate-700 text-xs block">
-                + Asignar efectivo {agregarDeOtroGrupo ? '(Todos los grupos habilitados)' : `(Exclusivo ${formData.grupoGuardia})`}:
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                <div className="sm:col-span-6">
-                  <select
-                    value={nuevaFuncion.personalNombre}
-                    onChange={(e) => setNuevaFuncion({ ...nuevaFuncion, personalNombre: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
-                  >
-                    <option value="">-- Seleccionar efectivo policial --</option>
-                    {(agregarDeOtroGrupo ? personalOtrosGrupos : personalDelegacionYGrupo).map((p) => (
-                      <option key={p.id} value={`${p.jerarquia} ${p.apellidoYNombre}`}>
-                        {p.jerarquia} {p.apellidoYNombre} ({p.seccionGrupo || 'Sin grupo'}) - {p.plaza || 's/p'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="sm:col-span-5">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700 text-xs select-none">
                   <input
-                    type="text"
-                    list="catalogo-funciones-guardia"
-                    placeholder="Función (ej. Oficial de Guardia)"
-                    value={nuevaFuncion.funcion}
-                    onChange={(e) => setNuevaFuncion({ ...nuevaFuncion, funcion: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium"
+                    type="checkbox"
+                    checked={habilitarAsignarExclusivo}
+                    onChange={(e) => setHabilitarAsignarExclusivo(e.target.checked)}
+                    className="w-4 h-4 text-blue-900 rounded"
                   />
-                </div>
-                <div className="sm:col-span-1">
-                  <button
-                    type="button"
-                    onClick={handleAddFuncion}
-                    className="w-full bg-blue-900 hover:bg-blue-950 text-white font-bold p-1.5 rounded-lg flex items-center justify-center"
-                    title="Agregar efectivo a la guardia"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
+                  <span>+ Asignar efectivo {agregarDeOtroGrupo ? '(Todos los grupos habilitados)' : `(Exclusivo ${formData.grupoGuardia})`}</span>
+                </label>
+                {!habilitarAsignarExclusivo && (
+                  <span className="text-[11px] text-slate-400 italic">Desmarcado (no requerido)</span>
+                )}
               </div>
+
+              {habilitarAsignarExclusivo && (
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 animate-in fade-in">
+                  <div className="sm:col-span-6">
+                    <select
+                      value={nuevaFuncion.personalNombre}
+                      onChange={(e) => setNuevaFuncion({ ...nuevaFuncion, personalNombre: e.target.value })}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
+                    >
+                      <option value="">-- Seleccionar efectivo policial --</option>
+                      {(agregarDeOtroGrupo ? personalOtrosGrupos : personalDelegacionYGrupo).map((p) => (
+                        <option key={p.id} value={`${p.jerarquia} ${p.apellidoYNombre}`}>
+                          {p.jerarquia} {p.apellidoYNombre} ({p.seccionGrupo || 'Sin grupo'}) - {p.plaza || 's/p'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-5">
+                    <input
+                      type="text"
+                      list="catalogo-funciones-guardia"
+                      placeholder="Función (ej. Oficial de Guardia)"
+                      value={nuevaFuncion.funcion}
+                      onChange={(e) => setNuevaFuncion({ ...nuevaFuncion, funcion: e.target.value })}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <button
+                      type="button"
+                      onClick={handleAddFuncion}
+                      className="w-full bg-blue-900 hover:bg-blue-950 text-white font-bold p-1.5 rounded-lg flex items-center justify-center cursor-pointer"
+                      title="Agregar efectivo a la guardia"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Datalists */}
@@ -688,229 +738,353 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
             </datalist>
           </div>
 
-          {/* 3. Forenses Policiales de Turno & Relevos con reloj */}
+          {/* 3. Forenses Policiales de Turno & Relevos con reloj (Habilitable mediante Checkbox) */}
           <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-200 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-200/80 pb-2">
               <div className="flex items-center gap-2">
                 <Stethoscope className="w-4 h-4 text-blue-900" />
-                <span className="font-bold text-blue-950 uppercase">
-                  3. Forenses Policiales de Turno & Relevos (Carga mediante reloj)
+                <span className="font-bold text-blue-950 uppercase text-xs">
+                  3. Forenses Policiales de Turno & Relevos
                 </span>
               </div>
+
+              <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-blue-300 text-blue-950 font-bold text-xs select-none shadow-2xs">
+                <input
+                  type="checkbox"
+                  checked={habilitarForenses}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setHabilitarForenses(checked);
+                    if (!checked) {
+                      setFormData((prev) => ({
+                        ...prev,
+                        forensesTurno: [],
+                        forense: { medicoNombre: '', totalExaminados: 0, examinadosHastaHs: '' },
+                      }));
+                    } else if (!formData.forensesTurno || formData.forensesTurno.length === 0) {
+                      const nombreForense = config.medicosForensesCatalogo?.[0] || 'Dr. Guillermo Navarro (Médico Legista Forense)';
+                      setFormData((prev) => ({
+                        ...prev,
+                        forensesTurno: [
+                          {
+                            id: 'fg-' + Date.now(),
+                            medicoNombre: nombreForense,
+                            turno: 'Guardia Rotativa',
+                            horaIngreso: '08:00',
+                            horaEgreso: '20:00',
+                            totalExaminados: 0,
+                            examinadosHastaHs: '20:00 hs.',
+                          },
+                        ],
+                        forense: {
+                          medicoNombre: nombreForense,
+                          totalExaminados: 0,
+                          examinadosHastaHs: '20:00 hs.',
+                        },
+                      }));
+                    }
+                  }}
+                  className="w-4 h-4 text-blue-900 rounded"
+                />
+                <span>¿Habilitar Forenses de Turno? (Opcional por Delegación)</span>
+              </label>
             </div>
 
-            {/* Lista de forenses de esta guardia */}
-            <div className="space-y-2">
-              {formData.forensesTurno?.map((f, idx) => (
-                <div key={f.id || idx} className="bg-white p-3 rounded-lg border border-blue-200 shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between border-b pb-1">
-                    <span className="font-bold text-blue-900">
-                      Forense #{idx + 1}: {f.medicoNombre}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveForense(idx)}
-                      className="text-red-500 hover:text-red-700 p-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+            {!habilitarForenses ? (
+              <div className="p-3 bg-white/80 border border-blue-200 rounded-lg text-slate-600 text-xs">
+                ℹ️ <strong>Forenses no requeridos:</strong> Esta delegación o turno de guardia no cuenta con médico forense policial asignado.
+              </div>
+            ) : (
+              <div className="space-y-3 animate-in fade-in">
+                {/* Lista de forenses de esta guardia */}
+                <div className="space-y-2">
+                  {formData.forensesTurno?.map((f, idx) => (
+                    <div key={f.id || idx} className="bg-white p-3 rounded-lg border border-blue-200 shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between border-b pb-1">
+                        <span className="font-bold text-blue-900">
+                          Forense #{idx + 1}: {f.medicoNombre || 'Sin nombre asignado'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveForense(idx)}
+                          className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                        <div className="sm:col-span-2">
+                          <label className="block text-[10px] font-semibold text-slate-500">Médico Legista</label>
+                          <input
+                            type="text"
+                            value={f.medicoNombre}
+                            onChange={(e) => handleUpdateForense(idx, 'medicoNombre', e.target.value)}
+                            className="w-full px-2 py-1 rounded border border-slate-300 font-semibold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-500">Turno</label>
+                          <input
+                            type="text"
+                            value={f.turno}
+                            onChange={(e) => handleUpdateForense(idx, 'turno', e.target.value)}
+                            placeholder="Guardia Mañana / Noche"
+                            className="w-full px-2 py-1 rounded border border-slate-300"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-semibold text-blue-900 font-bold">
+                            Cantidad Examinados *
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={f.totalExaminados}
+                            onChange={(e) => handleUpdateForense(idx, 'totalExaminados', Number(e.target.value))}
+                            className="w-full px-2 py-1 rounded border border-blue-400 font-mono font-bold text-blue-950 bg-blue-50"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                        <div>
+                          <span className="text-slate-500 font-medium flex items-center gap-1 mb-0.5">
+                            <Clock className="w-3 h-3 text-blue-800" />
+                            <span>Hora Ingreso (Reloj):</span>
+                          </span>
+                          <input
+                            type="time"
+                            value={f.horaIngreso}
+                            onChange={(e) => handleUpdateForense(idx, 'horaIngreso', e.target.value)}
+                            className="w-full px-2 py-1 rounded border border-slate-300 font-mono font-bold"
+                          />
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-medium flex items-center gap-1 mb-0.5">
+                            <Clock className="w-3 h-3 text-blue-800" />
+                            <span>Hora Egreso (Reloj):</span>
+                          </span>
+                          <input
+                            type="time"
+                            value={f.horaEgreso || ''}
+                            onChange={(e) => handleUpdateForense(idx, 'horaEgreso', e.target.value)}
+                            className="w-full px-2 py-1 rounded border border-slate-300 font-mono font-bold"
+                          />
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-medium mb-0.5 block">Examinados hasta hs:</span>
+                          <input
+                            type="text"
+                            value={f.examinadosHastaHs}
+                            onChange={(e) => handleUpdateForense(idx, 'examinadosHastaHs', e.target.value)}
+                            className="w-full px-2 py-1 rounded border border-slate-300 font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Agregar nuevo forense con selector de reloj */}
+                <div className="bg-white p-3 rounded-lg border border-slate-300 space-y-2">
+                  <span className="font-bold text-slate-800 block text-xs">+ Agregar Forense / Relevo</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                    <div className="sm:col-span-4">
+                      <input
+                        type="text"
+                        list="medicos-forenses-catalogo"
+                        placeholder="Nombre del médico legista..."
+                        value={nuevoForense.medicoNombre}
+                        onChange={(e) => setNuevoForense({ ...nuevoForense, medicoNombre: e.target.value })}
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-semibold"
+                      />
+                      <datalist id="medicos-forenses-catalogo">
+                        {(config.medicosForensesCatalogo || ['Dr. Guillermo Navarro', 'Dra. María Elena Ramos']).map((m, i) => (
+                          <option key={i} value={m} />
+                        ))}
+                      </datalist>
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <input
+                        type="text"
+                        placeholder="Turno (ej. Relevo 14:00)"
+                        value={nuevoForense.turno}
+                        onChange={(e) => setNuevoForense({ ...nuevoForense, turno: e.target.value })}
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs"
+                      />
+                    </div>
+
                     <div className="sm:col-span-2">
-                      <label className="block text-[10px] font-semibold text-slate-500">Médico Legista</label>
-                      <input
-                        type="text"
-                        value={f.medicoNombre}
-                        onChange={(e) => handleUpdateForense(idx, 'medicoNombre', e.target.value)}
-                        className="w-full px-2 py-1 rounded border border-slate-300 font-semibold"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-500">Turno</label>
-                      <input
-                        type="text"
-                        value={f.turno}
-                        onChange={(e) => handleUpdateForense(idx, 'turno', e.target.value)}
-                        placeholder="Guardia Mañana / Noche"
-                        className="w-full px-2 py-1 rounded border border-slate-300"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-semibold text-blue-900 font-bold">
-                        Cantidad Examinados *
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={f.totalExaminados}
-                        onChange={(e) => handleUpdateForense(idx, 'totalExaminados', Number(e.target.value))}
-                        className="w-full px-2 py-1 rounded border border-blue-400 font-mono font-bold text-blue-950 bg-blue-50"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
-                    <div>
-                      <span className="text-slate-500 font-medium flex items-center gap-1 mb-0.5">
-                        <Clock className="w-3 h-3 text-blue-800" />
-                        <span>Hora Ingreso (Reloj):</span>
-                      </span>
                       <input
                         type="time"
-                        value={f.horaIngreso}
-                        onChange={(e) => handleUpdateForense(idx, 'horaIngreso', e.target.value)}
-                        className="w-full px-2 py-1 rounded border border-slate-300 font-mono font-bold"
+                        value={nuevoForense.horaIngreso}
+                        onChange={(e) => setNuevoForense({ ...nuevoForense, horaIngreso: e.target.value })}
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-mono font-bold"
+                        title="Hora de Ingreso (Reloj)"
                       />
                     </div>
-                    <div>
-                      <span className="text-slate-500 font-medium flex items-center gap-1 mb-0.5">
-                        <Clock className="w-3 h-3 text-blue-800" />
-                        <span>Hora Egreso (Reloj):</span>
-                      </span>
+
+                    <div className="sm:col-span-2">
                       <input
                         type="time"
-                        value={f.horaEgreso || ''}
-                        onChange={(e) => handleUpdateForense(idx, 'horaEgreso', e.target.value)}
-                        className="w-full px-2 py-1 rounded border border-slate-300 font-mono font-bold"
+                        value={nuevoForense.horaEgreso}
+                        onChange={(e) => setNuevoForense({ ...nuevoForense, horaEgreso: e.target.value })}
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-mono font-bold"
+                        title="Hora de Egreso (Reloj)"
                       />
                     </div>
-                    <div>
-                      <span className="text-slate-500 font-medium mb-0.5 block">Examinados hasta hs:</span>
-                      <input
-                        type="text"
-                        value={f.examinadosHastaHs}
-                        onChange={(e) => handleUpdateForense(idx, 'examinadosHastaHs', e.target.value)}
-                        className="w-full px-2 py-1 rounded border border-slate-300 font-mono"
-                      />
+
+                    <div className="sm:col-span-1">
+                      <button
+                        type="button"
+                        onClick={handleAddForense}
+                        className="w-full bg-blue-900 hover:bg-blue-950 text-white font-bold p-1.5 rounded flex items-center justify-center cursor-pointer"
+                        title="Agregar forense"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Agregar nuevo forense con selector de reloj */}
-            <div className="bg-white p-3 rounded-lg border border-slate-300 space-y-2">
-              <span className="font-bold text-slate-800 block text-xs">+ Agregar Forense / Relevo</span>
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                <div className="sm:col-span-4">
-                  <input
-                    type="text"
-                    list="medicos-forenses-catalogo"
-                    placeholder="Nombre del médico legista..."
-                    value={nuevoForense.medicoNombre}
-                    onChange={(e) => setNuevoForense({ ...nuevoForense, medicoNombre: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-semibold"
-                  />
-                  <datalist id="medicos-forenses-catalogo">
-                    {(config.medicosForensesCatalogo || ['Dr. Guillermo Navarro', 'Dra. María Elena Ramos']).map((m, i) => (
-                      <option key={i} value={m} />
-                    ))}
-                  </datalist>
-                </div>
-
-                <div className="sm:col-span-3">
-                  <input
-                    type="text"
-                    placeholder="Turno (ej. Relevo 14:00)"
-                    value={nuevoForense.turno}
-                    onChange={(e) => setNuevoForense({ ...nuevoForense, turno: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <input
-                    type="time"
-                    value={nuevoForense.horaIngreso}
-                    onChange={(e) => setNuevoForense({ ...nuevoForense, horaIngreso: e.target.value })}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-xs font-mono font-bold"
-                    title="Hora de Ingreso (Reloj)"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <input
-                    type="time"
-                    value={nuevoForense.horaEgreso}
-                    onChange={(e) => setNuevoForense({ ...nuevoForense, horaEgreso: e.target.value })}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-xs font-mono font-bold"
-                    title="Hora de Egreso (Reloj)"
-                  />
-                </div>
-
-                <div className="sm:col-span-1">
-                  <button
-                    type="button"
-                    onClick={handleAddForense}
-                    className="w-full bg-blue-900 hover:bg-blue-950 text-white font-bold p-1.5 rounded flex items-center justify-center cursor-pointer"
-                    title="Agregar forense"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* 4. Móviles Afectados al Servicio */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-800 text-xs uppercase flex items-center gap-1.5">
                 <Car className="w-4 h-4 text-blue-900" />
-                <span>4. Móviles Afectados al Servicio de Guardia</span>
+                <span>4. Móviles Afectados al Servicio de Guardia ({formData.movilesAfectados.length})</span>
+              </span>
+              <span className="text-[11px] text-slate-500">
+                Sincronización automática de odómetro con Parque Automotor
               </span>
             </div>
 
-            <div className="space-y-1.5">
-              {formData.movilesAfectados.map((m, idx) => (
-                <div key={m.id || idx} className="flex items-center justify-between bg-white px-3 py-1.5 rounded-lg border border-slate-200">
-                  <span className="font-semibold text-slate-800">{m.descripcion}</span>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      m.estado === 'En servicio' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {m.estado}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = [...formData.movilesAfectados];
-                        updated.splice(idx, 1);
-                        setFormData({ ...formData, movilesAfectados: updated });
-                      }}
-                      className="text-red-500 hover:text-red-700 p-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+            <div className="space-y-2">
+              {formData.movilesAfectados.map((m, idx) => {
+                const fleetItem = movilesList.find((f) => f.id === m.movilId);
+                const proxService = fleetItem?.proximoServiceKm || (fleetItem?.ultimoServiceKm ? fleetItem.ultimoServiceKm + (config.intervaloServiceKm || 10000) : 10000);
+                const faltante = proxService - (m.kmActual || fleetItem?.kilometrajeActual || 0);
+
+                return (
+                  <div key={m.id || idx} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Car className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                        <span className="font-bold text-slate-800 text-xs truncate">{m.descripcion}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Estado */}
+                        <select
+                          value={m.estado}
+                          onChange={(e) => {
+                            const updated = [...formData.movilesAfectados];
+                            updated[idx] = { ...updated[idx], estado: e.target.value as any };
+                            setFormData({ ...formData, movilesAfectados: updated });
+                          }}
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                            m.estado === 'En servicio'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                              : m.estado === 'En taller'
+                              ? 'bg-amber-50 text-amber-800 border-amber-300'
+                              : 'bg-red-50 text-red-800 border-red-300'
+                          }`}
+                        >
+                          <option value="En servicio">En servicio</option>
+                          <option value="Fuera de servicio">Fuera de servicio</option>
+                          <option value="En taller">En taller</option>
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = [...formData.movilesAfectados];
+                            updated.splice(idx, 1);
+                            setFormData({ ...formData, movilesAfectados: updated });
+                          }}
+                          className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                          title="Quitar móvil"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center text-xs pt-1 border-t border-slate-100">
+                      <div className="sm:col-span-5 flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-500 font-semibold shrink-0">Odómetro:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={m.kmActual ?? ''}
+                          onChange={(e) => {
+                            const updated = [...formData.movilesAfectados];
+                            updated[idx] = { ...updated[idx], kmActual: Number(e.target.value) };
+                            setFormData({ ...formData, movilesAfectados: updated });
+                          }}
+                          placeholder="Km actual"
+                          className="w-full px-2 py-1 rounded border border-slate-300 font-mono font-bold text-xs"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-7 flex items-center justify-end text-[11px] text-slate-500">
+                        {fleetItem && (
+                          <span className={faltante <= 0 ? 'text-red-700 font-bold' : faltante <= (config.recordatorioServiceKm || 500) ? 'text-amber-700 font-bold' : 'text-emerald-700'}>
+                            {faltante <= 0 ? `⚠️ Service vencido por ${Math.abs(faltante)} km` : `Próximo service: faltan ${faltante} km`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            <div className="flex gap-2 pt-1">
-              <input
-                type="text"
-                list="catalogo-moviles-guardia"
-                placeholder="Seleccionar o agregar móvil del parque automotor..."
-                value={nuevoMovilDesc}
-                onChange={(e) => setNuevoMovilDesc(e.target.value)}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white"
-              />
-              <datalist id="catalogo-moviles-guardia">
-                {movilesList.map((m) => (
-                  <option key={m.id} value={`${m.nroMovilInterno} ${m.marca} ${m.modelo} (${m.dominioPatente})`} />
-                ))}
-              </datalist>
-              <button
-                type="button"
-                onClick={handleAddMovilAfectado}
-                className="px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white font-bold rounded-lg shrink-0"
-              >
-                Agregar
-              </button>
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-2 border-t border-slate-200">
+              <div className="sm:col-span-8">
+                <input
+                  type="text"
+                  list="catalogo-moviles-guardia"
+                  placeholder="Seleccionar o escribir móvil policial..."
+                  value={nuevoMovilDesc}
+                  onChange={(e) => setNuevoMovilDesc(e.target.value)}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
+                />
+                <datalist id="catalogo-moviles-guardia">
+                  {movilesList.map((m) => (
+                    <option key={m.id} value={`${m.nroMovilInterno} ${m.marca} ${m.modelo} (${m.dominioPatente})`} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="sm:col-span-2">
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Km actual"
+                  value={nuevoMovilKm}
+                  onChange={(e) => setNuevoMovilKm(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-mono font-bold"
+                  title="Odómetro al inicio de la guardia"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <button
+                  type="button"
+                  onClick={handleAddMovilAfectado}
+                  className="w-full px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white font-bold rounded-lg text-xs cursor-pointer"
+                >
+                  + Asignar
+                </button>
+              </div>
             </div>
           </div>
 

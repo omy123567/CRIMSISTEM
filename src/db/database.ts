@@ -22,6 +22,7 @@ import {
   AccidentologiaRegistro,
   RolSistema,
   AccionesRol,
+  AvisoNovedad,
 } from '../types/police';
 
 export class SisPolDatabase extends Dexie {
@@ -46,6 +47,7 @@ export class SisPolDatabase extends Dexie {
   folios!: Table<FolioAsignado, string>;
   accidentologia!: Table<AccidentologiaRegistro, string>;
   roles!: Table<RolSistema, string>;
+  novedadesDelegaciones!: Table<AvisoNovedad, string>;
 
   constructor() {
     super('SisPolDB');
@@ -89,10 +91,15 @@ export class SisPolDatabase extends Dexie {
     this.version(9).stores({
       roles: 'id, nombre, activo',
     });
+    this.version(10).stores({
+      novedadesDelegaciones: 'id, fechaHora, destinatarioDelegacionId, origenDelegacionId, prioridad, createdAt',
+    });
   }
 }
 
 export const db = new SisPolDatabase();
+
+export const DEFAULT_NOVEDADES: AvisoNovedad[] = [];
 
 export const DEFAULT_CONFIG: ConfiguracionSistema = {
   id: 'global-config',
@@ -280,14 +287,33 @@ export const DEFAULT_CONFIG: ConfiguracionSistema = {
     'Técnico de laboratorio',
     'Operador de guardia'
   ],
+  causasReferencia: [
+    'S/ Robo Calificado',
+    'S/ Hurto',
+    'S/ Siniestro Vial',
+    'S/ Averiguación de Causal de Muerte',
+    'S/ Secuestro y Aprehensión',
+    'S/ Lesiones Leves en Accidente de Tránsito'
+  ],
+  tiposLesionCatalogo: [
+    'Sin Lesiones',
+    'Leves',
+    'Graves',
+    'Gravísimas',
+    'A Determinar / En Observación'
+  ],
+  ordenColumnasGuardia: ['personal', 'moviles', 'lc', 'forense', 'segVial', 'cibercrimen'],
   supabaseSyncHabilitado: false,
-  inicioNroIntervencionCriminalistica: 3800,
-  ultimoNroIntervencionCriminalistica: 3814,
-  inicioNroIntervencionAccidentologica: 2500,
-  ultimoNroIntervencionAccidentologica: 2584,
-  ultimaHoraIntervencion: '18:28 hs.',
+  inicioNroIntervencionCriminalistica: 1,
+  ultimoNroIntervencionCriminalistica: 0,
+  inicioNroIntervencionAccidentologica: 1,
+  ultimoNroIntervencionAccidentologica: 0,
+  ultimaHoraIntervencion: '08:00 hs.',
   inicioNroIO: 1,
-  ultimoNroIO: 2,
+  ultimoNroIO: 0,
+  recordatorioRtoDias: 30,
+  intervaloServiceKm: 10000,
+  recordatorioServiceKm: 500,
   estructuraModulos: [
     { id: 'dashboard', label: 'Dashboard Ejecutivo', desc: 'KPIs y Estadísticas', orden: 1, padreId: null, visible: true },
     { id: 'personal', label: 'Personal y Legajos', desc: 'Nómina, Armas y Chalecos', orden: 2, padreId: null, visible: true },
@@ -632,6 +658,90 @@ export const DEFAULT_ROLES: RolSistema[] = [
     activo: true,
     createdAt: new Date().toISOString(),
   },
+  {
+    id: 'rol-oficial-guardia',
+    nombre: 'Oficial de Guardia',
+    descripcion: 'Control de novedades del servicio, relevos, personal asignado a guardia, móviles y recargos operativos.',
+    color: 'blue',
+    esSistema: true,
+    modulosPermitidos: [
+      'dashboard', 'guardias', 'inspecciones', 'intervenciones', 'moviles',
+      'recargos', 'vehiculos', 'personas', 'accidentologia', 'forense', 'licenciados', 'novedades-delegaciones'
+    ],
+    acciones: {
+      puedeCrear: true,
+      puedeVer: true,
+      puedeModificar: true,
+      puedeEliminar: false,
+      puedeExportarPdf: true,
+      puedeExportarCsv: true,
+      puedeVerOtrasDelegaciones: false,
+      puedeModificarActuacionesCargadas: true,
+      puedeAdministrarModulos: false,
+      puedeResetearContadores: false,
+      puedeRecargarOtrasDelegaciones: false,
+      puedeGestionarUsuarios: false,
+      puedeConfirmarFotografias: true,
+    },
+    activo: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'rol-carga-editor',
+    nombre: 'Carga / Editor',
+    descripcion: 'Operador habilitado para registrar y modificar actuaciones, pericias e intervenciones sin permisos de borrado.',
+    color: 'emerald',
+    esSistema: true,
+    modulosPermitidos: [
+      'dashboard', 'guardias', 'inspecciones', 'intervenciones', 'expedientes',
+      'falta-oficio', 'vehiculos', 'personas', 'accidentologia', 'informes-tecnicos', 'novedades-delegaciones'
+    ],
+    acciones: {
+      puedeCrear: true,
+      puedeVer: true,
+      puedeModificar: true,
+      puedeEliminar: false,
+      puedeExportarPdf: true,
+      puedeExportarCsv: false,
+      puedeVerOtrasDelegaciones: false,
+      puedeModificarActuacionesCargadas: true,
+      puedeAdministrarModulos: false,
+      puedeResetearContadores: false,
+      puedeRecargarOtrasDelegaciones: false,
+      puedeGestionarUsuarios: false,
+      puedeConfirmarFotografias: true,
+    },
+    activo: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'rol-solo-lectura',
+    nombre: 'Solo Lectura (Auditor / Consulta)',
+    descripcion: 'Perfil de consulta y fiscalización sin privilegios de carga, modificación ni eliminación de datos.',
+    color: 'slate',
+    esSistema: true,
+    modulosPermitidos: [
+      'dashboard', 'personal', 'expedientes', 'guardias', 'inspecciones',
+      'intervenciones', 'accidentologia', 'numerario', 'auditoria', 'novedades-delegaciones'
+    ],
+    acciones: {
+      puedeCrear: false,
+      puedeVer: true,
+      puedeModificar: false,
+      puedeEliminar: false,
+      puedeExportarPdf: true,
+      puedeExportarCsv: true,
+      puedeVerOtrasDelegaciones: true,
+      puedeModificarActuacionesCargadas: false,
+      puedeAdministrarModulos: false,
+      puedeResetearContadores: false,
+      puedeRecargarOtrasDelegaciones: false,
+      puedeGestionarUsuarios: false,
+      puedeConfirmarFotografias: false,
+    },
+    activo: true,
+    createdAt: new Date().toISOString(),
+  },
 ];
 
 export const DEFAULT_USUARIOS: UsuarioSistema[] = [
@@ -951,9 +1061,11 @@ export async function seedInitialDataIfEmpty() {
   }
 
   // 4. Asegurar roles y numerarios base
-  const countRoles = await db.roles.count();
-  if (countRoles === 0) {
-    await db.roles.bulkPut(DEFAULT_ROLES);
+  for (const rol of DEFAULT_ROLES) {
+    const existingRol = await db.roles.get(rol.id);
+    if (!existingRol) {
+      await db.roles.put(rol);
+    }
   }
 
   const countSeries = await db.seriesNumerario.count();
@@ -982,5 +1094,6 @@ export async function wipeAllOperationalData() {
     db.folios.clear(),
     db.licenciados.clear(),
     db.informesTecnicos.clear(),
+    db.novedadesDelegaciones.clear(),
   ]);
 }

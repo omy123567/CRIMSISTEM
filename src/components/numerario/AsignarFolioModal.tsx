@@ -375,74 +375,6 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
             )}
           </div>
 
-          {/* Categoría y Destinatario */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
-                <Tag className="w-3.5 h-3.5 text-blue-700" />
-                <span>Categoría / Tipo de Trámite *</span>
-              </label>
-              <select
-                value={categoria}
-                onChange={(e) => setCategoria(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-800"
-              >
-                <option value="Oficio Judicial">Oficio Judicial</option>
-                <option value="Oficio Vicedirección">Oficio Vicedirección</option>
-                <option value="Memorándum">Memorándum</option>
-                <option value="Expediente Pericial">Expediente Pericial</option>
-                <option value="Nota Interna">Nota Interna</option>
-                <option value="Circular General">Circular General</option>
-                <option value="Dictamen Pericial">Dictamen Pericial</option>
-                <option value="Causa Penal">Causa Penal</option>
-                <option value="Actuación Prevencional">Actuación Prevencional</option>
-                <option value="Resolución">Resolución</option>
-                <option value="Otro">Otro Trámite</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
-                <Building className="w-3.5 h-3.5 text-blue-700" />
-                <span>Destinatario / Organismo *</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={destinatario}
-                onChange={(e) => setDestinatario(e.target.value)}
-                placeholder="Ej. Juzgado de Instrucción N° 2 / Comisaría Laguna Blanca..."
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium"
-              />
-            </div>
-          </div>
-
-          {/* Solicitante / Iniciador (Buscable y con efectivos de la delegación) */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
-              <User className="w-3.5 h-3.5 text-blue-700" />
-              <span>Solicitante / Iniciador del Trámite</span>
-            </label>
-            <div className="space-y-1.5">
-              <input
-                type="text"
-                list="lista-personal-numerario"
-                value={solicitante}
-                onChange={(e) => setSolicitante(e.target.value)}
-                placeholder="Seleccione de la nómina o redacte jerarquía y nombre..."
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium"
-              />
-              <datalist id="lista-personal-numerario">
-                {personalList.map((p) => (
-                  <option
-                    key={p.id}
-                    value={`${p.jerarquia} ${p.apellidoYNombre} (DNI ${p.dni} - Plaza ${p.plaza || 'S/D'})`}
-                  />
-                ))}
-              </datalist>
-            </div>
-          </div>
-
           {/* Asunto / Objeto del Trámite (Requerido) */}
           <div>
             <label className="block font-bold text-slate-800 mb-1 flex items-center gap-1">
@@ -455,21 +387,7 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
               value={asunto}
               onChange={(e) => setAsunto(e.target.value)}
               placeholder="Describa el contenido o motivo del trámite foliado..."
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none"
-            />
-          </div>
-
-          {/* Observaciones */}
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1">
-              Observaciones / Notas de Entrega (Opcional)
-            </label>
-            <input
-              type="text"
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              placeholder="Constancia de remisión, recibo, anexos..."
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none font-medium text-slate-800"
             />
           </div>
 

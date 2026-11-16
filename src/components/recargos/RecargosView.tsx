@@ -24,6 +24,7 @@ import {
 import { RecargoModal } from './RecargoModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { ModalOpcionesImpresion, OpcionesImpresion } from '../common/ModalOpcionesImpresion';
+import { ReporteRecargosModal } from './ReporteRecargosModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
@@ -57,6 +58,7 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [selectedRecargo, setSelectedRecargo] = useState<RecargoOperativo | null>(null);
   const [deleteRecargoConfirm, setDeleteRecargoConfirm] = useState<{
     isOpen: boolean;
@@ -352,6 +354,15 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setIsReportModalOpen(true)}
+            className="flex items-center gap-1.5 bg-blue-800 hover:bg-blue-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+            title="Generar reportes oficiales de recargos filtrados por tipo, estado, personal, sección, delegación y fechas"
+          >
+            <Download className="w-3.5 h-3.5 text-blue-200" />
+            <span>Generar Reporte</span>
+          </button>
+
+          <button
             onClick={() => setIsPrintModalOpen(true)}
             className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
           >
@@ -631,6 +642,17 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
         tamanoDefault="a4"
         onGenerar={handleGenerarPdfConOpciones}
         onClose={() => setIsPrintModalOpen(false)}
+      />
+
+      {/* Modal Generador de Reportes de Recargos */}
+      <ReporteRecargosModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        recargosList={recargosList}
+        personalList={personalList}
+        config={config}
+        delegacionesList={delegacionesList}
+        currentUser={currentUser}
       />
     </div>
   );

@@ -23,9 +23,13 @@ import {
   ChevronRight,
   FolderTree,
   BookmarkCheck,
+  Bell,
+  Folder,
+  FolderOpen,
 } from 'lucide-react';
-import { UsuarioSistema, ConfiguracionSistema, ModuloEstructuraConfig } from '../../types/police';
+import { UsuarioSistema, ConfiguracionSistema, ModuloEstructuraConfig, TonalidadModulo } from '../../types/police';
 import { AdministrarModulosModal } from './AdministrarModulosModal';
+import { getTonalidadStyle } from '../../utils/moduleColors';
 
 export type ActiveTab =
   | 'dashboard'
@@ -36,6 +40,7 @@ export type ActiveTab =
   | 'moviles'
   | 'recargos'
   | 'guardias'
+  | 'novedades-delegaciones'
   | 'inspecciones'
   | 'intervenciones'
   | 'causas-policiales'
@@ -135,6 +140,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       desc: 'Guardia & Criminalística',
     },
     {
+      id: 'novedades-delegaciones',
+      label: 'Novedades y Avisos',
+      icon: Bell,
+      desc: 'Avisos Inter-Delegaciones & Traslados',
+    },
+    {
       id: 'inspecciones',
       label: 'Inspecciones Oculares',
       icon: Camera,
@@ -216,8 +227,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
+  const canAdminModules =
+    currentUser?.rol === 'superusuario' || Boolean(currentUser?.puedeAdministrarModulos);
+
   // Verificar si un módulo está permitido para el usuario
-  const isModuleAllowed = (id: string) => {
+  const isModuleAllowed = (id: string, esGrupoPersonalizado?: boolean) => {
+    if (esGrupoPersonalizado) return true; // Visibilidad de carpeta se evalúa según sus hijos permitidos
     if (!currentUser) return true;
     if (id === 'auditoria') {
       return currentUser.rol === 'superusuario';
@@ -231,39 +246,174 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return true;
   };
 
+  const getFolderIconComponent = (iconoPersonalizado?: string) => {
+    switch (iconoPersonalizado) {
+      case 'shield':
+        return ShieldCheck;
+      case 'clipboard':
+        return ClipboardList;
+      case 'layers':
+        return Layers;
+      case 'car':
+        return Car;
+      case 'users':
+        return Users;
+      case 'folder':
+      default:
+        return Folder;
+    }
+  };
+
+  const [draggedSidebarId, setDraggedSidebarId] = useState<string | null>(null);
+
   // Mapear configuración de estructura personalizada
   const estructuraMap = new Map<string, ModuloEstructuraConfig>();
   if (config?.estructuraModulos && config.estructuraModulos.length > 0) {
     config.estructuraModulos.forEach((it) => estructuraMap.set(it.id, it));
   }
 
+  // Integrar carpetas personalizadas dinámicas creadas por el usuario
+  const customFolders = (config?.estructuraModulos || [])
+    .filter((it) => it.esGrupoPersonalizado)
+    .map((folder) => ({
+      id: folder.id,
+      label: folder.label,
+      icon: getFolderIconComponent(folder.iconoPersonalizado),
+      desc: folder.desc || 'Carpeta Agrupadora',
+      esGrupoPersonalizado: true,
+      iconoPersonalizado: folder.iconoPersonalizado,
+      colorTonalidad: folder.colorTonalidad as TonalidadModulo | undefined,
+    }));
+
+  // Aplicar nombres y tonalidades personalizadas a los módulos base
+  const customizedBaseItems = allMenuItems.map((m) => {
+    const conf = estructuraMap.get(m.id);
+    return {
+      ...m,
+      label: conf?.label || m.label,
+      colorTonalidad: conf?.colorTonalidad as TonalidadModulo | undefined,
+    };
+  });
+
+  const fullItemsCatalog = [...customizedBaseItems, ...customFolders];
+
   // Ordenar todos los items según `orden` configurado
-  const sortedItems = [...allMenuItems].sort((a, b) => {
+  const sortedItems = [...fullItemsCatalog].sort((a, b) => {
     const ordA = estructuraMap.get(a.id)?.orden ?? 99;
     const ordB = estructuraMap.get(b.id)?.orden ?? 99;
     return ordA - ordB;
   });
 
   // Agrupar módulos principales y submódulos
-  const submodulosMap = new Map<string, typeof allMenuItems>();
-  const modulosPrincipales: typeof allMenuItems = [];
+  const submodulosMap = new Map<string, typeof fullItemsCatalog>();
+  const rawPrincipales: typeof fullItemsCatalog = [];
 
   sortedItems.forEach((item) => {
-    // Si está explícitamente configurado como no visible y no es admin
     const conf = estructuraMap.get(item.id);
     if (conf && conf.visible === false) return;
 
-    if (!isModuleAllowed(item.id)) return;
+    const isCustomFolder = Boolean((item as any).esGrupoPersonalizado);
+    if (!isModuleAllowed(item.id, isCustomFolder)) return;
 
     const padreId = conf?.padreId;
-    if (padreId && allMenuItems.some((m) => m.id === padreId)) {
+    const parentCatalogItem = padreId
+      ? fullItemsCatalog.find((m) => m.id === padreId)
+      : undefined;
+    const isParentCustomFolder = Boolean((parentCatalogItem as any)?.esGrupoPersonalizado);
+    const isParentPermitted = Boolean(
+      parentCatalogItem && isModuleAllowed(parentCatalogItem.id, isParentCustomFolder)
+    );
+
+    if (!isCustomFolder && padreId && parentCatalogItem && isParentPermitted) {
+      const parentConf = estructuraMap.get(padreId);
+      // Si la carpeta padre está oculta, ocultar también sus hijos para mantener consistencia
+      if (parentConf && parentConf.visible === false) return;
       const list = submodulosMap.get(padreId) || [];
       list.push(item);
       submodulosMap.set(padreId, list);
     } else {
-      modulosPrincipales.push(item);
+      rawPrincipales.push(item);
     }
   });
+
+  // Mostrar carpetas personalizadas a cualquier usuario que tenga al menos 1 módulo dentro, o a admins
+  const modulosPrincipales = rawPrincipales.filter((item) => {
+    if ((item as any).esGrupoPersonalizado) {
+      const children = submodulosMap.get(item.id) || [];
+      return children.length > 0 || canAdminModules;
+    }
+    return true;
+  });
+
+  const handleSidebarDrop = (fromId: string, toId: string) => {
+    if (!fromId || fromId === toId || !config || !onSaveConfig) return;
+
+    // Construir estructura completa sincronizada con el catálogo actual
+    const mergedList: ModuloEstructuraConfig[] = sortedItems.map((m, idx) => {
+      const existing = estructuraMap.get(m.id);
+      const isCustom = Boolean((m as any).esGrupoPersonalizado);
+      return {
+        id: m.id,
+        label: existing?.label || m.label,
+        desc: existing?.desc || m.desc,
+        orden: existing?.orden ?? idx + 1,
+        padreId: existing?.padreId ?? null,
+        visible: existing?.visible !== false,
+        esGrupoPersonalizado: isCustom || existing?.esGrupoPersonalizado,
+        iconoPersonalizado: (m as any).iconoPersonalizado || existing?.iconoPersonalizado,
+        colorTonalidad: (m as any).colorTonalidad || existing?.colorTonalidad,
+      };
+    });
+
+    // Agrupar jerárquicamente: cada elemento de nivel superior con sus hijos inmediatos
+    const itemIds = new Set(mergedList.map((it) => it.id));
+    const topLevelBlocks: Array<{
+      parent: ModuloEstructuraConfig;
+      children: ModuloEstructuraConfig[];
+    }> = [];
+    const childrenByParent = new Map<string, ModuloEstructuraConfig[]>();
+
+    mergedList.forEach((it) => {
+      if (!it.esGrupoPersonalizado && it.padreId && itemIds.has(it.padreId)) {
+        const arr = childrenByParent.get(it.padreId) || [];
+        arr.push(it);
+        childrenByParent.set(it.padreId, arr);
+      }
+    });
+
+    mergedList.forEach((it) => {
+      const isChild = !it.esGrupoPersonalizado && it.padreId && itemIds.has(it.padreId);
+      if (!isChild) {
+        topLevelBlocks.push({
+          parent: it,
+          children: childrenByParent.get(it.id) || [],
+        });
+      }
+    });
+
+    const fromBlockIdx = topLevelBlocks.findIndex((b) => b.parent.id === fromId);
+    const toBlockIdx = topLevelBlocks.findIndex((b) => b.parent.id === toId);
+    if (fromBlockIdx < 0 || toBlockIdx < 0 || fromBlockIdx === toBlockIdx) return;
+
+    const [movedBlock] = topLevelBlocks.splice(fromBlockIdx, 1);
+    topLevelBlocks.splice(toBlockIdx, 0, movedBlock);
+
+    const flattened: ModuloEstructuraConfig[] = [];
+    let orderCounter = 1;
+    topLevelBlocks.forEach((block) => {
+      flattened.push({ ...block.parent, orden: orderCounter++ });
+      block.children.forEach((child) => {
+        flattened.push({ ...child, orden: orderCounter++ });
+      });
+    });
+
+    onSaveConfig({
+      ...config,
+      estructuraModulos: flattened,
+      estructuraModulosUpdatedAt: new Date().toISOString(),
+    });
+  };
+
 
   // Expandir automáticamente el padre si un submódulo está activo
   useEffect(() => {
@@ -278,12 +428,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     e.stopPropagation();
     setExpandedParents((prev) => ({
       ...prev,
-      [parentId]: !prev[parentId],
+      [parentId]: !(prev[parentId] ?? true),
     }));
   };
-
-  const canAdminModules =
-    currentUser?.rol === 'superusuario' || Boolean(currentUser?.puedeAdministrarModulos);
 
   return (
     <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 text-slate-200 shrink-0">
@@ -327,90 +474,140 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* Navegación con soporte para Jerarquía y Submódulos */}
+        {/* Navegación con soporte para Jerarquía, Carpetas, Tonalidad de Color y Submódulos */}
         <nav className="mt-1 space-y-1">
           {modulosPrincipales.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             const children = submodulosMap.get(item.id) || [];
             const hasChildren = children.length > 0;
-            const isExpanded = expandedParents[item.id] ?? false;
+            const isCustomFolder = Boolean((item as any).esGrupoPersonalizado);
+            // Las carpetas personalizadas se muestran expandidas por defecto para visibilidad inmediata
+            const isExpanded = expandedParents[item.id] ?? isCustomFolder;
             const isAnyChildActive = children.some((c) => c.id === activeTab);
+            const tonal = getTonalidadStyle((item as any).colorTonalidad, item.id);
 
             return (
-              <div key={item.id} className="space-y-0.5">
-                {/* Módulo Principal */}
-                <div
-                  className={`w-full flex items-center justify-between rounded-lg transition-all ${
-                    isActive
-                      ? 'bg-blue-800 text-white shadow-sm shadow-blue-900/50'
-                      : isAnyChildActive
-                      ? 'bg-slate-800/90 text-blue-200 border-l-2 border-blue-500'
-                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectTab(item.id as ActiveTab);
-                      if (hasChildren && !isExpanded) {
-                        setExpandedParents((prev) => ({ ...prev, [item.id]: true }));
-                      }
-                    }}
-                    className="flex-1 flex items-center gap-3 px-3 py-2.5 text-left text-sm font-medium cursor-pointer min-w-0"
+              <div
+                key={item.id}
+                draggable={canAdminModules}
+                onDragStart={(e) => {
+                  setDraggedSidebarId(item.id);
+                  e.dataTransfer.setData('text/plain', item.id);
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const fromId = draggedSidebarId || e.dataTransfer.getData('text/plain');
+                  handleSidebarDrop(fromId, item.id);
+                  setDraggedSidebarId(null);
+                }}
+                className={`space-y-0.5 ${canAdminModules ? 'cursor-grab active:cursor-grabbing' : ''}`}
+              >
+                {/* Carpeta Agrupadora Personalizada o Módulo Principal */}
+                {isCustomFolder ? (
+                  <div
+                    onClick={(e) => toggleExpand(item.id, e)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all font-semibold text-sm cursor-pointer select-none ${
+                      isAnyChildActive ? tonal.sidebarFolderActiveClass : tonal.sidebarFolderClass
+                    }`}
                   >
-                    <Icon
-                      className={`w-4 h-4 shrink-0 ${
-                        isActive ? 'text-blue-200' : isAnyChildActive ? 'text-blue-400' : 'text-slate-400'
-                      }`}
-                    />
-                    <div className="min-w-0">
-                      <div className="leading-tight truncate">{item.label}</div>
-                      <div
-                        className={`text-[10px] leading-tight truncate ${
-                          isActive ? 'text-blue-200' : 'text-slate-400'
-                        }`}
-                      >
-                        {item.desc}
-                      </div>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Icon className={`w-4 h-4 shrink-0 ${tonal.sidebarFolderIconClass}`} />
+                      <span className="truncate">{item.label}</span>
                     </div>
-                  </button>
-
-                  <div className="flex items-center gap-1 pr-2 shrink-0">
-                    {item.badge && (
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <span
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
-                          item.badgeColor || 'bg-blue-900 text-blue-200'
-                        }`}
+                        className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${tonal.sidebarCountBadgeClass}`}
                       >
-                        {item.badge}
+                        {children.length}
                       </span>
-                    )}
-
-                    {/* Botón colapsar / expandir submódulos */}
-                    {hasChildren && (
-                      <button
-                        type="button"
-                        onClick={(e) => toggleExpand(item.id, e)}
-                        className="p-1 text-slate-400 hover:text-white hover:bg-slate-700/60 rounded transition-colors cursor-pointer"
-                        title={isExpanded ? 'Ocultar submódulos' : 'Mostrar submódulos'}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    )}
+                      {isExpanded ? (
+                        <span className="text-xs text-slate-300 font-bold">▲</span>
+                      ) : (
+                        <span className="text-xs text-slate-300 font-bold">▼</span>
+                      )}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div
+                    className={`w-full flex items-center justify-between rounded-lg transition-all ${
+                      isActive
+                        ? tonal.sidebarItemActiveClass
+                        : isAnyChildActive
+                        ? tonal.sidebarFolderActiveClass
+                        : tonal.sidebarItemClass
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectTab(item.id as ActiveTab);
+                        if (hasChildren && !isExpanded) {
+                          setExpandedParents((prev) => ({ ...prev, [item.id]: true }));
+                        }
+                      }}
+                      className="flex-1 flex items-center gap-3 px-3 py-2 text-left text-sm font-medium cursor-pointer min-w-0"
+                    >
+                      <Icon
+                        className={`w-4 h-4 shrink-0 ${
+                          isActive ? 'text-white' : tonal.sidebarIconClass
+                        }`}
+                      />
+                      <div className="min-w-0">
+                        <div className="leading-tight truncate">{item.label}</div>
+                        <div
+                          className={`text-[10px] leading-tight truncate ${
+                            isActive ? 'text-white/80' : 'text-slate-400'
+                          }`}
+                        >
+                          {item.desc}
+                        </div>
+                      </div>
+                    </button>
 
-                {/* Submódulos Anidados */}
+                    <div className="flex items-center gap-1 pr-2 shrink-0">
+                      {(item as any).badge && (
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                            (item as any).badgeColor || 'bg-blue-900 text-blue-200'
+                          }`}
+                        >
+                          {(item as any).badge}
+                        </span>
+                      )}
+
+                      {/* Botón colapsar / expandir submódulos */}
+                      {hasChildren && (
+                        <button
+                          type="button"
+                          onClick={(e) => toggleExpand(item.id, e)}
+                          className="p-1 text-slate-400 hover:text-white hover:bg-slate-700/60 rounded transition-colors cursor-pointer"
+                          title={isExpanded ? 'Ocultar submódulos' : 'Mostrar submódulos'}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Submódulos Anidados con separación tonal */}
                 {hasChildren && isExpanded && (
-                  <div className="pl-4 ml-3 border-l border-slate-700/80 space-y-1 py-1 animate-in fade-in duration-150">
+                  <div
+                    className={`pl-3 ml-3 border-l-2 ${tonal.sidebarBorderClass} space-y-1 py-1 animate-in fade-in duration-150`}
+                  >
                     {children.map((child) => {
                       const ChildIcon = child.icon;
                       const isChildActive = activeTab === child.id;
+                      const childTonal = getTonalidadStyle(
+                        (child as any).colorTonalidad,
+                        child.id
+                      );
 
                       return (
                         <button
@@ -419,27 +616,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           onClick={() => onSelectTab(child.id as ActiveTab)}
                           className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-left text-xs font-medium transition-all cursor-pointer ${
                             isChildActive
-                              ? 'bg-blue-700 text-white font-bold shadow-xs'
-                              : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                              ? childTonal.sidebarSubActiveClass
+                              : childTonal.sidebarSubClass
                           }`}
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="text-slate-500 font-mono text-[10px]">↳</span>
                             <ChildIcon
                               className={`w-3.5 h-3.5 shrink-0 ${
-                                isChildActive ? 'text-blue-100' : 'text-slate-500'
+                                isChildActive ? 'text-white' : childTonal.sidebarIconClass
                               }`}
                             />
                             <span className="truncate">{child.label}</span>
                           </div>
 
-                          {child.badge && (
+                          {(child as any).badge && (
                             <span
                               className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full border ${
-                                child.badgeColor || 'bg-blue-900 text-blue-200'
+                                (child as any).badgeColor || 'bg-blue-900 text-blue-200'
                               }`}
                             >
-                              {child.badge}
+                              {(child as any).badge}
                             </span>
                           )}
                         </button>

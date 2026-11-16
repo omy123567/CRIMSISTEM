@@ -6,6 +6,7 @@ import {
   GrupoPersonal,
   ConfiguracionSistema,
   IntervencionParte,
+  UsuarioSistema,
 } from '../../types/police';
 import {
   Search,
@@ -40,8 +41,7 @@ import { DetalleIntervencionesTipoModal } from './DetalleIntervencionesTipoModal
 import { GestionCibercrimenGuardiaModal } from './GestionCibercrimenGuardiaModal';
 import { ParteVisualPreview } from './ParteVisualPreview';
 import { ConfirmModal } from '../common/ConfirmModal';
-import { UsuarioSistema } from '../../types/police';
-import { Cpu } from 'lucide-react';
+import { Cpu, ArrowLeftRight } from 'lucide-react';
 import { generarPdfParteGuardia } from '../../services/pdfService';
 
 interface GuardiasTableViewProps {
@@ -103,6 +103,51 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
     parte: ParteNovedadesGuardia | null;
   }>({ isOpen: false, parte: null });
 
+  // Orden dinámico de columnas (Requerimiento: "permite cambiar el orden de las columnas")
+  const defaultColOrder = ['personal', 'moviles', 'lc', 'forense', 'segVial', 'cibercrimen'];
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sispol_guardias_column_order');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length === defaultColOrder.length) return parsed;
+      }
+    } catch (e) {}
+    return config.ordenColumnasGuardia || defaultColOrder;
+  });
+
+  const [draggedColIdx, setDraggedColIdx] = useState<number | null>(null);
+
+  const moverColumna = (index: number, direccion: 'izq' | 'der') => {
+    const target = direccion === 'izq' ? index - 1 : index + 1;
+    if (target < 0 || target >= columnOrder.length) return;
+    const copy = [...columnOrder];
+    const temp = copy[index];
+    copy[index] = copy[target];
+    copy[target] = temp;
+    setColumnOrder(copy);
+    try {
+      localStorage.setItem('sispol_guardias_column_order', JSON.stringify(copy));
+    } catch (e) {}
+    if (onSaveConfig) {
+      onSaveConfig({ ...config, ordenColumnasGuardia: copy });
+    }
+  };
+
+  const reordenarColumnaPorArrastre = (fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= columnOrder.length || toIdx >= columnOrder.length) return;
+    const copy = [...columnOrder];
+    const [moved] = copy.splice(fromIdx, 1);
+    copy.splice(toIdx, 0, moved);
+    setColumnOrder(copy);
+    try {
+      localStorage.setItem('sispol_guardias_column_order', JSON.stringify(copy));
+    } catch (e) {}
+    if (onSaveConfig) {
+      onSaveConfig({ ...config, ordenColumnasGuardia: copy });
+    }
+  };
+
   // Verificación de permiso de edición:
   // "En parte de Novedades que todos los usuarios comunes puedan editar las cargas, durante el turno de guardia. 07:00 a 19:00 horas y 19:00 a 07:00 horas."
   // "no debe poder modificarse una vez cargado las intervenciones, salvo caso que se tenga el permiso especifico."
@@ -144,6 +189,153 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
     return { puede: true };
   };
 
+  const getColDef = (key: string) => {
+    switch (key) {
+      case 'personal':
+        return {
+          id: 'personal',
+          label: 'Personal',
+          bgTh: '',
+          bgTd: '',
+          title: 'Personal de guardia (Click para gestionar)',
+          render: (p: ParteNovedadesGuardia, counts: any) => (
+            <button
+              type="button"
+              onClick={() => {
+                const check = verificarPermisoGuardia(p);
+                if (!check.puede) {
+                  setAvisoBloqueoModal(check.motivo || '');
+                  return;
+                }
+                setPersonalModalParte(p);
+              }}
+              className="inline-flex items-center gap-1 font-mono font-bold text-slate-800 hover:text-blue-900 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors text-[11px]"
+              title="Gestionar Personal y Funciones de esta guardia (Editar, Eliminar, Agregar)"
+            >
+              <Search className="w-3 h-3 text-slate-400" />
+              <Users className="w-3.5 h-3.5 text-blue-800" />
+              <span>{counts.personalCount}</span>
+            </button>
+          ),
+        };
+      case 'moviles':
+        return {
+          id: 'moviles',
+          label: 'Móviles',
+          bgTh: '',
+          bgTd: '',
+          title: 'Móviles de guardia (Click para gestionar)',
+          render: (p: ParteNovedadesGuardia, counts: any) => (
+            <button
+              type="button"
+              onClick={() => {
+                const check = verificarPermisoGuardia(p);
+                if (!check.puede) {
+                  setAvisoBloqueoModal(check.motivo || '');
+                  return;
+                }
+                setMovilesModalParte(p);
+              }}
+              className="inline-flex items-center gap-1 font-mono font-bold text-slate-800 hover:text-blue-900 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors text-[11px]"
+              title="Gestionar Móviles de esta guardia (Parque automotor)"
+            >
+              <Search className="w-3 h-3 text-slate-400" />
+              <Car className="w-3.5 h-3.5 text-slate-700" />
+              <span>{counts.movilesCount}</span>
+            </button>
+          ),
+        };
+      case 'lc':
+        return {
+          id: 'lc',
+          label: 'LC',
+          bgTh: 'bg-blue-50/50',
+          bgTd: 'bg-blue-50/30',
+          title: 'LC: Labor Criminalística (Hechos no de tránsito)',
+          render: (p: ParteNovedadesGuardia, counts: any) => (
+            <button
+              type="button"
+              onClick={() => setTipoModalData({ parte: p, tipo: 'LC' })}
+              className="inline-flex items-center gap-1 font-mono font-bold text-blue-950 hover:text-blue-800 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors text-[11px]"
+              title="Labor Criminalística (Hechos no de tránsito) - Ver o registrar intervenciones"
+            >
+              <Search className="w-3 h-3 text-blue-400" />
+              <ShieldAlert className="w-3.5 h-3.5 text-blue-700" />
+              <span>{counts.lc}</span>
+            </button>
+          ),
+        };
+      case 'forense':
+        return {
+          id: 'forense',
+          label: 'Forense',
+          bgTh: 'bg-teal-50/50',
+          bgTd: 'bg-teal-50/30',
+          title: 'Forense de turno y relevos',
+          render: (p: ParteNovedadesGuardia, counts: any) => (
+            <button
+              type="button"
+              onClick={() => {
+                const check = verificarPermisoGuardia(p);
+                if (!check.puede) {
+                  setAvisoBloqueoModal(check.motivo || '');
+                  return;
+                }
+                setForenseModalParte(p);
+              }}
+              className="inline-flex items-center gap-1 font-mono font-bold text-teal-950 hover:text-teal-800 hover:bg-teal-100 px-2 py-0.5 rounded transition-colors text-[11px]"
+              title="Forense de turno y relevos (Horarios y personas examinadas)"
+            >
+              <Search className="w-3 h-3 text-teal-400" />
+              <Stethoscope className="w-3.5 h-3.5 text-teal-700" />
+              <span>{counts.forenseCount}</span>
+            </button>
+          ),
+        };
+      case 'segVial':
+        return {
+          id: 'segVial',
+          label: 'Seg. Vial',
+          bgTh: 'bg-amber-50/50',
+          bgTd: 'bg-amber-50/30',
+          title: 'Seguridad Vial (Siniestros y constataciones viales)',
+          render: (p: ParteNovedadesGuardia, counts: any) => (
+            <button
+              type="button"
+              onClick={() => setTipoModalData({ parte: p, tipo: 'SegVial' })}
+              className="inline-flex items-center gap-1 font-mono font-bold text-amber-950 hover:text-amber-800 hover:bg-amber-100 px-2 py-0.5 rounded transition-colors text-[11px]"
+              title="Seguridad Vial - Ver o registrar siniestros viales"
+            >
+              <Search className="w-3 h-3 text-amber-400" />
+              <Car className="w-3.5 h-3.5 text-amber-700" />
+              <span>{counts.segVial}</span>
+            </button>
+          ),
+        };
+      case 'cibercrimen':
+      default:
+        return {
+          id: 'cibercrimen',
+          label: 'Cibercrimen',
+          bgTh: 'bg-indigo-50/50',
+          bgTd: 'bg-indigo-50/30',
+          title: 'Cibercrimen (Resguardo de evidencia y tareas)',
+          render: (p: ParteNovedadesGuardia) => (
+            <button
+              type="button"
+              onClick={() => setCibercrimenModalParte(p)}
+              className="inline-flex items-center gap-1 font-mono font-bold text-indigo-950 hover:text-indigo-800 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors text-[11px]"
+              title="Cibercrimen - Resguardo de evidencia, filmaciones y pericias digitales"
+            >
+              <Search className="w-3 h-3 text-indigo-400" />
+              <Cpu className="w-3.5 h-3.5 text-indigo-700" />
+              <span>{p.cibercrimenRegistros?.length || 0}</span>
+            </button>
+          ),
+        };
+    }
+  };
+
   // Filtrado reactivo de turnos de guardia
   const filteredPartes = useMemo(() => {
     return partesList.filter((p) => {
@@ -173,14 +365,22 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
         dep.toLowerCase().includes(term) ||
         p.grupoGuardia.toLowerCase().includes(term);
 
-      // Filtro por Fechas
-      const fInicio = p.fechaInicio;
+      // Filtro por Fechas mejorado
+      const fInicio = (p.fechaInicio || (p.fechaHoraDesde || '').slice(0, 10)).trim();
+      const fFin = (p.fechaFin || (p.fechaHoraHasta || '').slice(0, 10)).trim();
       let matchFecha = true;
-      if (fechaDesde && fInicio < fechaDesde) matchFecha = false;
-      if (fechaHasta && fInicio > fechaHasta) matchFecha = false;
+      if (fechaDesde) {
+        if (fInicio && fInicio < fechaDesde && (!fFin || fFin < fechaDesde)) matchFecha = false;
+      }
+      if (fechaHasta) {
+        if (fInicio && fInicio > fechaHasta) matchFecha = false;
+      }
 
-      // Filtro por tipo, dependencia y grupo
-      const matchTipo = filtroTipo === 'todos' || (p.tipoGuardia || 'Pericial') === filtroTipo;
+      // Filtro por tipo de guardia robusto
+      const matchTipo =
+        filtroTipo === 'todos' ||
+        (p.tipoGuardia || '').toLowerCase() === filtroTipo.toLowerCase() ||
+        (p.tipoGuardia || '').toLowerCase().includes(filtroTipo.toLowerCase());
       const matchDep = filtroDependencia === 'todas' || (p.dependencia || p.grupoGuardia) === filtroDependencia;
       const matchGrp = filtroGrupo === 'todos' || p.grupoGuardia === filtroGrupo;
 
@@ -290,6 +490,22 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
             </button>
 
             <button
+              type="button"
+              onClick={() => {
+                setColumnOrder(defaultColOrder);
+                try {
+                  localStorage.removeItem('sispol_guardias_column_order');
+                } catch (e) {}
+                if (onSaveConfig) onSaveConfig({ ...config, ordenColumnasGuardia: defaultColOrder });
+              }}
+              className="px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-100 flex items-center gap-1 text-[11px] font-semibold cursor-pointer"
+              title="Restablecer el orden por defecto de las columnas de la tabla"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5 text-blue-700" />
+              <span className="hidden sm:inline">Restablecer Columnas</span>
+            </button>
+
+            <button
               onClick={onNewGuardia}
               className="px-4 py-1.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-bold flex items-center gap-1.5 shadow-xs transition-colors"
             >
@@ -299,27 +515,99 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
           </div>
         </div>
 
-        {/* Fila secundaria de filtros: Fechas, Tipo Guardia, Dependencia, Grupo */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 text-[11px] font-semibold whitespace-nowrap">Desde:</span>
-            <input
-              type="date"
-              value={fechaDesde}
-              onChange={(e) => setFechaDesde(e.target.value)}
-              className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
-            />
+        {/* Fila secundaria de filtros: Fechas, Presets, Tipo Guardia, Dependencia, Grupo */}
+        <div className="space-y-2 pt-2 border-t border-slate-100">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+              <Calendar className="w-3.5 h-3.5 text-blue-900" />
+              <span>Filtro por Rango de Fechas:</span>
+            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  const hoy = new Date().toISOString().slice(0, 10);
+                  setFechaDesde(hoy);
+                  setFechaHasta(hoy);
+                }}
+                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-900 text-[11px] font-medium transition-colors cursor-pointer"
+              >
+                Hoy
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const d = new Date();
+                  const day = d.getDay();
+                  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                  const monday = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+                  const sunday = new Date(d.setDate(diff + 6)).toISOString().slice(0, 10);
+                  setFechaDesde(monday);
+                  setFechaHasta(sunday);
+                }}
+                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-900 text-[11px] font-medium transition-colors cursor-pointer"
+              >
+                Esta Semana
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const now = new Date();
+                  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+                  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+                  setFechaDesde(firstDay);
+                  setFechaHasta(lastDay);
+                }}
+                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-900 text-[11px] font-medium transition-colors cursor-pointer"
+              >
+                Este Mes
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const year = new Date().getFullYear();
+                  setFechaDesde(`${year}-01-01`);
+                  setFechaHasta(`${year}-12-31`);
+                }}
+                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-900 text-[11px] font-medium transition-colors cursor-pointer"
+              >
+                Este Año
+              </button>
+              {(fechaDesde || fechaHasta) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFechaDesde('');
+                    setFechaHasta('');
+                  }}
+                  className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 text-[11px] font-bold transition-colors cursor-pointer"
+                >
+                  Quitar Fechas
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 text-[11px] font-semibold whitespace-nowrap">Hasta:</span>
-            <input
-              type="date"
-              value={fechaHasta}
-              onChange={(e) => setFechaHasta(e.target.value)}
-              className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
-            />
-          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 text-[11px] font-semibold whitespace-nowrap">Desde:</span>
+              <input
+                type="date"
+                value={fechaDesde}
+                onChange={(e) => setFechaDesde(e.target.value)}
+                className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 text-[11px] font-semibold whitespace-nowrap">Hasta:</span>
+              <input
+                type="date"
+                value={fechaHasta}
+                onChange={(e) => setFechaHasta(e.target.value)}
+                className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
+              />
+            </div>
 
           <div className="flex items-center gap-1.5">
             <span className="text-slate-500 text-[11px] font-semibold whitespace-nowrap">Tipo:</span>
@@ -353,6 +641,7 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
           </div>
         </div>
       </div>
+      </div>
 
       {/* TABLA PRINCIPAL DE GUARDIAS (Estilo fiel a imagen image_13f44ed9.png) */}
       <div className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden text-xs">
@@ -373,12 +662,58 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                 <th className="py-2.5 px-3 border-r border-slate-300 whitespace-nowrap">Dependencias</th>
                 <th className="py-2.5 px-3 border-r border-slate-300 whitespace-nowrap">Fecha/Hora Desde</th>
                 <th className="py-2.5 px-3 border-r border-slate-300 whitespace-nowrap">Fecha/Hora Hasta</th>
-                <th className="py-2.5 px-2.5 text-center border-r border-slate-300 whitespace-nowrap" title="Click para agregar, editar o eliminar personal de esta guardia">Personal</th>
-                <th className="py-2.5 px-2.5 text-center border-r border-slate-300 whitespace-nowrap" title="Click para agregar, editar o eliminar móviles del parque automotor">Móviles</th>
-                <th className="py-2.5 px-2.5 text-center border-r border-slate-300 whitespace-nowrap bg-blue-50/50" title="LC: Labor Criminalística (Hechos no de tránsito)">LC</th>
-                <th className="py-2.5 px-2.5 text-center border-r border-slate-300 whitespace-nowrap bg-teal-50/50" title="Forense de turno y relevos (Horarios y personas examinadas)">Forense</th>
-                <th className="py-2.5 px-2.5 text-center border-r border-slate-300 whitespace-nowrap bg-amber-50/50" title="Seguridad Vial (Siniestros y constataciones viales)">Seg. Vial</th>
-                <th className="py-2.5 px-2.5 text-center border-r border-slate-300 whitespace-nowrap bg-indigo-50/50" title="Cibercrimen (Resguardo de evidencia y filmaciones)">Cibercrimen</th>
+                {/* Columnas Reordenables (Personal, Móviles, LC, Forense, Seg. Vial, Cibercrimen) */}
+                {columnOrder.map((key, idx) => {
+                  const col = getColDef(key);
+                  const isDragging = draggedColIdx === idx;
+                  return (
+                    <th
+                      key={key}
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedColIdx(idx);
+                        e.dataTransfer.setData('text/plain', String(idx));
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const fromIdx = draggedColIdx !== null ? draggedColIdx : Number(e.dataTransfer.getData('text/plain'));
+                        reordenarColumnaPorArrastre(fromIdx, idx);
+                        setDraggedColIdx(null);
+                      }}
+                      className={`py-2 px-1 text-center border-r border-slate-300 whitespace-nowrap group select-none cursor-grab active:cursor-grabbing transition-opacity ${
+                        isDragging ? 'opacity-40 bg-indigo-100' : ''
+                      } ${col.bgTh}`}
+                      title={`${col.title} (Arrastre para mover o use las flechas)`}
+                    >
+                      <div className="inline-flex items-center justify-center gap-1">
+                        {idx > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); moverColumna(idx, 'izq'); }}
+                            className="p-0.5 text-slate-400 hover:text-blue-900 hover:bg-slate-200 rounded cursor-pointer transition-colors text-[10px]"
+                            title="Mover columna hacia la izquierda"
+                          >
+                            ◀
+                          </button>
+                        )}
+                        <span className="font-bold">{col.label}</span>
+                        {idx < columnOrder.length - 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); moverColumna(idx, 'der'); }}
+                            className="p-0.5 text-slate-400 hover:text-blue-900 hover:bg-slate-200 rounded cursor-pointer transition-colors text-[10px]"
+                            title="Mover columna hacia la derecha"
+                          >
+                            ▶
+                          </button>
+                        )}
+                      </div>
+                    </th>
+                  );
+                })}
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Acciones</th>
               </tr>
             </thead>
@@ -442,110 +777,18 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                         {p.fechaHoraHasta || `${p.fechaFin} ${p.horaFin}:00`}
                       </td>
 
-                      {/* PERSONAL (Interactible: editar, eliminar, agregar según image_a9bdfe7b.png) */}
-                      <td className="py-2.5 px-2.5 text-center border-r border-slate-200 whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const check = verificarPermisoGuardia(p);
-                            if (!check.puede) {
-                              setAvisoBloqueoModal(check.motivo || '');
-                              return;
-                            }
-                            setPersonalModalParte(p);
-                          }}
-                          className="inline-flex items-center gap-1 font-mono font-bold text-slate-800 hover:text-blue-900 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors text-[11px]"
-                          title="Gestionar Personal y Funciones de esta guardia (Editar, Eliminar, Agregar)"
-                        >
-                          <Search className="w-3 h-3 text-slate-400" />
-                          <Users className="w-3.5 h-3.5 text-blue-800" />
-                          <span>{counts.personalCount}</span>
-                        </button>
-                      </td>
-
-                      {/* MÓVILES (Interactible: agregar, editar, eliminar móviles según parque automotor) */}
-                      <td className="py-2.5 px-2.5 text-center border-r border-slate-200 whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const check = verificarPermisoGuardia(p);
-                            if (!check.puede) {
-                              setAvisoBloqueoModal(check.motivo || '');
-                              return;
-                            }
-                            setMovilesModalParte(p);
-                          }}
-                          className="inline-flex items-center gap-1 font-mono font-bold text-slate-800 hover:text-blue-900 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors text-[11px]"
-                          title="Gestionar Móviles de esta guardia (Parque automotor)"
-                        >
-                          <Search className="w-3 h-3 text-slate-400" />
-                          <Car className="w-3.5 h-3.5 text-slate-700" />
-                          <span>{counts.movilesCount}</span>
-                        </button>
-                      </td>
-
-                      {/* LC: LABOR CRIMINALÍSTICA (Hechos no de tránsito) */}
-                      <td className="py-2.5 px-2.5 text-center border-r border-slate-200 whitespace-nowrap bg-blue-50/30">
-                        <button
-                          type="button"
-                          onClick={() => setTipoModalData({ parte: p, tipo: 'LC' })}
-                          className="inline-flex items-center gap-1 font-mono font-bold text-blue-950 hover:text-blue-800 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors text-[11px]"
-                          title="Labor Criminalística (Hechos no de tránsito) - Ver o registrar intervenciones"
-                        >
-                          <Search className="w-3 h-3 text-blue-400" />
-                          <ShieldAlert className="w-3.5 h-3.5 text-blue-700" />
-                          <span>{counts.lc}</span>
-                        </button>
-                      </td>
-
-                      {/* FORENSE (Médico forense de turno, horario y examinados) */}
-                      <td className="py-2.5 px-2.5 text-center border-r border-slate-200 whitespace-nowrap bg-teal-50/30">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const check = verificarPermisoGuardia(p);
-                            if (!check.puede) {
-                              setAvisoBloqueoModal(check.motivo || '');
-                              return;
-                            }
-                            setForenseModalParte(p);
-                          }}
-                          className="inline-flex items-center gap-1 font-mono font-bold text-teal-950 hover:text-teal-800 hover:bg-teal-100 px-2 py-0.5 rounded transition-colors text-[11px]"
-                          title="Forense de turno y relevos (Horarios y personas examinadas)"
-                        >
-                          <Search className="w-3 h-3 text-teal-400" />
-                          <Stethoscope className="w-3.5 h-3.5 text-teal-700" />
-                          <span>{counts.forenseCount}</span>
-                        </button>
-                      </td>
-
-                      {/* SEG. VIAL (Siniestros y hechos de tránsito) */}
-                      <td className="py-2.5 px-2.5 text-center border-r border-slate-200 whitespace-nowrap bg-amber-50/30">
-                        <button
-                          type="button"
-                          onClick={() => setTipoModalData({ parte: p, tipo: 'SegVial' })}
-                          className="inline-flex items-center gap-1 font-mono font-bold text-amber-950 hover:text-amber-800 hover:bg-amber-100 px-2 py-0.5 rounded transition-colors text-[11px]"
-                          title="Seguridad Vial - Ver o registrar siniestros viales"
-                        >
-                          <Search className="w-3 h-3 text-amber-400" />
-                          <Car className="w-3.5 h-3.5 text-amber-700" />
-                          <span>{counts.segVial}</span>
-                        </button>
-                      </td>
-
-                      {/* CIBERCRIMEN (Resguardo de evidencia y filmaciones - No suma a intervenciones) */}
-                      <td className="py-2.5 px-2.5 text-center border-r border-slate-200 whitespace-nowrap bg-indigo-50/30">
-                        <button
-                          type="button"
-                          onClick={() => setCibercrimenModalParte(p)}
-                          className="inline-flex items-center gap-1 font-mono font-bold text-indigo-950 hover:text-indigo-800 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors text-[11px]"
-                          title="Cibercrimen - Resguardo de evidencia, filmaciones y pericias digitales"
-                        >
-                          <Search className="w-3 h-3 text-indigo-400" />
-                          <Cpu className="w-3.5 h-3.5 text-indigo-700" />
-                          <span>{p.cibercrimenRegistros?.length || 0}</span>
-                        </button>
-                      </td>
+                      {/* Celdas dinámicas según el orden seleccionado por el usuario */}
+                      {columnOrder.map((key) => {
+                        const col = getColDef(key);
+                        return (
+                          <td
+                            key={key}
+                            className={`py-2.5 px-2 text-center border-r border-slate-200 whitespace-nowrap ${col.bgTd}`}
+                          >
+                            {col.render(p, counts)}
+                          </td>
+                        );
+                      })}
 
                       {/* ACCIONES: Reemplazar 'Cargar Novedades' por 'Vista Preliminar' según pedido del usuario */}
                       <td
@@ -700,6 +943,7 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
         <GestionMovilesGuardiaModal
           parte={movilesModalParte}
           movilesList={movilesList}
+          config={config}
           onSave={(updated) => {
             if (onSaveParte) onSaveParte(updated);
             setMovilesModalParte(null);

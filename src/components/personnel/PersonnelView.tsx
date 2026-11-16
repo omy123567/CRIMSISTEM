@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Personal, ConfiguracionSistema, DelegacionPolicial } from '../../types/police';
+import { Personal, ConfiguracionSistema, DelegacionPolicial, UsuarioSistema } from '../../types/police';
 import {
   Search,
   Plus,
@@ -33,11 +33,13 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { ReportePersonalModal } from './ReportePersonalModal';
 
 interface PersonnelViewProps {
   personalList: Personal[];
   config: ConfiguracionSistema;
   delegacionesList?: DelegacionPolicial[];
+  currentUser?: UsuarioSistema;
   onSavePersonal: (p: Personal) => void;
   onDeletePersonal: (id: string) => void;
   onTransferirPersonal?: (
@@ -55,6 +57,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
   personalList,
   config,
   delegacionesList = [],
+  currentUser,
   onSavePersonal,
   onDeletePersonal,
   onTransferirPersonal,
@@ -81,6 +84,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
 
   // Modal de Aviso de Próximos Cumpleaños
   const [isBirthdayModalOpen, setIsBirthdayModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // Alertas de Cumpleaños
   const todayBirthdays = useMemo(() => getTodayBirthdays(personalList), [personalList]);
@@ -92,6 +96,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
       const matchSearch =
         p.apellidoYNombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.dni.includes(searchTerm) ||
+        Boolean(p.cedulaProvincial && p.cedulaProvincial.toLowerCase().includes(searchTerm.toLowerCase())) ||
         p.jerarquia.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.plaza.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -121,6 +126,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
       p.jerarquia,
       p.apellidoYNombre,
       p.dni,
+      p.cedulaProvincial || '---',
       p.plaza,
       p.seccionGrupo,
       p.estado,
@@ -137,6 +143,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
         'Jerarquía',
         'Apellido y Nombre',
         'DNI',
+        'Cédula Prov.',
         'Plaza',
         'Grupo / Sección',
         'Estado',
@@ -231,6 +238,15 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
           >
             <FilePenLine className="w-3.5 h-3.5 text-emerald-200" />
             <span>Formulario a Mano</span>
+          </button>
+
+          <button
+            onClick={() => setIsReportModalOpen(true)}
+            className="flex items-center gap-1.5 bg-blue-800 hover:bg-blue-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+            title="Generar reportes oficiales filtrados por categoría (sexo, arma, jerarquía, sección, delegación) y rango de fechas"
+          >
+            <FileText className="w-3.5 h-3.5 text-blue-200" />
+            <span>Generar Reporte</span>
           </button>
 
           <button
@@ -386,7 +402,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                         {p.apellidoYNombre}
                       </h3>
                       <div className="text-[11px] text-slate-500 font-mono">
-                        DNI: {p.dni} • Plaza: {p.plaza || 's/p'}
+                        DNI: {p.dni} {p.cedulaProvincial ? `• CP: ${p.cedulaProvincial}` : ''} • Plaza: {p.plaza || 's/p'}
                       </div>
                     </div>
                     <span
@@ -511,10 +527,15 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                   {p.apellidoYNombre.slice(0, 2).toUpperCase()}
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-blue-900">{p.jerarquia}</span>
                     <span className="font-bold text-slate-900">{p.apellidoYNombre}</span>
                     <span className="text-slate-400 font-mono">DNI {p.dni}</span>
+                    {p.cedulaProvincial && (
+                      <span className="text-blue-800 font-mono text-[10px] bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
+                        CP {p.cedulaProvincial}
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11px] text-slate-500">
                     {p.seccionGrupo} • Plaza {p.plaza || 's/p'} • Cel: {p.telefono}
@@ -593,7 +614,10 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                   <td className="py-2.5 px-3 font-semibold text-blue-950">{p.jerarquia}</td>
                   <td className="py-2.5 px-3 font-bold text-slate-900">{p.apellidoYNombre}</td>
                   <td className="py-2.5 px-3 font-mono">
-                    {p.dni} <span className="text-slate-400 text-[10px]">({p.plaza})</span>
+                    <div>{p.dni} <span className="text-slate-400 text-[10px]">({p.plaza})</span></div>
+                    {p.cedulaProvincial && (
+                      <div className="text-[10px] text-blue-900 font-semibold">CP: {p.cedulaProvincial}</div>
+                    )}
                   </td>
                   <td className="py-2.5 px-3">{p.seccionGrupo}</td>
                   <td className="py-2.5 px-3">
@@ -714,6 +738,16 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
         onClose={() => setIsBirthdayModalOpen(false)}
         personalList={personalList}
         config={config}
+      />
+
+      {/* Modal Generador de Reportes de Personal */}
+      <ReportePersonalModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        personalList={personalList}
+        config={config}
+        delegacionesList={delegacionesList}
+        currentUser={currentUser}
       />
     </div>
   );

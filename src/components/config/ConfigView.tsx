@@ -201,7 +201,13 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     if (!nuevoItemCatalogo.trim()) return;
     const currentList =
       (formData[activeCatalogTab] as string[]) ||
-      (activeCatalogTab === 'funcionesGuardiaCatalogo'
+      (activeCatalogTab === 'causasReferencia'
+        ? ['Sumario Judicial', 'Actuaciones Prevencionales', 'Expediente', 'Causa Penal', 'Oficio Judicial']
+        : activeCatalogTab === 'tiposLesionCatalogo'
+        ? ['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'Óbito']
+        : activeCatalogTab === 'viasSolicitud'
+        ? ['vía telefónica.', 'vía radial.', 'por escrito.', 'comparecencia personal en guardia.']
+        : activeCatalogTab === 'funcionesGuardiaCatalogo'
         ? [
             'Oficial de Servicio',
             'Oficial de Guardia',
@@ -213,8 +219,8 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           ]
         : []);
 
-    if (currentList.includes(nuevoItemCatalogo.trim())) {
-      alert('El valor ya existe en este catálogo');
+    if (currentList.some((item) => item.toLowerCase() === nuevoItemCatalogo.trim().toLowerCase())) {
+      alert('El valor ya existe en este catálogo (se evitan duplicados)');
       return;
     }
     const updated = {
@@ -386,10 +392,13 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   };
 
   const catalogOptions: { id: keyof ConfiguracionSistema; label: string }[] = [
+    { id: 'viasSolicitud', label: 'Solicitud Vía' },
+    { id: 'causasReferencia', label: 'REFERENCIA / Causa' },
+    { id: 'tiposLesionCatalogo', label: 'Tipo de Lesión' },
+    { id: 'funcionesGuardiaCatalogo', label: 'Función' },
+    { id: 'condicionesInvolucrado', label: 'Condición' },
     { id: 'jerarquias', label: 'Jerarquías Policiales' },
     { id: 'gruposGuardia', label: 'Grupos de Guardia / Oficina' },
-    { id: 'funcionesGuardiaCatalogo', label: 'Funciones de Guardia' },
-    { id: 'condicionesInvolucrado', label: 'Condiciones de Involucrados' },
     { id: 'hechosCriminalistica', label: 'Hechos Habituales' },
     { id: 'tiposRequerimiento', label: 'Tipos de Requerimiento' },
     { id: 'tiposOficio', label: 'Tipos de Oficio Judicial' },
@@ -397,7 +406,6 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     { id: 'dependenciasPoliciales', label: 'Dependencias Policiales' },
     { id: 'unidadesRegionales', label: 'Unidades Regionales' },
     { id: 'destinosPoliciales', label: 'Destinos Policiales' },
-    { id: 'viasSolicitud', label: 'Vías de Solicitud' },
     { id: 'tiposRecargo', label: 'Tipos de Recargo' },
   ];
 
@@ -1458,6 +1466,112 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           >
             Abrir Administrador
           </button>
+        </div>
+      </div>
+
+      {/* SECCIÓN I.5: CONTROL Y RECORDATORIOS DE MANTENIMIENTO DE MÓVILES (RTO Y SERVIS OFICIAL) */}
+      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+          <div className="flex items-center gap-2">
+            <Car className="w-5 h-5 text-blue-900" />
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">
+                Control y Recordatorios de Mantenimiento de Móviles (RTO & Servis)
+              </h2>
+              <p className="text-xs text-slate-500">
+                Personalice los períodos de anticipación para las alertas de Revisión Técnica Obligatoria (RTO) y servicios de mantenimiento preventivo.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          {/* RTO Recordatorio */}
+          <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-2">
+            <span className="font-bold text-blue-950 block text-xs">
+              Anticipación de Alerta RTO (Días)
+            </span>
+            <p className="text-[11px] text-slate-600">
+              Tiempo previo al vencimiento para activar notificaciones preventivas.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="1"
+                max="180"
+                value={formData.recordatorioRtoDias ?? 30}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 30;
+                  const upd = { ...formData, recordatorioRtoDias: val };
+                  setFormData(upd);
+                  onSaveConfig(upd);
+                }}
+                className="w-24 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-mono font-bold text-slate-900"
+              />
+              <span className="text-slate-600 font-medium">días (ej. 30 días = 1 mes)</span>
+            </div>
+            <span className="text-[10px] text-blue-800 font-semibold block pt-1">
+              * Nota: Las motocicletas / motovehículos están automáticamente exentas de este aviso.
+            </span>
+          </div>
+
+          {/* Intervalo de Servis */}
+          <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-2">
+            <span className="font-bold text-indigo-950 block text-xs">
+              Intervalo de Servis Oficial (Frecuencia)
+            </span>
+            <p className="text-[11px] text-slate-600">
+              Cada cuántos kilómetros se debe realizar el mantenimiento de la unidad.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="1000"
+                step="1000"
+                value={formData.intervaloServiceKm ?? 10000}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 10000;
+                  const upd = { ...formData, intervaloServiceKm: val };
+                  setFormData(upd);
+                  onSaveConfig(upd);
+                }}
+                className="w-28 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-mono font-bold text-slate-900"
+              />
+              <span className="text-slate-600 font-medium">Km (ej. cada 10.000 Km)</span>
+            </div>
+            <span className="text-[10px] text-indigo-800 font-semibold block pt-1">
+              Establece el objetivo de odómetro para el próximo service programado.
+            </span>
+          </div>
+
+          {/* Anticipación para Servis */}
+          <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 space-y-2">
+            <span className="font-bold text-amber-950 block text-xs">
+              Anticipación para Recordatorio de Servis
+            </span>
+            <p className="text-[11px] text-slate-600">
+              Kilómetros previos a alcanzar el service para emitir la notificación.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="50"
+                step="50"
+                value={formData.recordatorioServiceKm ?? 500}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 500;
+                  const upd = { ...formData, recordatorioServiceKm: val };
+                  setFormData(upd);
+                  onSaveConfig(upd);
+                }}
+                className="w-24 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-mono font-bold text-slate-900"
+              />
+              <span className="text-slate-600 font-medium">Km antes (ej. 500 Km)</span>
+            </div>
+            <span className="text-[10px] text-amber-800 font-semibold block pt-1">
+              Avisará en Notificaciones y Parque Automotor al restar esta distancia.
+            </span>
+          </div>
         </div>
       </div>
 

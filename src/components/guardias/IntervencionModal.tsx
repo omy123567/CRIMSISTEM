@@ -12,6 +12,7 @@ import {
   ParteNovedadesGuardia,
   TipoLesionPolicial,
   TipoAsistenciaMedica,
+  UsuarioSistema,
 } from '../../types/police';
 import {
   X,
@@ -35,6 +36,8 @@ import {
   Shield,
   ShieldCheck,
   Lock,
+  Hash,
+  UserCheck,
 } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { generarLaborCriminalisticaConIA } from '../../services/aiCriminalisticaService';
@@ -50,6 +53,7 @@ interface IntervencionModalProps {
   personalList?: Personal[];
   gruposList?: GrupoPersonal[];
   partesList?: ParteNovedadesGuardia[];
+  currentUser?: UsuarioSistema;
   isReadOnly?: boolean;
   onSave: (interv: IntervencionParte) => void;
   onSaveConfig?: (cfg: ConfiguracionSistema) => void;
@@ -67,6 +71,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
   personalList = [],
   gruposList = [],
   partesList = [],
+  currentUser,
   isReadOnly = false,
   onSave,
   onSaveConfig,
@@ -77,6 +82,11 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
     ? intervencion.tipoIntervencion
     : (tipoForzado || 'Criminalística');
   const isTypeLocked = Boolean(tipoForzado || isEditing);
+
+  // Privilegios para modificar el código correlativo generado
+  const esPrivilegiado = useMemo(() => {
+    return currentUser?.rol === 'superusuario' || currentUser?.rol === 'administrador';
+  }, [currentUser?.rol]);
 
   // Base de búsqueda de personas pre-cargadas (por DNI)
   const poolPersonas = useMemo(() => {
@@ -235,6 +245,14 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
   // Estados de catálogo dinámico Hecho
   const [mostrarNuevoHechoInput, setMostrarNuevoHechoInput] = useState(false);
   const [nuevoHechoTexto, setNuevoHechoTexto] = useState('');
+
+  // Estados de catálogo dinámico: Solicitud Vía, Referencia/Causa, Tipo de Lesión
+  const [mostrarNuevaViaInput, setMostrarNuevaViaInput] = useState(false);
+  const [nuevaViaTexto, setNuevaViaTexto] = useState('');
+  const [mostrarNuevaCausaInput, setMostrarNuevaCausaInput] = useState(false);
+  const [nuevaCausaTexto, setNuevaCausaTexto] = useState('');
+  const [mostrarNuevoTipoLesionInput, setMostrarNuevoTipoLesionInput] = useState(false);
+  const [nuevoTipoLesionTexto, setNuevoTipoLesionTexto] = useState('');
 
   // Estados de búsqueda y mensajes
   const [msgPersonaEncontrada, setMsgPersonaEncontrada] = useState<string | null>(null);
@@ -412,7 +430,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
     if (!nuevaCondicionTexto.trim()) return;
     const texto = nuevaCondicionTexto.trim();
     const actuales = config.condicionesInvolucrado || listaCondiciones;
-    if (!actuales.includes(texto)) {
+    if (!actuales.some((c) => c.toLowerCase() === texto.toLowerCase())) {
       const updated = [...actuales, texto];
       if (onSaveConfig) {
         onSaveConfig({ ...config, condicionesInvolucrado: updated });
@@ -421,6 +439,55 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
     setNuevoInv((prev) => ({ ...prev, condicion: texto, funcionEnHecho: texto }));
     setNuevaCondicionTexto('');
     setMostrarNuevaCondicionInput(false);
+  };
+
+  // Agregar nueva Vía de Solicitud sin duplicados
+  const handleGuardarNuevaVia = () => {
+    if (!nuevaViaTexto.trim()) return;
+    const texto = nuevaViaTexto.trim();
+    const actuales = config.viasSolicitud || ['vía telefónica.', 'vía radial.', 'por escrito.', 'comparecencia personal en guardia.'];
+    if (!actuales.some((v) => v.toLowerCase() === texto.toLowerCase())) {
+      const updated = [...actuales, texto];
+      if (onSaveConfig) {
+        onSaveConfig({ ...config, viasSolicitud: updated });
+      }
+    }
+    setFormData((prev) => ({ ...prev, solicitudVia: texto }));
+    setNuevaViaTexto('');
+    setMostrarNuevaViaInput(false);
+  };
+
+  // Agregar nueva Causa / Referencia sin duplicados
+  const handleGuardarNuevaCausa = () => {
+    if (!nuevaCausaTexto.trim()) return;
+    const texto = nuevaCausaTexto.trim();
+    const actuales = config.causasReferencia || ['Sumario Judicial', 'Actuaciones Prevencionales', 'Expediente', 'Causa Penal', 'Oficio Judicial'];
+    if (!actuales.some((c) => c.toLowerCase() === texto.toLowerCase())) {
+      const updated = [...actuales, texto];
+      if (onSaveConfig) {
+        onSaveConfig({ ...config, causasReferencia: updated });
+      }
+    }
+    setFormData((prev) => ({ ...prev, referencia: texto }));
+    setNuevaCausaTexto('');
+    setMostrarNuevaCausaInput(false);
+  };
+
+  // Agregar nuevo Tipo de Lesión sin duplicados
+  const handleGuardarNuevoTipoLesion = () => {
+    if (!nuevoTipoLesionTexto.trim()) return;
+    const texto = nuevoTipoLesionTexto.trim();
+    const actuales = config.tiposLesionCatalogo || ['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'Óbito'];
+    if (!actuales.some((l) => l.toLowerCase() === texto.toLowerCase())) {
+      const updated = [...actuales, texto];
+      if (onSaveConfig) {
+        onSaveConfig({ ...config, tiposLesionCatalogo: updated });
+      }
+    }
+    setFormData((prev) => ({ ...prev, tipoLesionesLC: texto }));
+    setNuevoInv((prev) => ({ ...prev, tipoLesion: texto as any }));
+    setNuevoTipoLesionTexto('');
+    setMostrarNuevoTipoLesionInput(false);
   };
 
   // Agregar involucrado a la intervención
@@ -684,6 +751,112 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
             </div>
           </div>
 
+          {/* N° / Código Oficial de la Intervención con control de privilegios (Superusuario / Admin) */}
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                <Hash className="w-4 h-4 text-blue-800" />
+                <span>N° / Código Oficial de Intervención *</span>
+              </label>
+              {esPrivilegiado ? (
+                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-emerald-700" />
+                  <span>Edición Habilitada (Superusuario / Admin)</span>
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-2 py-0.5 rounded border border-slate-300 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-slate-500" />
+                  <span>Código Protegido (Solo Administrador puede modificar)</span>
+                </span>
+              )}
+            </div>
+            <input
+              type="text"
+              required
+              readOnly={!esPrivilegiado}
+              value={formData.codigoIntervencion}
+              onChange={(e) => setFormData({ ...formData, codigoIntervencion: e.target.value })}
+              className={`w-full px-3 py-2 rounded-lg font-mono font-bold text-xs border ${
+                esPrivilegiado
+                  ? 'border-blue-400 bg-white text-blue-950 focus:ring-2 focus:ring-blue-500'
+                  : 'border-slate-300 bg-slate-100 text-slate-700 cursor-not-allowed'
+              }`}
+            />
+          </div>
+
+          {/* Labor Criminalística (LC - Hechos no de Tránsito): Tipo de Lesiones con Checkbox */}
+          {formData.tipoIntervencion === 'Criminalística' && (
+            <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-slate-800 select-none">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formData.presentaLesionesLC)}
+                    onChange={(e) => setFormData({ ...formData, presentaLesionesLC: e.target.checked })}
+                    className="w-4 h-4 text-red-600 rounded border-slate-300 focus:ring-red-500 cursor-pointer"
+                  />
+                  <Activity className="w-4 h-4 text-red-600" />
+                  <span>¿Presenta / Registrar Tipo de Lesiones en la Víctima / Demorado?</span>
+                </label>
+                {formData.presentaLesionesLC && (
+                  <button
+                    type="button"
+                    onClick={() => setMostrarNuevoTipoLesionInput(!mostrarNuevoTipoLesionInput)}
+                    className="text-[11px] text-blue-700 hover:text-blue-900 font-semibold cursor-pointer"
+                  >
+                    {mostrarNuevoTipoLesionInput ? 'Cancelar' : '+ Nuevo Tipo de Lesión'}
+                  </button>
+                )}
+              </div>
+
+              {formData.presentaLesionesLC && mostrarNuevoTipoLesionInput && (
+                <div className="flex gap-1.5 p-2 bg-red-50/60 rounded-lg border border-red-200 animate-in fade-in">
+                  <input
+                    type="text"
+                    value={nuevoTipoLesionTexto}
+                    onChange={(e) => setNuevoTipoLesionTexto(e.target.value)}
+                    placeholder="Nuevo tipo de lesión..."
+                    className="flex-1 px-2.5 py-1 text-xs border border-red-300 rounded bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGuardarNuevoTipoLesion}
+                    className="bg-red-800 text-white px-3 py-1 rounded font-bold text-xs cursor-pointer hover:bg-red-900"
+                  >
+                    Guardar
+                  </button>
+                </div>
+              )}
+
+              {formData.presentaLesionesLC && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1.5 border-t border-slate-100 animate-in fade-in">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Tipo de Lesión (Normado)</label>
+                    <select
+                      value={formData.tipoLesionesLC || 'Leves'}
+                      onChange={(e) => setFormData({ ...formData, tipoLesionesLC: e.target.value })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-semibold text-red-950"
+                    >
+                      {(config.tiposLesionCatalogo || ['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'Óbito']).map((tl) => (
+                        <option key={tl} value={tl}>{tl}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Detalle / Diagnóstico Médico de Lesiones</label>
+                    <input
+                      type="text"
+                      value={formData.detalleLesionesLC || ''}
+                      onChange={(e) => setFormData({ ...formData, detalleLesionesLC: e.target.value })}
+                      placeholder="Ej. Escoriaciones en rostro, TEC sin pérdida de conocimiento..."
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Fila 1: HECHO (Configurable / Catálogo) con opción de selección o agregado en línea */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -750,14 +923,54 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Solicitud Vía</label>
-                <input
-                  type="text"
-                  value={formData.solicitudVia}
-                  onChange={(e) => setFormData({ ...formData, solicitudVia: e.target.value })}
-                  placeholder="vía telefónica, radial..."
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-700">Solicitud Vía</label>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarNuevaViaInput(!mostrarNuevaViaInput)}
+                    className="text-[10px] text-blue-700 hover:text-blue-900 font-semibold cursor-pointer"
+                  >
+                    {mostrarNuevaViaInput ? 'Cancelar' : '+ Nueva'}
+                  </button>
+                </div>
+                {mostrarNuevaViaInput ? (
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      value={nuevaViaTexto}
+                      onChange={(e) => setNuevaViaTexto(e.target.value)}
+                      placeholder="Nueva vía..."
+                      className="flex-1 px-2 py-1 rounded border border-blue-400 bg-white text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGuardarNuevaVia}
+                      className="bg-blue-900 text-white px-2 py-1 rounded font-bold text-[10px]"
+                    >
+                      OK
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={formData.solicitudVia}
+                    onChange={(e) => setFormData({ ...formData, solicitudVia: e.target.value })}
+                    className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs font-medium"
+                  >
+                    {(config.viasSolicitud || [
+                      'vía telefónica.',
+                      'vía radial.',
+                      'por escrito.',
+                      'comparecencia personal en guardia.',
+                    ]).map((via) => (
+                      <option key={via} value={via}>
+                        {via}
+                      </option>
+                    ))}
+                    {formData.solicitudVia && !(config.viasSolicitud || []).includes(formData.solicitudVia) && (
+                      <option value={formData.solicitudVia}>{formData.solicitudVia}</option>
+                    )}
+                  </select>
+                )}
               </div>
             </div>
           </div>
@@ -818,14 +1031,57 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">REFERENCIA / Causa</label>
-              <input
-                type="text"
-                value={formData.referencia || ''}
-                onChange={(e) => setFormData({ ...formData, referencia: e.target.value })}
-                placeholder="Ej. En averiguación de ilícito / Causa penal instruida"
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-              />
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-semibold text-slate-700">REFERENCIA / Causa</label>
+                <button
+                  type="button"
+                  onClick={() => setMostrarNuevaCausaInput(!mostrarNuevaCausaInput)}
+                  className="text-[10px] text-blue-700 hover:text-blue-900 font-semibold cursor-pointer"
+                >
+                  {mostrarNuevaCausaInput ? 'Cancelar' : '+ Nueva Causa'}
+                </button>
+              </div>
+
+              {mostrarNuevaCausaInput ? (
+                <div className="flex gap-1">
+                  <input
+                    type="text"
+                    value={nuevaCausaTexto}
+                    onChange={(e) => setNuevaCausaTexto(e.target.value)}
+                    placeholder="Nueva causa / referencia..."
+                    className="flex-1 px-2.5 py-1.5 rounded-lg border border-blue-400 bg-white text-xs font-medium"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGuardarNuevaCausa}
+                    className="bg-blue-900 text-white px-3 py-1.5 rounded-lg font-bold text-xs"
+                  >
+                    Guardar
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-1.5">
+                  <select
+                    value={formData.referencia || ''}
+                    onChange={(e) => setFormData({ ...formData, referencia: e.target.value })}
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-medium"
+                  >
+                    <option value="">-- Seleccionar Causa o Referencia --</option>
+                    {(config.causasReferencia || [
+                      'Sumario Judicial',
+                      'Actuaciones Prevencionales',
+                      'Expediente',
+                      'Causa Penal',
+                      'Oficio Judicial',
+                    ]).map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                    {formData.referencia && !(config.causasReferencia || []).includes(formData.referencia) && (
+                      <option value={formData.referencia}>{formData.referencia}</option>
+                    )}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1064,62 +1320,85 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
             )}
 
             <div className="space-y-2.5">
-              {/* Check de Personal Policial Involucrado */}
-              <div className="p-2.5 bg-blue-50/80 border border-blue-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-blue-950 select-none">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(nuevoInv.esPersonalPolicial)}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setNuevoInv((prev) => ({
-                        ...prev,
-                        esPersonalPolicial: checked,
-                        condicion: checked ? 'Personal Policial' : 'Demorado / Aprehendido',
-                        funcionEnHecho: checked ? 'Personal Policial' : 'Demorado / Aprehendido',
-                      }));
-                    }}
-                    className="w-4 h-4 text-blue-900 rounded border-blue-400 focus:ring-blue-500 cursor-pointer"
-                  />
-                  <Shield className="w-4 h-4 text-blue-800" />
-                  <span>¿Una de las partes es Personal Policial?</span>
-                </label>
+              {/* Selector Moderno Segmentado: Particular / Civil vs Efectivo Policial */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-slate-100 rounded-lg border border-slate-200">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-slate-700">Tipo de Involucrado:</span>
+                  <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNuevoInv((prev) => ({
+                          ...prev,
+                          esPersonalPolicial: false,
+                          condicion: 'Demorado / Aprehendido',
+                          funcionEnHecho: 'Demorado / Aprehendido',
+                        }));
+                      }}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                        !nuevoInv.esPersonalPolicial
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Particular / Civil
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNuevoInv((prev) => ({
+                          ...prev,
+                          esPersonalPolicial: true,
+                          condicion: 'Personal Policial',
+                          funcionEnHecho: 'Personal Policial',
+                          jerarquia: prev.jerarquia || config.jerarquias[0] || 'Oficial Subayudante',
+                          unidadRegional: prev.unidadRegional || config.unidadRegional || 'Unidad Regional Cuatro (Laguna Blanca)',
+                          destino: prev.destino || config.dependencia || '',
+                        }));
+                      }}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        nuevoInv.esPersonalPolicial
+                          ? 'bg-blue-900 text-white shadow-xs'
+                          : 'text-blue-900 hover:bg-blue-50'
+                      }`}
+                    >
+                      <Shield className="w-3.5 h-3.5" />
+                      <span>Efectivo Policial</span>
+                    </button>
+                  </div>
+                </div>
 
-                {nuevoInv.esPersonalPolicial && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold text-blue-900 bg-blue-100 px-2 py-0.5 rounded border border-blue-200">
-                      Efectivo Policial
-                    </span>
-                    {personalList.length > 0 && (
-                      <select
-                        onChange={(e) => {
-                          const p = personalList.find((item) => item.id === e.target.value);
-                          if (p) {
-                            setNuevoInv((prev) => ({
-                              ...prev,
-                              apellidoYNombre: p.apellidoYNombre,
-                              dni: p.dni,
-                              jerarquia: p.jerarquia,
-                              plaza: p.plaza || '',
-                              destino: p.seccionGrupo || config.dependencia || '',
-                              unidadRegional: config.unidadRegional || 'Unidad Regional Cuatro (Laguna Blanca)',
-                              edad: p.fechaNacimiento
-                                ? String(Math.floor((Date.now() - new Date(p.fechaNacimiento).getTime()) / 31557600000))
-                                : '30',
-                            }));
-                          }
-                        }}
-                        defaultValue=""
-                        className="text-[11px] py-1 px-2 border border-blue-300 rounded bg-white text-blue-950 font-semibold"
-                      >
-                        <option value="">-- Autocompletar con efectivo de nómina --</option>
-                        {personalList.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.jerarquia} {p.apellidoYNombre} (DNI {p.dni})
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                {nuevoInv.esPersonalPolicial && personalList.length > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-blue-700" />
+                    <select
+                      onChange={(e) => {
+                        const p = personalList.find((item) => item.id === e.target.value);
+                        if (p) {
+                          setNuevoInv((prev) => ({
+                            ...prev,
+                            apellidoYNombre: p.apellidoYNombre,
+                            dni: p.dni,
+                            jerarquia: p.jerarquia,
+                            plaza: p.plaza || '',
+                            destino: p.seccionGrupo || config.dependencia || '',
+                            unidadRegional: config.unidadRegional || 'Unidad Regional Cuatro (Laguna Blanca)',
+                            edad: p.fechaNacimiento
+                              ? String(Math.floor((Date.now() - new Date(p.fechaNacimiento).getTime()) / 31557600000))
+                              : '30',
+                          }));
+                        }
+                      }}
+                      defaultValue=""
+                      className="text-[11px] py-1 px-2 border border-blue-300 rounded-md bg-white text-blue-950 font-semibold"
+                    >
+                      <option value="">-- Autocompletar con efectivo de nómina --</option>
+                      {personalList.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.jerarquia} {p.apellidoYNombre} (DNI {p.dni})
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
               </div>
@@ -1484,18 +1763,39 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                   }}
                   className="w-full px-2 py-1 rounded border border-slate-300"
                 />
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    placeholder="DNI"
-                    value={formData.testigos[0]?.dni || ''}
-                    onChange={(e) => {
-                      const list = [...formData.testigos];
-                      list[0] = { ...list[0], dni: e.target.value };
-                      setFormData({ ...formData, testigos: list });
-                    }}
-                    className="w-full px-2 py-1 rounded border border-slate-300 font-mono"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      placeholder="DNI Testigo 1"
+                      value={formData.testigos[0]?.dni || ''}
+                      onChange={(e) => {
+                        const list = [...formData.testigos];
+                        list[0] = { ...list[0], dni: e.target.value };
+                        setFormData({ ...formData, testigos: list });
+                      }}
+                      className="flex-1 px-2 py-1 rounded border border-slate-300 font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const dni = formData.testigos[0]?.dni?.trim();
+                        if (!dni) return;
+                        const found = poolPersonas.get(dni);
+                        if (found) {
+                          const list = [...formData.testigos];
+                          list[0] = { ...list[0], apellidoYNombre: found.apellidoYNombre, edad: String(found.edad) };
+                          setFormData({ ...formData, testigos: list });
+                        } else {
+                          alert(`No se encontró persona previa con DNI ${dni}. Complete nombre y edad.`);
+                        }
+                      }}
+                      className="px-2 py-1 bg-blue-900 text-white rounded text-[10px] font-bold cursor-pointer hover:bg-blue-950"
+                      title="Buscar Testigo por DNI"
+                    >
+                      <Search className="w-3 h-3" />
+                    </button>
+                  </div>
                   <input
                     type="text"
                     placeholder="Edad"
@@ -1505,7 +1805,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                       list[0] = { ...list[0], edad: e.target.value };
                       setFormData({ ...formData, testigos: list });
                     }}
-                    className="w-full px-2 py-1 rounded border border-slate-300"
+                    className="w-full px-2 py-1 rounded border border-slate-300 text-xs"
                   />
                 </div>
               </div>
@@ -1538,20 +1838,41 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                     list[1] = { ...list[1], apellidoYNombre: e.target.value };
                     setFormData({ ...formData, testigos: list });
                   }}
-                  className="w-full px-2 py-1 rounded border border-slate-300"
+                  className="w-full px-2 py-1 rounded border border-slate-300 font-medium text-xs"
                 />
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    placeholder="DNI"
-                    value={formData.testigos[1]?.dni || ''}
-                    onChange={(e) => {
-                      const list = [...formData.testigos];
-                      list[1] = { ...list[1], dni: e.target.value };
-                      setFormData({ ...formData, testigos: list });
-                    }}
-                    className="w-full px-2 py-1 rounded border border-slate-300 font-mono"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      placeholder="DNI Testigo 2"
+                      value={formData.testigos[1]?.dni || ''}
+                      onChange={(e) => {
+                        const list = [...formData.testigos];
+                        list[1] = { ...list[1], dni: e.target.value };
+                        setFormData({ ...formData, testigos: list });
+                      }}
+                      className="flex-1 px-2 py-1 rounded border border-slate-300 font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const dni = formData.testigos[1]?.dni?.trim();
+                        if (!dni) return;
+                        const found = poolPersonas.get(dni);
+                        if (found) {
+                          const list = [...formData.testigos];
+                          list[1] = { ...list[1], apellidoYNombre: found.apellidoYNombre, edad: String(found.edad) };
+                          setFormData({ ...formData, testigos: list });
+                        } else {
+                          alert(`No se encontró persona previa con DNI ${dni}. Complete nombre y edad.`);
+                        }
+                      }}
+                      className="px-2 py-1 bg-blue-900 text-white rounded text-[10px] font-bold cursor-pointer hover:bg-blue-950"
+                      title="Buscar Testigo por DNI"
+                    >
+                      <Search className="w-3 h-3" />
+                    </button>
+                  </div>
                   <input
                     type="text"
                     placeholder="Edad"
@@ -1561,7 +1882,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                       list[1] = { ...list[1], edad: e.target.value };
                       setFormData({ ...formData, testigos: list });
                     }}
-                    className="w-full px-2 py-1 rounded border border-slate-300"
+                    className="w-full px-2 py-1 rounded border border-slate-300 text-xs"
                   />
                 </div>
               </div>

@@ -28,6 +28,10 @@ import {
   ZoomIn,
   SlidersHorizontal,
   ChevronDown,
+  Trash2,
+  Edit2,
+  Check,
+  X,
 } from 'lucide-react';
 import { AsignarFolioModal } from './AsignarFolioModal';
 import { DetalleFolioModal } from './DetalleFolioModal';
@@ -109,10 +113,6 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
     return map;
   }, [foliosList, activeSerie?.id]);
 
-  // Selección visual con Shift + Clic
-  const [lastClickedNumber, setLastClickedNumber] = useState<number | null>(null);
-  const [selectedRange, setSelectedRange] = useState<{ desde: number; hasta: number } | null>(null);
-
   // Modales
   const [isAsignarOpen, setIsAsignarOpen] = useState(false);
   const [asignarInitialNum, setAsignarInitialNum] = useState<number | undefined>(undefined);
@@ -122,6 +122,58 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
   const [isGestionSeriesOpen, setIsGestionSeriesOpen] = useState(false);
   const [isLibroFoliosOpen, setIsLibroFoliosOpen] = useState(false);
   const [isReinicioOpen, setIsReinicioOpen] = useState(false);
+
+  // Gestión directa de nombres de series (agregar/renombrar/eliminar)
+  const [nuevaSerieNombre, setNuevaSerieNombre] = useState('');
+  const [mostrarNuevaSerieInput, setMostrarNuevaSerieInput] = useState(false);
+  const [editingSerieId, setEditingSerieId] = useState<string | null>(null);
+  const [editingSerieNombre, setEditingSerieNombre] = useState('');
+
+  const handleCrearSerieDirecto = async () => {
+    if (!nuevaSerieNombre.trim()) return;
+    const nueva: SerieNumerario = {
+      id: 'serie-' + Date.now(),
+      nombre: nuevaSerieNombre.trim(),
+      prefijo: nuevaSerieNombre.trim().slice(0, 4).toUpperCase(),
+      descripcion: `Serie ${nuevaSerieNombre.trim()}`,
+      anio: new Date().getFullYear(),
+      limiteFolios: 1000,
+      columnas: 20,
+      color: 'blue',
+      delegacionId: activeDelegacionId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await onSaveSerie(nueva);
+    setActiveSerieId(nueva.id);
+    setNuevaSerieNombre('');
+    setMostrarNuevaSerieInput(false);
+  };
+
+  const handleEliminarSerieDirecto = async (serieId: string, nombre: string) => {
+    if (seriesList.length <= 1) {
+      alert('No se puede eliminar la única serie del sistema.');
+      return;
+    }
+    if (confirm(`¿Confirma eliminar la serie "${nombre}" y todos sus registros asociados?`)) {
+      await onDeleteSerie(serieId);
+      const remaining = seriesList.filter((s) => s.id !== serieId);
+      if (remaining.length > 0) {
+        setActiveSerieId(remaining[0].id);
+      }
+    }
+  };
+
+  const handleGuardarRenombrarSerie = async (serie: SerieNumerario) => {
+    if (!editingSerieNombre.trim()) return;
+    await onSaveSerie({
+      ...serie,
+      nombre: editingSerieNombre.trim(),
+      updatedAt: new Date().toISOString(),
+    });
+    setEditingSerieId(null);
+    setEditingSerieNombre('');
+  };
 
   // Estadísticas de la serie activa
   const totalFolios = limiteDinamico;
@@ -144,6 +196,51 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
     }
     return max;
   }, [folioMap]);
+
+  // Selección visual por arrastre (Drag-to-select) y con Shift + Clic
+  const [lastClickedNumber, setLastClickedNumber] = useState<number | null>(null);
+  const [selectedRange, setSelectedRange] = useState<{ desde: number; hasta: number } | null>(null);
+  const [isMouseDown, setIsMouseDown] = useState<boolean>(false);
+  const [dragStartNum, setDragStartNum] = useState<number | null>(null);
+  const [hasDragged, setHasDragged] = useState<boolean>(false);
+
+  // Manejar inicio de arrastre o clic
+  const handleCellMouseDown = (num: number, e: React.MouseEvent) => {
+    if (e.button !== 0) return; // Solo botón izquierdo del ratón
+    setIsMouseDown(true);
+    setDragStartNum(num);
+    setHasDragged(false);
+  };
+
+  // Movimiento de arrastre entre casillas
+  const handleCellMouseEnter = (num: number) => {
+    if (!isMouseDown || dragStartNum === null) return;
+    setHasDragged(true);
+    const min = Math.min(dragStartNum, num);
+    const max = Math.max(dragStartNum, num);
+    setSelectedRange({ desde: min, hasta: max });
+  };
+
+  // Finalización del arrastre / click
+  const handleCellMouseUp = (num: number, e: React.MouseEvent) => {
+    if (!isMouseDown) return;
+    setIsMouseDown(false);
+
+    if (hasDragged && dragStartNum !== null) {
+      // Arrastre completado: el rango ya queda seleccionado
+      const min = Math.min(dragStartNum, num);
+      const max = Math.max(dragStartNum, num);
+      setSelectedRange({ desde: min, hasta: max });
+      setDragStartNum(null);
+      setHasDragged(false);
+      return;
+    }
+
+    // Fue un clic simple (no arrastró)
+    setDragStartNum(null);
+    setHasDragged(false);
+    handleCellClick(num, e);
+  };
 
   // Manejar clic en una casilla numérica (con soporte Shift + Clic)
   const handleCellClick = (num: number, e: React.MouseEvent) => {
@@ -285,118 +382,150 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
         </div>
       </div>
 
-      {/* 2. Pestañas / Solapas de Series Independientes */}
-      <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 border-b border-slate-200">
-        <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1">
-          {seriesList.map((serie) => {
-            const countOcupadosSerie = foliosList.filter((f) => f.serieId === serie.id).length;
-            const isActive = serie.id === activeSerie?.id;
-            return (
-              <button
-                key={serie.id}
-                type="button"
-                onClick={() => {
-                  setActiveSerieId(serie.id);
-                  setSelectedRange(null);
-                }}
-                className={`px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all cursor-pointer border ${
-                  isActive
-                    ? 'bg-blue-900 text-white border-blue-950 shadow-xs'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <span>{serie.nombre}</span>
-                <span
-                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
-                    isActive ? 'bg-blue-950 text-blue-200' : 'bg-slate-100 text-slate-600'
+      {/* 2. Pestañas / Solapas de Series Independientes con agregar / editar / eliminar nombres */}
+      <div className="flex flex-col gap-2.5 pb-2 border-b border-slate-200">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1 py-1">
+            {seriesList.map((serie) => {
+              const countOcupadosSerie = foliosList.filter((f) => f.serieId === serie.id).length;
+              const isActive = serie.id === activeSerie?.id;
+              const isEditing = editingSerieId === serie.id;
+
+              if (isEditing) {
+                return (
+                  <div key={serie.id} className="flex items-center gap-1 bg-white p-1 rounded-xl border border-blue-400 shadow-xs">
+                    <input
+                      type="text"
+                      value={editingSerieNombre}
+                      onChange={(e) => setEditingSerieNombre(e.target.value)}
+                      placeholder="Nombre de serie..."
+                      className="px-2 py-1 text-xs border border-slate-300 rounded font-bold text-slate-800 w-36"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleGuardarRenombrarSerie(serie)}
+                      className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer"
+                      title="Guardar nombre"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingSerieId(null)}
+                      className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded cursor-pointer"
+                      title="Cancelar"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={serie.id}
+                  className={`inline-flex items-center rounded-xl border transition-all ${
+                    isActive
+                      ? 'bg-blue-900 text-white border-blue-950 shadow-xs'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 >
-                  {countOcupadosSerie}
-                </span>
-              </button>
-            );
-          })}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveSerieId(serie.id);
+                      setSelectedRange(null);
+                    }}
+                    className="px-3.5 py-2 font-bold text-xs flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                  >
+                    <span>{serie.nombre}</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+                        isActive ? 'bg-blue-950 text-blue-200' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {countOcupadosSerie}
+                    </span>
+                  </button>
 
+                  {/* Acciones directas para la serie activa */}
+                  {isActive && (
+                    <div className="flex items-center gap-0.5 pr-1.5 border-l border-blue-800 ml-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingSerieId(serie.id);
+                          setEditingSerieNombre(serie.nombre);
+                        }}
+                        className="p-1 hover:bg-blue-800 text-blue-200 rounded cursor-pointer"
+                        title={`Editar nombre de "${serie.nombre}"`}
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                      {seriesList.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleEliminarSerieDirecto(serie.id, serie.nombre)}
+                          className="p-1 hover:bg-red-700 text-red-200 rounded cursor-pointer"
+                          title={`Eliminar serie "${serie.nombre}"`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {mostrarNuevaSerieInput ? (
+              <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-blue-400 shadow-xs">
+                <input
+                  type="text"
+                  value={nuevaSerieNombre}
+                  onChange={(e) => setNuevaSerieNombre(e.target.value)}
+                  placeholder="Nombre de la nueva serie..."
+                  className="px-2.5 py-1 text-xs border border-slate-300 rounded font-medium text-slate-800 w-48"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleCrearSerieDirecto}
+                  className="px-2.5 py-1 bg-blue-900 text-white rounded font-bold text-xs cursor-pointer hover:bg-blue-950"
+                >
+                  Agregar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMostrarNuevaSerieInput(false)}
+                  className="p-1 text-slate-500 hover:text-slate-800 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setMostrarNuevaSerieInput(true)}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-dashed border-slate-300 font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                title="Agregar nueva serie independiente de numerario"
+              >
+                <Plus className="w-4 h-4 text-blue-800" />
+                <span className="hidden sm:inline">Nueva Serie</span>
+              </button>
+            )}
+          </div>
+
+          {/* Botón de Reinicio Seguro de la Serie Activa */}
           <button
             type="button"
-            onClick={() => setIsGestionSeriesOpen(true)}
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-dashed border-slate-300 font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer shrink-0"
-            title="Agregar nueva serie independiente de numerario"
+            onClick={() => setIsReinicioOpen(true)}
+            className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
+            title={`Reiniciar numerario de la serie "${activeSerie?.nombre}"`}
           >
-            <Plus className="w-4 h-4 text-blue-800" />
-            <span className="hidden sm:inline">Nueva Serie</span>
+            <RotateCcw className="w-3.5 h-3.5 text-red-600" />
+            <span className="hidden md:inline">Reiniciar Serie</span>
           </button>
-        </div>
-
-        {/* Botón de Reinicio Seguro de la Serie Activa */}
-        <button
-          type="button"
-          onClick={() => setIsReinicioOpen(true)}
-          className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
-          title={`Reiniciar numerario de la serie "${activeSerie?.nombre}"`}
-        >
-          <RotateCcw className="w-3.5 h-3.5 text-red-600" />
-          <span className="hidden md:inline">Reiniciar Serie</span>
-        </button>
-      </div>
-
-      {/* 3. Panel de Métricas / KPIs y Barra de Herramientas de la Grilla */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-            Total Folios Serie
-          </span>
-          <div className="flex items-baseline gap-1 mt-0.5">
-            <span className="text-xl font-bold font-mono text-slate-900">{totalFolios}</span>
-            <span className="text-[11px] text-slate-400 font-mono">(C1 - C20)</span>
-          </div>
-        </div>
-
-        <div className="bg-white p-3 rounded-xl border border-red-200 shadow-2xs">
-          <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider block">
-            Folios Ocupados
-          </span>
-          <div className="flex items-baseline gap-1 mt-0.5">
-            <span className="text-xl font-bold font-mono text-red-700">{totalOcupados}</span>
-            <span className="text-[10px] text-red-500 font-semibold">Tachados</span>
-          </div>
-        </div>
-
-        <div className="bg-white p-3 rounded-xl border border-emerald-200 shadow-2xs">
-          <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">
-            Folios Disponibles
-          </span>
-          <div className="flex items-baseline gap-1 mt-0.5">
-            <span className="text-xl font-bold font-mono text-emerald-800">{totalLibres}</span>
-            <span className="text-[10px] text-emerald-600 font-semibold">Libres</span>
-          </div>
-        </div>
-
-        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-            Último Ocupado
-          </span>
-          <div className="flex items-baseline gap-1 mt-0.5">
-            <span className="text-xl font-bold font-mono text-blue-900">
-              {ultimoNumeroOcupado > 0 ? `#${ultimoNumeroOcupado}` : 'Ninguno'}
-            </span>
-          </div>
-        </div>
-
-        <div className="col-span-2 sm:col-span-1 bg-blue-50/70 p-3 rounded-xl border border-blue-200 shadow-2xs flex flex-col justify-between">
-          <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider block">
-            Próximo a Asignar
-          </span>
-          <div className="flex items-center justify-between mt-0.5">
-            <span className="text-xl font-bold font-mono text-blue-950">#{primerNumeroLibre}</span>
-            <button
-              type="button"
-              onClick={handleAsignarSiguienteLibre}
-              className="text-[10px] font-bold bg-blue-900 text-white px-2 py-0.5 rounded hover:bg-blue-950 cursor-pointer"
-            >
-              Asignar
-            </button>
-          </div>
         </div>
       </div>
 
@@ -501,39 +630,23 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
             <span className="text-slate-400">Numerario Oficial Correlativo 1 al {limiteDinamico}</span>
           </div>
           <span className="text-[11px] text-slate-400 italic hidden sm:inline">
-            Tip: Presione Shift + Clic para seleccionar rangos visualmente
+            Tip: Arrastre el ratón sobre las casillas o use Shift + Clic para seleccionar rangos continuos
           </span>
         </div>
 
         {/* Tabla / Grilla con Scroll Horizontal fluido si la pantalla es reducida */}
-        <div className="overflow-x-auto max-h-[68vh] overflow-y-auto">
+        <div
+          className="overflow-x-auto max-h-[68vh] overflow-y-auto p-2 select-none"
+          onMouseUp={() => setIsMouseDown(false)}
+          onMouseLeave={() => setIsMouseDown(false)}
+        >
           <table className="w-full border-collapse text-center">
-            {/* Cabecera de 20 columnas C1 a C20 */}
-            <thead className="bg-slate-100 text-slate-700 text-[10px] font-mono font-bold sticky top-0 z-20 shadow-2xs border-b border-slate-300">
-              <tr>
-                <th className="py-1.5 px-2 bg-slate-200 border-r border-slate-300 text-slate-500 w-12 sticky left-0 z-30">
-                  Fila
-                </th>
-                {columnasEncabezados.map((col) => (
-                  <th key={col} className="py-1.5 px-1 border-r border-slate-200">
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            {/* Filas continuas de 20 casillas cada una */}
+            {/* Filas continuas de 20 casillas numéricas puras sin encabezados */}
             <tbody className="divide-y divide-slate-200">
               {Array.from({ length: Math.ceil(limiteDinamico / 20) }).map((_, filaIdx) => {
-                const filaInicio = filaIdx * 20 + 1;
                 return (
                   <tr key={filaIdx} className="hover:bg-slate-50/50">
-                    {/* Indicador de fila / bloque */}
-                    <td className="py-1 px-1.5 bg-slate-100 font-mono text-[10px] text-slate-500 font-bold border-r border-slate-300 select-none sticky left-0 z-10">
-                      {filaInicio}
-                    </td>
-
-                    {/* 20 Columnas */}
+                    {/* 20 Columnas Numéricas Puras */}
                     {Array.from({ length: 20 }).map((__, colIdx) => {
                       const num = filaIdx * 20 + colIdx + 1;
                       if (num > limiteDinamico) {
@@ -560,7 +673,9 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
                         >
                           <button
                             type="button"
-                            onClick={(e) => handleCellClick(num, e)}
+                            onMouseDown={(e) => handleCellMouseDown(num, e)}
+                            onMouseEnter={() => handleCellMouseEnter(num)}
+                            onMouseUp={(e) => handleCellMouseUp(num, e)}
                             className={`w-full rounded transition-all cursor-pointer flex items-center justify-center font-mono select-none ${getCellSizeClass()} ${
                               isInSelectedRange
                                 ? 'bg-blue-600 text-white font-bold ring-2 ring-blue-400 z-10'

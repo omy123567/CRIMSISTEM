@@ -99,14 +99,15 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
   // CORRELATIVO ANUAL CONTROLADO:
   // "el contador de las INTERVENCIÓN CRIMINALÍSTICA se debe poder controlar desde un panel o similar al horario que se N° de ultima intervencion."
   const siguienteCorrelativo = useMemo(() => {
-    let max = config.ultimoNroIntervencionCriminalistica || 3812;
+    const inicio = config.inicioNroIntervencionCriminalistica || 1;
+    let max = config.ultimoNroIntervencionCriminalistica ?? 0;
     partesList.forEach((p) => {
       p.intervenciones.forEach((i) => {
         if (i.nroCorrelativo && i.nroCorrelativo > max) max = i.nroCorrelativo;
       });
     });
-    return max + 1;
-  }, [partesList, config.ultimoNroIntervencionCriminalistica]);
+    return Math.max(inicio, max + 1);
+  }, [partesList, config.ultimoNroIntervencionCriminalistica, config.inicioNroIntervencionCriminalistica]);
 
   const añoActual = useMemo(() => {
     return new Date().getFullYear();
@@ -795,6 +796,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
           funcionesGuardia={activeParte.funcionesPersonal}
           personalList={personalList}
           gruposList={gruposList}
+          currentUser={currentUser}
           onSave={handleSaveIntervencionWrapper}
           onSaveConfig={onSaveConfig}
           onClose={() => {

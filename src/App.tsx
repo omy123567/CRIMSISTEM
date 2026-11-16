@@ -21,10 +21,13 @@ import {
   FolioAsignado,
   AccidentologiaRegistro,
   RolSistema,
+  AvisoNovedad,
+  EstadoOperativoVehiculo,
 } from './types/police';
 
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
+import { NovedadesDelegacionesView } from './components/novedades/NovedadesDelegacionesView';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { PersonnelView } from './components/personnel/PersonnelView';
 import { GruposView } from './components/grupos/GruposView';
@@ -98,6 +101,7 @@ export default function App() {
   const [foliosList, setFoliosList] = useState<FolioAsignado[]>([]);
   const [accidentologiaList, setAccidentologiaList] = useState<AccidentologiaRegistro[]>([]);
   const [rolesList, setRolesList] = useState<RolSistema[]>([]);
+  const [novedadesList, setNovedadesList] = useState<AvisoNovedad[]>([]);
 
   // Delegación activa en visualización
   const [activeDelegacionId, setActiveDelegacionId] = useState<string>(() => {
@@ -113,7 +117,27 @@ export default function App() {
 
       const confArray = await db.configuracion.toArray();
       if (confArray.length > 0) {
-        setConfig(confArray[0]);
+        const activeConf =
+          confArray.find((c) => c.id === `config-${activeDelegacionId}`) || confArray[0];
+        const latestStructConf = [...confArray]
+          .filter((c) => c.estructuraModulos && c.estructuraModulos.length > 0)
+          .sort((a, b) =>
+            (b.estructuraModulosUpdatedAt || '').localeCompare(a.estructuraModulosUpdatedAt || '')
+          )[0];
+        if (
+          latestStructConf?.estructuraModulos &&
+          (!activeConf.estructuraModulos ||
+            (latestStructConf.estructuraModulosUpdatedAt || '') >
+              (activeConf.estructuraModulosUpdatedAt || ''))
+        ) {
+          setConfig({
+            ...activeConf,
+            estructuraModulos: latestStructConf.estructuraModulos,
+            estructuraModulosUpdatedAt: latestStructConf.estructuraModulosUpdatedAt,
+          });
+        } else {
+          setConfig(activeConf);
+        }
       } else {
         await db.configuracion.put(DEFAULT_CONFIG);
         setConfig(DEFAULT_CONFIG);
@@ -139,6 +163,7 @@ export default function App() {
         fol,
         acc,
         roles,
+        novs,
       ] = await Promise.all([
         db.personal.toArray(),
         db.grupos.toArray(),
@@ -159,6 +184,7 @@ export default function App() {
         db.folios.toArray(),
         db.accidentologia.toArray(),
         db.roles.toArray(),
+        db.novedadesDelegaciones.toArray(),
       ]);
 
       setPersonalList(pers);
@@ -180,6 +206,7 @@ export default function App() {
       setFoliosList(fol);
       setAccidentologiaList(acc);
       setRolesList(roles);
+      setNovedadesList(novs);
 
       // Si el usuario ya está logueado, sincronizar su sesión fresca
       if (currentUser) {
@@ -194,7 +221,7 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, activeDelegacionId]);
 
   useEffect(() => {
     reloadAllData();
@@ -238,14 +265,39 @@ export default function App() {
     let isMounted = true;
     const sincronizarConfigYDelegacion = async () => {
       const targetDel = delegacionesList.find((d) => d.id === activeDelegacionId);
-      const confEspecifica = await db.configuracion.get(`config-${activeDelegacionId}`);
+      const allConfigs = await db.configuracion.toArray();
+      const confEspecifica = allConfigs.find((c) => c.id === `config-${activeDelegacionId}`);
+      const latestStructConf = [...allConfigs]
+        .filter((c) => c.estructuraModulos && c.estructuraModulos.length > 0)
+        .sort((a, b) =>
+          (b.estructuraModulosUpdatedAt || '').localeCompare(a.estructuraModulosUpdatedAt || '')
+        )[0];
       if (!isMounted) return;
 
       if (confEspecifica) {
-        setConfig(confEspecifica);
+        const shouldAdoptLatest = Boolean(
+          latestStructConf?.estructuraModulos &&
+            (!confEspecifica.estructuraModulos ||
+              (latestStructConf.estructuraModulosUpdatedAt || '') >
+                (confEspecifica.estructuraModulosUpdatedAt || ''))
+        );
+        const resolvedConf = shouldAdoptLatest
+          ? {
+              ...confEspecifica,
+              estructuraModulos: latestStructConf!.estructuraModulos,
+              estructuraModulosUpdatedAt: latestStructConf!.estructuraModulosUpdatedAt,
+            }
+          : confEspecifica;
+        setConfig(resolvedConf);
       } else if (targetDel) {
         const configNueva: ConfiguracionSistema = {
           ...DEFAULT_CONFIG,
+          estructuraModulos:
+            latestStructConf?.estructuraModulos ||
+            config.estructuraModulos ||
+            DEFAULT_CONFIG.estructuraModulos,
+          estructuraModulosUpdatedAt:
+            latestStructConf?.estructuraModulosUpdatedAt || config.estructuraModulosUpdatedAt,
           id: `config-${activeDelegacionId}`,
           delegacionId: activeDelegacionId,
           dependencia: targetDel.nombre,
@@ -281,7 +333,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [activeDelegacionId, delegacionesList]);
+  }, [activeDelegacionId, delegacionesList, currentUser?.id]);
 
   // Verificación de permiso de eliminación
   const verificarPermisoEliminar = (): boolean => {
@@ -419,6 +471,7 @@ export default function App() {
     const updatedPersonal: Personal = {
       ...personal,
       delegacionId: nuevaDelegacionId,
+      destinoActual: destinoDel ? `${destinoDel.nombre} (${destinoDel.ciudad})` : nuevaDelegacionId,
       historialTraslados: [
         ...(personal.historialTraslados || []),
         nuevoTraslado,
@@ -427,9 +480,36 @@ export default function App() {
     };
 
     await db.personal.put(updatedPersonal);
+    saveItemToServer('personal', updatedPersonal);
     setPersonalList((prev) =>
       prev.map((p) => (p.id === updatedPersonal.id ? updatedPersonal : p))
     );
+
+    // Emitir aviso inter-delegación automático a la nueva delegación
+    const avisoTraslado: AvisoNovedad = {
+      id: `nov-traslado-${Date.now()}`,
+      remitenteUsuarioId: currentUser?.id || 'sistema',
+      remitenteUsuarioNombre: currentUser?.apellidoYNombre || 'Oficial de Turno',
+      origenDelegacionId: personal.delegacionId || 'del-laguna-blanca',
+      origenDelegacionNombre: origenNombre,
+      destinatarioDelegacionId: nuevaDelegacionId,
+      destinatarioDelegacionNombre: destinoNombre,
+      mensaje: `TRASLADO DE EFECTIVO: El efectivo ${personal.jerarquia} ${personal.apellidoYNombre} (DNI ${personal.dni}) ha sido transferido e incorporado a la dotación de ${destinoNombre}. Disposición: ${disposicion || 'S/N'}. Motivo: ${motivo || 'Reasignación de destino'}.`,
+      prioridad: 'Alta',
+      leidoPor: [],
+      createdAt: new Date().toISOString(),
+    };
+    await db.novedadesDelegaciones.put(avisoTraslado);
+    saveItemToServer('novedadesDelegaciones', avisoTraslado);
+    setNovedadesList((prev) => [avisoTraslado, ...prev]);
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Personal',
+      accion: 'MODIFICAR',
+      descripcion: `Traslado de personal: ${personal.jerarquia} ${personal.apellidoYNombre} transferido de ${origenNombre} a ${destinoNombre}`,
+      delegacionId: activeDelegacionId,
+    });
   };
 
   // --- CRUD PERSONAL ---
@@ -696,6 +776,84 @@ export default function App() {
       }
       return [entity, ...prev];
     });
+
+    // Sincronizar novedades de móviles con Parque Automotor (Odómetro, Estado, Reparaciones)
+    if (p.movilesAfectados && p.movilesAfectados.length > 0) {
+      let movilesUpdated = false;
+      const updatedMovilesList = [...movilesList];
+
+      for (const m of p.movilesAfectados) {
+        const movilIndex = updatedMovilesList.findIndex(
+          (mv) =>
+            mv.id === m.movilId ||
+            `${mv.nroMovilInterno} ${mv.marca} ${mv.modelo} (${mv.dominioPatente})`.toLowerCase() === m.descripcion.toLowerCase() ||
+            (m.descripcion.includes(mv.nroMovilInterno) && m.descripcion.includes(mv.dominioPatente))
+        );
+
+        if (movilIndex >= 0) {
+          const target = { ...updatedMovilesList[movilIndex] };
+          let changed = false;
+
+          // Odómetro / Km actual
+          if (m.kmActual && m.kmActual > target.kilometrajeActual) {
+            target.kilometrajeActual = m.kmActual;
+            changed = true;
+          }
+
+          // Estado operativo
+          const mappedEstado: EstadoOperativoVehiculo =
+            m.estado === 'En servicio'
+              ? 'En Servicio'
+              : m.estado === 'En taller'
+              ? 'En Taller Mecánico'
+              : 'Fuera de Servicio';
+
+          if (target.estadoOperativo !== mappedEstado) {
+            target.estadoOperativo = mappedEstado;
+            changed = true;
+          }
+
+          // Condición general
+          if (m.condicionGeneral && target.condicionGeneral !== m.condicionGeneral) {
+            target.condicionGeneral = m.condicionGeneral;
+            changed = true;
+          }
+
+          // Reparación reportada
+          if (m.requiereReparacion && (m.novedadesMecanicas || m.tipoReparacion)) {
+            const nuevaRep: ReparacionMecanica = {
+              id: 'rep-g-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+              movilId: target.id,
+              fecha: p.fechaInicio || new Date().toISOString().slice(0, 10),
+              kilometraje: m.kmActual || target.kilometrajeActual,
+              tipoIntervencion: (m.tipoReparacion as any) || 'Mecánica',
+              tallerProveedor: m.tallerProveedor || 'Taller Central Policial',
+              descripcion: `[Guardia ${p.fechaInicio} ${p.grupoGuardia}] ${m.novedadesMecanicas || 'Novedad mecánica registrada en guardia'}`,
+              costoPresupuesto: m.costoPresupuesto || 0,
+              repuestosCambiados: m.repuestosCambiados || '',
+              createdAt: new Date().toISOString(),
+            };
+
+            await db.reparaciones.put(nuevaRep);
+            saveItemToServer('reparaciones', nuevaRep);
+            target.reparaciones = [nuevaRep, ...(target.reparaciones || [])];
+            changed = true;
+          }
+
+          if (changed) {
+            target.updatedAt = new Date().toISOString();
+            await db.moviles.put(target);
+            saveItemToServer('moviles', target);
+            updatedMovilesList[movilIndex] = target;
+            movilesUpdated = true;
+          }
+        }
+      }
+
+      if (movilesUpdated) {
+        setMovilesList(updatedMovilesList);
+      }
+    }
 
     await registrarAuditoria({
       currentUser: currentUser,
@@ -1275,6 +1433,54 @@ export default function App() {
     });
   };
 
+  // --- NOVEDADES INTER-DELEGACIONES ---
+  const handleCrearNovedad = async (avisoData: Omit<AvisoNovedad, 'id' | 'createdAt'> | AvisoNovedad) => {
+    const aviso: AvisoNovedad = {
+      ...avisoData,
+      id: 'id' in avisoData && avisoData.id ? avisoData.id : `nov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      createdAt: 'createdAt' in avisoData && avisoData.createdAt ? avisoData.createdAt : new Date().toISOString(),
+    };
+    await db.novedadesDelegaciones.put(aviso);
+    saveItemToServer('novedadesDelegaciones', aviso);
+    setNovedadesList((prev) => [aviso, ...prev.filter((n) => n.id !== aviso.id)]);
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Novedades Inter-Delegaciones',
+      accion: 'CREAR',
+      descripcion: `Aviso emitido con prioridad [${aviso.prioridad}] para ${aviso.destinatarioDelegacionNombre || aviso.destinatarioDelegacionId}. Mensaje: ${aviso.mensaje.substring(0, 60)}...`,
+      delegacionId: activeDelegacionId,
+    });
+  };
+
+  const handleEliminarNovedad = async (id: string) => {
+    if (!verificarPermisoEliminar()) return;
+    await db.novedadesDelegaciones.delete(id);
+    deleteItemFromServer('novedadesDelegaciones', id);
+    setNovedadesList((prev) => prev.filter((n) => n.id !== id));
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Novedades Inter-Delegaciones',
+      accion: 'ELIMINAR',
+      descripcion: `Eliminación de aviso de novedad inter-delegación ID: ${id}`,
+      delegacionId: activeDelegacionId,
+    });
+  };
+
+  const handleMarcarLeidoNovedad = async (id: string) => {
+    if (!currentUser) return;
+    const item = novedadesList.find((n) => n.id === id);
+    if (!item) return;
+    const leidoPor = item.leidoPor || [];
+    if (!leidoPor.includes(currentUser.id)) {
+      const updated: AvisoNovedad = { ...item, leidoPor: [...leidoPor, currentUser.id] };
+      await db.novedadesDelegaciones.put(updated);
+      saveItemToServer('novedadesDelegaciones', updated);
+      setNovedadesList((prev) => prev.map((n) => (n.id === id ? updated : n)));
+    }
+  };
+
   // --- CAMBIO DE CONTRASEÑA ---
   const handleSavePassword = async (userId: string, newPass: string) => {
     const user = usuariosList.find((u) => u.id === userId);
@@ -1311,15 +1517,72 @@ export default function App() {
     setCurrentUser(null);
   };
 
-  // --- CONFIGURACIÓN GENERAL (Aislada por Delegación) ---
+  // --- CONFIGURACIÓN GENERAL (Aislada por Delegación pero Estructura de Módulos Compartida) ---
   const handleSaveConfig = async (newConfig: ConfiguracionSistema) => {
+    const structTimestamp =
+      newConfig.estructuraModulosUpdatedAt ||
+      (newConfig.estructuraModulos ? new Date().toISOString() : undefined);
+
     const configDelegacion: ConfiguracionSistema = {
       ...newConfig,
+      estructuraModulosUpdatedAt: structTimestamp,
       id: `config-${activeDelegacionId}`,
       delegacionId: activeDelegacionId,
     };
     await db.configuracion.put(configDelegacion);
     saveItemToServer('configuracion', configDelegacion);
+
+    // Propagar estructuraModulos y carpetas a todas las configuraciones para visibilidad universal
+    if (newConfig.estructuraModulos && newConfig.estructuraModulos.length > 0) {
+      try {
+        const allConfigs = await db.configuracion.toArray();
+        const existingConfigIds = new Set(allConfigs.map((c) => c.id));
+        for (const cfg of allConfigs) {
+          if (cfg.id !== configDelegacion.id) {
+            const updated: ConfiguracionSistema = {
+              ...cfg,
+              estructuraModulos: newConfig.estructuraModulos,
+              estructuraModulosUpdatedAt: structTimestamp,
+            };
+            await db.configuracion.put(updated);
+            saveItemToServer('configuracion', updated);
+          }
+        }
+        // Asegurar que todas las delegaciones registradas reciban la estructura actualizada aunque no tuvieran config propia aún
+        for (const del of delegacionesList) {
+          const targetId = `config-${del.id}`;
+          if (!existingConfigIds.has(targetId) && targetId !== configDelegacion.id) {
+            const createdCfg: ConfiguracionSistema = {
+              ...DEFAULT_CONFIG,
+              id: targetId,
+              delegacionId: del.id,
+              dependencia: del.nombre,
+              siglasDependencia: del.siglas,
+              direccionDependencia: del.direccion,
+              contactoDependencia: `Tel.: ${del.telefono} / E-mail: ${del.email}`,
+              lineasMembrete:
+                del.lineasMembrete && del.lineasMembrete.length > 0
+                  ? del.lineasMembrete
+                  : DEFAULT_CONFIG.lineasMembrete,
+              logoIzquierdoUrl: del.logoIzquierdoUrl || DEFAULT_CONFIG.logoIzquierdoUrl,
+              logoDerechoUrl: del.logoDerechoUrl || DEFAULT_CONFIG.logoDerechoUrl,
+              textoDebajoLogoIzquierdo:
+                del.textoDebajoLogoIzquierdo || DEFAULT_CONFIG.textoDebajoLogoIzquierdo,
+              textoDebajoLogoDerecho:
+                del.textoDebajoLogoDerecho || DEFAULT_CONFIG.textoDebajoLogoDerecho,
+              pieDePagina: del.pieDePagina || DEFAULT_CONFIG.pieDePagina,
+              estructuraModulos: newConfig.estructuraModulos,
+              estructuraModulosUpdatedAt: structTimestamp,
+            };
+            await db.configuracion.put(createdCfg);
+            saveItemToServer('configuracion', createdCfg);
+          }
+        }
+      } catch (err) {
+        console.error('Error propagando estructura de módulos:', err);
+      }
+    }
+
     setConfig(configDelegacion);
   };
 
@@ -1358,6 +1621,10 @@ export default function App() {
         currentUser={currentUser}
         activeDelegacionId={activeDelegacionId}
         delegacionesList={delegacionesList}
+        novedadesList={novedadesList}
+        movilesList={movilesList}
+        onNavigateToNovedades={() => setActiveTab('novedades-delegaciones')}
+        onNavigateToMoviles={() => setActiveTab('moviles')}
         onSelectDelegacion={(newDelId) => setActiveDelegacionId(newDelId)}
         onOpenCambiarPassword={() => setIsPasswordModalOpen(true)}
         onLogout={handleLogout}
@@ -1391,6 +1658,8 @@ export default function App() {
             onSelectTab={setActiveTab}
             currentUser={currentUser}
             onToggleCollapse={() => setIsSidebarVisible(false)}
+            config={config}
+            onSaveConfig={handleSaveConfig}
             badgeCounts={{
               faltaOficio: faltaOficioCount,
               movilesTaller: movilesTallerCount,
@@ -1424,6 +1693,7 @@ export default function App() {
               personalList={filteredPersonal}
               config={config}
               delegacionesList={delegacionesList}
+              currentUser={currentUser || undefined}
               onSavePersonal={handleSavePersonal}
               onDeletePersonal={handleDeletePersonal}
               onTransferirPersonal={handleTransferirPersonal}
@@ -1476,6 +1746,8 @@ export default function App() {
               movilesList={filteredMoviles}
               reparacionesList={reparacionesList}
               config={config}
+              delegacionesList={delegacionesList}
+              currentUser={currentUser || undefined}
               onSaveMovil={handleSaveMovil}
               onDeleteMovil={handleDeleteMovil}
               onSaveReparacion={handleSaveReparacion}
@@ -1648,6 +1920,21 @@ export default function App() {
               currentUser={currentUser}
               delegacionesList={delegacionesList}
               config={config}
+            />
+          )}
+
+          {activeTab === 'novedades-delegaciones' && (
+            <NovedadesDelegacionesView
+              novedadesList={novedadesList}
+              delegacionesList={delegacionesList}
+              personalList={personalList}
+              currentUser={currentUser || undefined}
+              activeDelegacionId={activeDelegacionId}
+              config={config}
+              onCrearNovedad={handleCrearNovedad}
+              onMarcarLeido={handleMarcarLeidoNovedad}
+              onEliminarNovedad={handleEliminarNovedad}
+              onTransferirPersonal={handleTransferirPersonal}
             />
           )}
 

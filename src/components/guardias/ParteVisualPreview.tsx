@@ -7,6 +7,7 @@ import {
 import { Download, Printer, Plus, Edit2, Trash2, X, Eye } from 'lucide-react';
 import { generarPdfParteGuardia } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { ModalOpcionesImpresion, OpcionesImpresion } from '../common/ModalOpcionesImpresion';
 
 interface ParteVisualPreviewProps {
   parte: ParteNovedadesGuardia;
@@ -32,18 +33,31 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
     interv: IntervencionParte | null;
   }>({ isOpen: false, interv: null });
   const [pdfPreviewUrl, setPdfPreviewUrl] = React.useState<string | null>(null);
+  const [isOpcionesModalOpen, setIsOpcionesModalOpen] = React.useState<boolean>(false);
 
   const handlePrint = () => {
     window.print();
   };
 
+  const handleGenerarPdfConOpciones = (opciones: OpcionesImpresion) => {
+    const url = generarPdfParteGuardia(parte, config, {
+      orientacion: opciones.orientacion,
+      tamano: opciones.tamano,
+      secciones: opciones.secciones,
+      incluirFirmaJefe: opciones.incluirFirmaJefe,
+      previewOnly: opciones.esVistaPrevia,
+    });
+    if (opciones.esVistaPrevia) {
+      setPdfPreviewUrl(url);
+    }
+  };
+
   const handlePreviewPdf = () => {
-    const url = generarPdfParteGuardia(parte, config, true);
-    setPdfPreviewUrl(url);
+    setIsOpcionesModalOpen(true);
   };
 
   const handleExportPdf = () => {
-    generarPdfParteGuardia(parte, config);
+    setIsOpcionesModalOpen(true);
   };
 
   return (
@@ -601,6 +615,15 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal interactivo de opciones de impresión y exportación PDF */}
+      <ModalOpcionesImpresion
+        isOpen={isOpcionesModalOpen}
+        titulo={`Opciones PDF - ${parte.grupoGuardia} (${parte.fechaInicio})`}
+        previewUrl={pdfPreviewUrl}
+        onGenerar={handleGenerarPdfConOpciones}
+        onClose={() => setIsOpcionesModalOpen(false)}
+      />
     </div>
   );
 };

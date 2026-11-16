@@ -24,6 +24,7 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
       id: 'pers-' + Date.now(),
       apellidoYNombre: '',
       dni: '',
+      cedulaProvincial: '',
       sexo: 'M',
       jerarquia: config.jerarquias[7] || 'Oficial Subinspector',
       plaza: '',
@@ -161,7 +162,7 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
           {activeTab === 'general' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block font-semibold text-slate-700 mb-1">
                     Apellido y Nombre *
@@ -183,6 +184,16 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
                     value={formData.dni}
                     onChange={(e) => setFormData({ ...formData, dni: e.target.value })}
                     placeholder="Ej. 34567890"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">N° Cédula Provincial</label>
+                  <input
+                    type="text"
+                    value={formData.cedulaProvincial || ''}
+                    onChange={(e) => setFormData({ ...formData, cedulaProvincial: e.target.value })}
+                    placeholder="Ej. CP-12345"
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none"
                   />
                 </div>

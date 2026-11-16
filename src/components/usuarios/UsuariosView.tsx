@@ -152,6 +152,9 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     'falta-oficio',
   ]);
   const [formPuedeEliminar, setFormPuedeEliminar] = useState(false);
+  const [formPuedeCrear, setFormPuedeCrear] = useState(true);
+  const [formPuedeModificar, setFormPuedeModificar] = useState(true);
+  const [formEsSoloLectura, setFormEsSoloLectura] = useState(false);
   const [formPuedeModificarActuaciones, setFormPuedeModificarActuaciones] = useState(false);
   const [formPuedeAdministrarModulos, setFormPuedeAdministrarModulos] = useState(false);
   const [formPuedeResetearContadores, setFormPuedeResetearContadores] = useState(false);
@@ -228,6 +231,9 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
         'vehiculos',
       ]);
       setFormPuedeEliminar(false);
+      setFormPuedeCrear(true);
+      setFormPuedeModificar(true);
+      setFormEsSoloLectura(false);
       setFormPuedeModificarActuaciones(false);
       setFormPuedeAdministrarModulos(false);
       setFormPuedeResetearContadores(false);
@@ -252,6 +258,9 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     setFormDelegacionesPermitidas(user.delegacionesPermitidas || [user.delegacionId]);
     setFormModulosPermitidos(user.modulosPermitidos || []);
     setFormPuedeEliminar(Boolean(user.puedeEliminar));
+    setFormPuedeCrear(user.puedeCrear !== undefined ? Boolean(user.puedeCrear) : !user.esSoloLectura);
+    setFormPuedeModificar(user.puedeModificar !== undefined ? Boolean(user.puedeModificar) : !user.esSoloLectura);
+    setFormEsSoloLectura(Boolean(user.esSoloLectura));
     setFormPuedeModificarActuaciones(Boolean(user.puedeModificarActuacionesCargadas));
     setFormPuedeAdministrarModulos(Boolean(user.puedeAdministrarModulos));
     setFormPuedeResetearContadores(Boolean(user.puedeResetearContadores));
@@ -269,6 +278,10 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     }
     if (rol.acciones) {
       setFormPuedeEliminar(Boolean(rol.acciones.puedeEliminar));
+      setFormPuedeCrear(Boolean(rol.acciones.puedeCrear));
+      setFormPuedeModificar(Boolean(rol.acciones.puedeModificar));
+      const esLec = !rol.acciones.puedeCrear && !rol.acciones.puedeModificar && !rol.acciones.puedeEliminar;
+      setFormEsSoloLectura(esLec);
       setFormPuedeModificarActuaciones(Boolean(rol.acciones.puedeModificarActuacionesCargadas));
       setFormPuedeAdministrarModulos(Boolean(rol.acciones.puedeAdministrarModulos));
       setFormPuedeResetearContadores(Boolean(rol.acciones.puedeResetearContadores));
@@ -285,6 +298,26 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     } else {
       setFormRol(rolIdOrName);
       setFormRolId('');
+      if (rolIdOrName.includes('Solo Lectura')) {
+        setFormEsSoloLectura(true);
+        setFormPuedeCrear(false);
+        setFormPuedeModificar(false);
+        setFormPuedeEliminar(false);
+      } else if (rolIdOrName === 'superusuario') {
+        setFormEsSoloLectura(false);
+        setFormPuedeCrear(true);
+        setFormPuedeModificar(true);
+        setFormPuedeEliminar(true);
+      } else if (rolIdOrName === 'Administrador') {
+        setFormEsSoloLectura(false);
+        setFormPuedeCrear(true);
+        setFormPuedeModificar(true);
+        setFormPuedeEliminar(true);
+      } else {
+        setFormEsSoloLectura(false);
+        setFormPuedeCrear(true);
+        setFormPuedeModificar(true);
+      }
     }
   };
 
@@ -338,7 +371,10 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
       puedeVerOtrasDelegaciones: formPuedeVerOtras,
       delegacionesPermitidas: formPuedeVerOtras ? formDelegacionesPermitidas : [formDelegacionId],
       modulosPermitidos: formModulosPermitidos,
-      puedeEliminar: formPuedeEliminar,
+      puedeEliminar: formEsSoloLectura ? false : formPuedeEliminar,
+      puedeCrear: formEsSoloLectura ? false : formPuedeCrear,
+      puedeModificar: formEsSoloLectura ? false : formPuedeModificar,
+      esSoloLectura: formEsSoloLectura,
       puedeModificarActuacionesCargadas: formPuedeModificarActuaciones,
       puedeAdministrarModulos: formPuedeAdministrarModulos,
       puedeResetearContadores: formPuedeResetearContadores,
@@ -1060,9 +1096,12 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                       ))
                     ) : (
                       <>
-                        <option value="Operador">Operador (Carga y consulta operativa)</option>
-                        <option value="Administrador">Administrador (Gestión y reportes de delegación)</option>
                         <option value="superusuario">Superusuario (Acceso irrestricto global)</option>
+                        <option value="Administrador">Administrador (Gestión y reportes de delegación)</option>
+                        <option value="Oficial de Guardia">Oficial de Guardia (Control de guardia y móviles)</option>
+                        <option value="Carga / Editor">Carga / Editor (Registro y edición operativa)</option>
+                        <option value="Operador">Operador (Carga operativa de guardia)</option>
+                        <option value="Solo Lectura (Auditor / Consulta)">Solo Lectura (Auditor / Consulta)</option>
                       </>
                     )}
                   </select>
@@ -1079,37 +1118,100 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                 </div>
               </div>
 
-              {/* Permisos de eliminación y estado */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formPuedeEliminar}
-                    onChange={(e) => setFormPuedeEliminar(e.target.checked)}
-                    className="w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500"
-                  />
-                  <div>
-                    <span className="font-bold text-slate-800 block">¿Permitir Eliminar Contenido?</span>
-                    <span className="text-[11px] text-slate-500">
-                      Habilita borrar expedientes, intervenciones o registros en los módulos
-                    </span>
-                  </div>
-                </label>
+              {/* Permisos Granulares y Estado */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5 text-blue-600" />
+                  Permisos Operativos y de Carga
+                </h4>
 
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formActivo}
-                    onChange={(e) => setFormActivo(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                  />
-                  <div>
-                    <span className="font-bold text-slate-800 block">Usuario Activo</span>
-                    <span className="text-[11px] text-slate-500">
-                      Permite iniciar sesión en el portal
-                    </span>
-                  </div>
-                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={formPuedeCrear}
+                      disabled={formEsSoloLectura}
+                      onChange={(e) => setFormPuedeCrear(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-800 block">¿Permitir Cargar / Crear?</span>
+                      <span className="text-[11px] text-slate-500">
+                        Habilita la inserción de nuevos registros en módulos autorizados
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={formPuedeModificar}
+                      disabled={formEsSoloLectura}
+                      onChange={(e) => setFormPuedeModificar(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 text-amber-600 rounded border-slate-300 focus:ring-amber-500"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-800 block">¿Permitir Editar / Modificar?</span>
+                      <span className="text-[11px] text-slate-500">
+                        Permite actualizar o corregir registros ya guardados
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={formPuedeEliminar}
+                      disabled={formEsSoloLectura}
+                      onChange={(e) => setFormPuedeEliminar(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 text-rose-600 rounded border-slate-300 focus:ring-rose-500"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-800 block">¿Permitir Eliminar Contenido?</span>
+                      <span className="text-[11px] text-slate-500">
+                        Habilita borrar expedientes, intervenciones o registros
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={formEsSoloLectura}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setFormEsSoloLectura(val);
+                        if (val) {
+                          setFormPuedeCrear(false);
+                          setFormPuedeModificar(false);
+                          setFormPuedeEliminar(false);
+                        }
+                      }}
+                      className="w-4 h-4 mt-0.5 text-purple-600 rounded border-slate-300 focus:ring-purple-500"
+                    />
+                    <div>
+                      <span className="font-bold text-purple-900 block">Modo Solo Lectura (Auditor)</span>
+                      <span className="text-[11px] text-purple-700">
+                        Inhabilita creación, edición y borrado de cualquier registro
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 sm:col-span-2">
+                    <input
+                      type="checkbox"
+                      checked={formActivo}
+                      onChange={(e) => setFormActivo(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-800 block">Usuario Activo en el Sistema</span>
+                      <span className="text-[11px] text-slate-500">
+                        Habilita el inicio de sesión y autenticación en la plataforma
+                      </span>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               {/* Permiso para ver datos de otras Delegaciones */}

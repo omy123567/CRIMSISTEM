@@ -254,6 +254,41 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
   // Total de Inspecciones Oculares = LC + Seg. Vial
   const cantidadTotalIO = cantidadLC + cantidadSegVial;
 
+  // Personal para autocompletar Perito / Fotógrafo (priorizando personal de partes de guardia)
+  const opcionesPersonalGuardia = useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+
+    partesGuardiaList.forEach((parte) => {
+      parte.funcionesPersonal?.forEach((f) => {
+        if (f.personalNombre?.trim() && !seen.has(f.personalNombre.trim().toLowerCase())) {
+          seen.add(f.personalNombre.trim().toLowerCase());
+          list.push(f.personalNombre.trim());
+        }
+      });
+      parte.intervenciones?.forEach((i) => {
+        if (i.perito?.trim() && !seen.has(i.perito.trim().toLowerCase())) {
+          seen.add(i.perito.trim().toLowerCase());
+          list.push(i.perito.trim());
+        }
+        if (i.fotografo?.trim() && !seen.has(i.fotografo.trim().toLowerCase())) {
+          seen.add(i.fotografo.trim().toLowerCase());
+          list.push(i.fotografo.trim());
+        }
+      });
+    });
+
+    personalList.forEach((p) => {
+      const full = `${p.jerarquia} ${p.apellidoYNombre}`.trim();
+      if (!seen.has(full.toLowerCase())) {
+        seen.add(full.toLowerCase());
+        list.push(full);
+      }
+    });
+
+    return list;
+  }, [partesGuardiaList, personalList]);
+
   // Handler para validar/confirmar cantidad de fotos al hacer clic sobre el estado
   const handleToggleValidarFotos = (io: InspeccionOcular) => {
     const puedeValidar = Boolean(
@@ -625,172 +660,6 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
       {/* CONTENIDO PRINCIPAL: VISTA ESTILO PARTE DE NOVEDADES VS CUADRÍCULA */}
       {viewStyle === 'parte-novedades' ? (
         <div className="bg-white rounded-xl border border-slate-300 shadow-md overflow-hidden space-y-0">
-          {/* FORMULARIO DE CARGA DIRECTA DESDE LA TABLA */}
-          <form onSubmit={handleCargarDesdeTabla} className="bg-amber-50/70 border-b-2 border-amber-300 p-3 sm:p-4 text-xs space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-amber-950 uppercase tracking-wide text-[11px] flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-amber-700" />
-                <span>Cargar Nueva Inspección Ocular Directo en la Tabla</span>
-              </span>
-              <span className="text-[10px] font-mono font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded border border-amber-300">
-                Próximo correlativo automático
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 lg:grid-cols-12 gap-2">
-              {/* N° I.O. */}
-              <div className="lg:col-span-2">
-                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">N° I.O. *</label>
-                <input
-                  type="text"
-                  required
-                  value={inlineNroIO}
-                  onChange={(e) => setInlineNroIO(e.target.value)}
-                  placeholder="I.O. Nº 001/2026"
-                  className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded font-mono font-bold text-slate-900 text-xs"
-                />
-              </div>
-
-              {/* Fecha */}
-              <div className="lg:col-span-2">
-                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Fecha *</label>
-                <input
-                  type="date"
-                  required
-                  value={inlineFecha}
-                  onChange={(e) => setInlineFecha(e.target.value)}
-                  className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded text-slate-800 text-xs"
-                />
-              </div>
-
-              {/* Hora */}
-              <div className="lg:col-span-1">
-                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Hora</label>
-                <input
-                  type="text"
-                  value={inlineHora}
-                  onChange={(e) => setInlineHora(e.target.value)}
-                  placeholder="10:00"
-                  className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded text-slate-800 text-xs"
-                />
-              </div>
-
-              {/* Dirección / Lugar */}
-              <div className="sm:col-span-2 lg:col-span-3">
-                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Dirección / Lugar de Hecho *</label>
-                <input
-                  type="text"
-                  required
-                  value={inlineDireccion}
-                  onChange={(e) => setInlineDireccion(e.target.value)}
-                  placeholder="Ej. Av. Gutnisky esquina Antártida Argentina"
-                  className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded text-slate-800 text-xs font-medium"
-                />
-              </div>
-
-              {/* Hecho */}
-              <div className="sm:col-span-2 lg:col-span-2">
-                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Hecho / Motivo</label>
-                <select
-                  value={inlineHecho}
-                  onChange={(e) => setInlineHecho(e.target.value)}
-                  className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded text-slate-800 text-xs truncate"
-                >
-                  {config.hechosCriminalistica.map((h) => (
-                    <option key={h} value={h}>{h}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Tipo */}
-              <div className="lg:col-span-2">
-                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Tipo Pericial</label>
-                <select
-                  value={inlineTipo}
-                  onChange={(e) => setInlineTipo(e.target.value)}
-                  className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded text-slate-800 text-xs"
-                >
-                  <option value="Criminalística">Criminalística</option>
-                  <option value="Accidentológica Vial">Accidentológica Vial</option>
-                  <option value="Balística">Balística</option>
-                  <option value="Incendio">Incendio</option>
-                  <option value="Homicidio">Homicidio</option>
-                  <option value="Otro">Otro</option>
-                </select>
-              </div>
-
-              {/* Dependencia */}
-              <div className="sm:col-span-2 lg:col-span-3">
-                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Dependencia Solicitante</label>
-                <select
-                  value={inlineDependencia}
-                  onChange={(e) => setInlineDependencia(e.target.value)}
-                  className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded text-slate-800 text-xs truncate"
-                >
-                  {config.dependenciasPoliciales.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Perito */}
-              <div className="sm:col-span-2 lg:col-span-3">
-                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Perito Interviniente</label>
-                <select
-                  value={inlinePerito}
-                  onChange={(e) => setInlinePerito(e.target.value)}
-                  className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded text-slate-800 text-xs truncate"
-                >
-                  <option value="">-- Seleccionar Perito --</option>
-                  {personalList.map((p) => (
-                    <option key={p.id} value={`${p.jerarquia} ${p.apellidoYNombre}`}>
-                      {p.jerarquia} {p.apellidoYNombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Fotógrafo */}
-              <div className="sm:col-span-2 lg:col-span-3">
-                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Fotógrafo de Turno</label>
-                <select
-                  value={inlineFotografo}
-                  onChange={(e) => setInlineFotografo(e.target.value)}
-                  className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded text-slate-800 text-xs truncate"
-                >
-                  <option value="">-- Seleccionar Fotógrafo --</option>
-                  {personalList.map((p) => (
-                    <option key={p.id} value={`${p.jerarquia} ${p.apellidoYNombre}`}>
-                      {p.jerarquia} {p.apellidoYNombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Fotos y Botón Cargar */}
-              <div className="sm:col-span-2 lg:col-span-3 flex items-end gap-2">
-                <div className="w-24 shrink-0">
-                  <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Fotos Cant.</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={inlineCantidadFotos}
-                    onChange={(e) => setInlineCantidadFotos(parseInt(e.target.value) || 0)}
-                    className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded text-slate-800 text-xs font-mono font-bold text-center"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="flex-1 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded shadow-sm text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Plus className="w-4 h-4 text-slate-950" />
-                  <span>+ Cargar a Tabla</span>
-                </button>
-              </div>
-            </div>
-          </form>
-
           {/* TABLA PRINCIPAL DE INSPECCIONES OCULARES */}
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left border-collapse border border-slate-300">
@@ -895,22 +764,34 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
                               ))}
                             </select>
                           </td>
-                          {/* Perito / Fotógrafo */}
+                          {/* Perito / Fotógrafo con autocompletado de guardia y general */}
                           <td className="border border-slate-300 p-2 space-y-1">
                             <input
                               type="text"
+                              list="datalist-peritos-inspecciones"
                               value={editingRowData.perito || ''}
                               onChange={(e) => setEditingRowData({ ...editingRowData, perito: e.target.value })}
-                              placeholder="Perito"
+                              placeholder="Perito (Guardia / Gral)"
                               className="w-full px-1 py-1 bg-white border border-slate-300 rounded text-[11px]"
                             />
                             <input
                               type="text"
+                              list="datalist-fotografos-inspecciones"
                               value={editingRowData.fotografo || ''}
                               onChange={(e) => setEditingRowData({ ...editingRowData, fotografo: e.target.value })}
-                              placeholder="Fotógrafo"
+                              placeholder="Fotógrafo (Guardia / Gral)"
                               className="w-full px-1 py-1 bg-white border border-slate-300 rounded text-[11px]"
                             />
+                            <datalist id="datalist-peritos-inspecciones">
+                              {opcionesPersonalGuardia.map((nom) => (
+                                <option key={'p-' + nom} value={nom} />
+                              ))}
+                            </datalist>
+                            <datalist id="datalist-fotografos-inspecciones">
+                              {opcionesPersonalGuardia.map((nom) => (
+                                <option key={'f-' + nom} value={nom} />
+                              ))}
+                            </datalist>
                           </td>
                           {/* Fotos */}
                           <td className="border border-slate-300 p-2 text-center">
@@ -1289,6 +1170,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
         <InspeccionModal
           inspeccion={selectedInspeccion}
           personalList={personalList}
+          partesGuardiaList={partesGuardiaList}
           config={config}
           onSave={(data) => {
             onSaveInspeccion(data);

@@ -40,6 +40,17 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
     return [...parte.funcionesPersonal];
   });
 
+  // Requerimiento: "aclaro que deben especificar primero la seccion de guardia que corresponda"
+  const [seccionGuardia, setSeccionGuardia] = useState<string>(() => {
+    return parte.tipoGuardia || parte.grupoGuardia || 'Guardia Entrante';
+  });
+
+  // Requerimiento: "en funciones permite habilitar agregar funcion adicional (check)"
+  const [habilitarFuncionAdicional, setHabilitarFuncionAdicional] = useState<boolean>(() => {
+    return funciones.some((f) => Boolean(f.funcionSecundaria));
+  });
+  const [nuevoConFuncionAdicional, setNuevoConFuncionAdicional] = useState<boolean>(false);
+
   const [nuevaFuncion1, setNuevaFuncion1] = useState('');
   const [nuevaFuncion2, setNuevaFuncion2] = useState('');
   const [nuevoEfectivo, setNuevoEfectivo] = useState('');
@@ -65,13 +76,14 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
       {
         id: 'f-' + Date.now(),
         funcion: nuevaFuncion1.trim() || 'Oficial de Guardia',
-        funcionSecundaria: nuevaFuncion2.trim() || undefined,
+        funcionSecundaria: (nuevoConFuncionAdicional && nuevaFuncion2.trim()) ? nuevaFuncion2.trim() : undefined,
         personalNombre: nuevoEfectivo.trim(),
       },
     ]);
     setNuevaFuncion1('');
     setNuevaFuncion2('');
     setNuevoEfectivo('');
+    setNuevoConFuncionAdicional(false);
   };
 
   const handleCargarDesdeGrupo = (grupoId: string) => {
@@ -111,6 +123,8 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
   const handleSave = () => {
     onSave({
       ...parte,
+      tipoGuardia: seccionGuardia,
+      grupoGuardia: seccionGuardia,
       funcionesPersonal: funciones,
       updatedAt: new Date().toISOString(),
     });
@@ -131,7 +145,7 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                 Personal y Asignación de Funciones de Guardia
               </h2>
               <p className="text-xs text-blue-200">
-                Permite asignar hasta 2 funciones a cada efectivo (ej. Oficial de Guardia y Chofer)
+                Especifique la sección de guardia y asigne funciones principales o adicionales
               </p>
             </div>
           </div>
@@ -145,12 +159,72 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
 
         {/* Content Body */}
         <div className="p-5 overflow-y-auto space-y-4 text-xs flex-1">
+          {/* Requerimiento: Especificar primero la Sección de Guardia que corresponda */}
+          <div className="bg-blue-50/70 border-2 border-blue-300 p-3.5 rounded-xl shadow-xs space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <label className="font-bold text-blue-950 text-xs flex items-center gap-1.5">
+                  <Shield className="w-4 h-4 text-blue-800" />
+                  <span>1. SECCIÓN DE GUARDIA O DESTINO * (Especificar Primero)</span>
+                </label>
+                <p className="text-[11px] text-blue-800">
+                  Indique a qué sección o turno corresponde este personal
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={seccionGuardia}
+                  onChange={(e) => setSeccionGuardia(e.target.value)}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg border border-blue-400 bg-white text-blue-950 focus:ring-2 focus:ring-blue-600 shadow-2xs"
+                >
+                  <option value="Guardia Entrante">Guardia Entrante</option>
+                  <option value="Guardia Saliente">Guardia Saliente</option>
+                  <option value="Guardia Activa">Guardia Activa</option>
+                  <option value="Sección Pericial">Sección Pericial</option>
+                  <option value="Sección Criminalística">Sección Criminalística</option>
+                  <option value="Sección Cibercrimen">Sección Cibercrimen</option>
+                  <option value="Sección Prevención">Sección Prevención</option>
+                  <option value="Servicio de Brigada">Servicio de Brigada</option>
+                  {config?.gruposGuardia?.map((g) => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                  {!['Guardia Entrante', 'Guardia Saliente', 'Guardia Activa', 'Sección Pericial', 'Sección Criminalística', 'Sección Cibercrimen', 'Sección Prevención', 'Servicio de Brigada', ...(config?.gruposGuardia || [])].includes(seccionGuardia) && (
+                    <option value={seccionGuardia}>{seccionGuardia}</option>
+                  )}
+                </select>
+                <input
+                  type="text"
+                  value={seccionGuardia}
+                  onChange={(e) => setSeccionGuardia(e.target.value)}
+                  placeholder="O redactar sección..."
+                  className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* Requerimiento: "en funciones permite habilitar agregar funcion adicional (check)" */}
+            <div className="pt-2 border-t border-blue-200 flex items-center justify-between">
+              <label className="flex items-center gap-2 text-xs font-bold text-blue-950 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={habilitarFuncionAdicional}
+                  onChange={(e) => setHabilitarFuncionAdicional(e.target.checked)}
+                  className="w-4 h-4 text-blue-800 rounded border-blue-300 focus:ring-blue-500 cursor-pointer"
+                />
+                <span>Habilitar asignación de Función Adicional (Función 2) para el personal</span>
+              </label>
+              <span className="text-[10px] text-blue-700 font-mono font-semibold">
+                {habilitarFuncionAdicional ? '✓ Función adicional habilitada' : 'Solo función principal'}
+              </span>
+            </div>
+          </div>
+
           {/* Barra de precarga desde Grupo */}
           {gruposList.length > 0 && (
-            <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-blue-700" />
-                <span className="font-bold text-blue-950 text-xs">
+                <span className="font-bold text-slate-800 text-xs">
                   Cargar lista precargada desde un Grupo:
                 </span>
               </div>
@@ -160,7 +234,7 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                     if (e.target.value) handleCargarDesdeGrupo(e.target.value);
                   }}
                   defaultValue=""
-                  className="px-2.5 py-1 text-xs border border-blue-300 rounded-lg bg-white text-blue-900 font-semibold"
+                  className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-800 font-semibold"
                 >
                   <option value="" disabled>
                     Seleccione un grupo...
@@ -182,15 +256,17 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                 Efectivos y Funciones Asignadas ({funciones.length})
               </h3>
               <span className="text-[11px] text-slate-500 font-medium">
-                Puede seleccionar del catálogo o redactar funciones adicionales
+                {habilitarFuncionAdicional ? 'Con función principal y adicional' : 'Solo función principal'}
               </span>
             </div>
 
             {/* Encabezados de columnas */}
             <div className="hidden sm:grid sm:grid-cols-12 gap-2 text-[11px] font-bold text-slate-600 px-1">
-              <div className="col-span-4">Personal / Efectivo Policial</div>
-              <div className="col-span-4">Función 1 (Principal) *</div>
-              <div className="col-span-3">Función 2 (Opcional)</div>
+              <div className={habilitarFuncionAdicional ? 'col-span-4' : 'col-span-5'}>Personal / Efectivo Policial</div>
+              <div className={habilitarFuncionAdicional ? 'col-span-4' : 'col-span-6'}>Función Principal *</div>
+              {habilitarFuncionAdicional && (
+                <div className="col-span-3">Función Adicional</div>
+              )}
               <div className="col-span-1 text-center">Acción</div>
             </div>
 
@@ -202,7 +278,7 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                   className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 bg-white border border-slate-200 rounded-xl shadow-2xs items-center"
                 >
                   {/* Efectivo */}
-                  <div className="sm:col-span-4">
+                  <div className={habilitarFuncionAdicional ? 'sm:col-span-4' : 'sm:col-span-5'}>
                     <label className="block sm:hidden text-[10px] font-bold text-slate-500 mb-0.5">
                       Efectivo
                     </label>
@@ -225,9 +301,9 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                   </div>
 
                   {/* Función 1 */}
-                  <div className="sm:col-span-4">
+                  <div className={habilitarFuncionAdicional ? 'sm:col-span-4' : 'sm:col-span-6'}>
                     <label className="block sm:hidden text-[10px] font-bold text-slate-500 mb-0.5">
-                      Función 1
+                      Función Principal
                     </label>
                     <input
                       type="text"
@@ -244,27 +320,29 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                     </datalist>
                   </div>
 
-                  {/* Función 2 (opcional) */}
-                  <div className="sm:col-span-3">
-                    <label className="block sm:hidden text-[10px] font-bold text-slate-500 mb-0.5">
-                      Función 2
-                    </label>
-                    <input
-                      type="text"
-                      list={`func2-list-${f.id}`}
-                      value={f.funcionSecundaria || ''}
-                      onChange={(e) =>
-                        handleUpdate(f.id, 'funcionSecundaria', e.target.value)
-                      }
-                      placeholder="Opcional (Ej. Chofer)"
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800 text-xs focus:ring-2 focus:ring-blue-600 font-medium"
-                    />
-                    <datalist id={`func2-list-${f.id}`}>
-                      {catalogoFunciones.map((c) => (
-                        <option key={c} value={c} />
-                      ))}
-                    </datalist>
-                  </div>
+                  {/* Función 2 (opcional habilitada por check) */}
+                  {habilitarFuncionAdicional && (
+                    <div className="sm:col-span-3">
+                      <label className="block sm:hidden text-[10px] font-bold text-slate-500 mb-0.5">
+                        Función Adicional
+                      </label>
+                      <input
+                        type="text"
+                        list={`func2-list-${f.id}`}
+                        value={f.funcionSecundaria || ''}
+                        onChange={(e) =>
+                          handleUpdate(f.id, 'funcionSecundaria', e.target.value)
+                        }
+                        placeholder="Opcional (Ej. Chofer)"
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800 text-xs focus:ring-2 focus:ring-blue-600 font-medium"
+                      />
+                      <datalist id={`func2-list-${f.id}`}>
+                        {catalogoFunciones.map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
+                    </div>
+                  )}
 
                   {/* Eliminar */}
                   <div className="sm:col-span-1 flex justify-end sm:justify-center">
@@ -283,11 +361,23 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
 
             {/* Input para agregar nueva asignación */}
             <div className="pt-3 border-t border-slate-200 space-y-2">
-              <span className="font-bold text-slate-700 text-xs block">
-                + Asignar nuevo efectivo a esta guardia:
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-700 text-xs block">
+                  + Asignar nuevo efectivo a esta guardia:
+                </span>
+                <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={nuevoConFuncionAdicional}
+                    onChange={(e) => setNuevoConFuncionAdicional(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded text-blue-900 border-slate-300"
+                  />
+                  <span>Agregar función adicional a este efectivo</span>
+                </label>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                <div className="sm:col-span-4">
+                <div className={nuevoConFuncionAdicional ? 'sm:col-span-4' : 'sm:col-span-5'}>
                   <input
                     type="text"
                     list="pers-list-add"
@@ -306,13 +396,13 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                   </datalist>
                 </div>
 
-                <div className="sm:col-span-4">
+                <div className={nuevoConFuncionAdicional ? 'sm:col-span-4' : 'sm:col-span-6'}>
                   <input
                     type="text"
                     list="func-list-add-1"
                     value={nuevaFuncion1}
                     onChange={(e) => setNuevaFuncion1(e.target.value)}
-                    placeholder="Función 1 (ej. Oficial de Servicio)"
+                    placeholder="Función principal (ej. Oficial de Servicio)"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-blue-600"
                   />
                   <datalist id="func-list-add-1">
@@ -322,21 +412,23 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                   </datalist>
                 </div>
 
-                <div className="sm:col-span-3">
-                  <input
-                    type="text"
-                    list="func-list-add-2"
-                    value={nuevaFuncion2}
-                    onChange={(e) => setNuevaFuncion2(e.target.value)}
-                    placeholder="Función 2 (ej. Chofer)"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-blue-600"
-                  />
-                  <datalist id="func-list-add-2">
-                    {catalogoFunciones.map((c) => (
-                      <option key={c} value={c} />
-                    ))}
-                  </datalist>
-                </div>
+                {nuevoConFuncionAdicional && (
+                  <div className="sm:col-span-3">
+                    <input
+                      type="text"
+                      list="func-list-add-2"
+                      value={nuevaFuncion2}
+                      onChange={(e) => setNuevaFuncion2(e.target.value)}
+                      placeholder="Función adicional (ej. Chofer)"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-blue-600"
+                    />
+                    <datalist id="func-list-add-2">
+                      {catalogoFunciones.map((c) => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
+                  </div>
+                )}
 
                 <div className="sm:col-span-1">
                   <button

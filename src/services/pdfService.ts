@@ -125,23 +125,42 @@ export function drawPoliceHeader(
   return currentY + 6;
 }
 
-// Dibuja pie de página oficial con numeración
+// Dibuja pie de página oficial con numeración responsive
 export function drawPoliceFooter(doc: jsPDF, config: ConfiguracionSistema) {
   const pageCount = (doc as any).internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
+    const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     doc.setDrawColor(180, 190, 205);
     doc.setLineWidth(0.3);
-    doc.line(14, pageHeight - 12, 196, pageHeight - 12);
+    doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
 
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(7);
     doc.setTextColor(100, 116, 139);
-    doc.text(config.pieDePagina, 14, pageHeight - 8);
+    doc.text(config.pieDePagina || '', 14, pageHeight - 8);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Página ${i} de ${pageCount}`, 196, pageHeight - 8, { align: 'right' });
+    doc.text(`Página ${i} de ${pageCount}`, pageWidth - 14, pageHeight - 8, { align: 'right' });
   }
+}
+
+export interface OpcionesPdfParte {
+  orientacion?: 'portrait' | 'landscape';
+  tamano?: 'a4' | 'legal' | 'letter';
+  secciones?: {
+    encabezado?: boolean;
+    funcionesPersonal?: boolean;
+    forenses?: boolean;
+    moviles?: boolean;
+    lc?: boolean;
+    siniestros?: boolean;
+    cibercrimen?: boolean;
+    novedadesRelevo?: boolean;
+    firmaJefe?: boolean;
+  };
+  incluirFirmaJefe?: boolean;
+  previewOnly?: boolean;
 }
 
 /**
@@ -151,96 +170,131 @@ export function drawPoliceFooter(doc: jsPDF, config: ConfiguracionSistema) {
 export function generarPdfParteGuardia(
   parte: ParteNovedadesGuardia,
   config: ConfiguracionSistema,
-  previewOnly?: boolean
+  optionsOrPreview?: boolean | OpcionesPdfParte
 ): string {
-  const doc = new jsPDF('p', 'mm', 'a4');
-  let currentY = drawPoliceHeader(
-    doc,
-    config,
-    `PARTE DE NOVEDADES DE GUARDIA - ${parte.grupoGuardia.toUpperCase()}`,
-    10
-  );
+  const opts: OpcionesPdfParte =
+    typeof optionsOrPreview === 'boolean'
+      ? { previewOnly: optionsOrPreview }
+      : optionsOrPreview || {};
 
-  // Cuadro superior: Título con período exacto del modelo
-  const tituloPeriodo = `NOVEDADES SERVICIO DE GUARDIA DE ${parte.horaInicio} HS. DEL ${parte.fechaInicio} A ${parte.horaFin} HS. DEL ${parte.fechaFin}`;
+  const orient: 'p' | 'l' = opts.orientacion === 'landscape' ? 'l' : 'p';
+  const paper: string = opts.tamano || 'a4';
+  const previewOnly = Boolean(opts.previewOnly);
+  const sec = opts.secciones;
 
-  autoTable(doc, {
-    startY: currentY,
-    head: [[{ content: tituloPeriodo, colSpan: 2, styles: { halign: 'center', fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 } }]],
-    body: parte.funcionesPersonal.map((f) => [
-      { content: f.funcion, styles: { fontStyle: 'bold', cellWidth: 85, textColor: TEXT_DARK } },
-      { content: f.personalNombre || '---', styles: { textColor: TEXT_DARK } },
-    ]),
-    theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.2 },
-    margin: { left: 14, right: 14 },
-  });
+  const doc = new jsPDF(orient, 'mm', paper);
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
 
-  currentY = (doc as any).lastAutoTable.finalY + 1.5;
-
-  // Cuadro: FORENSE DE TURNO Y RELEVOS POLICIALES + TOTAL DE INTERVENCIONES
-  const forensesRows: any[] = [];
-  if (parte.forensesTurno && parte.forensesTurno.length > 0) {
-    parte.forensesTurno.forEach((f) => {
-      forensesRows.push([
-        {
-          content: `${f.medicoNombre}${f.turno ? ` (${f.turno}: ${f.horaIngreso} a ${f.horaEgreso || '--:--'} hs.)` : ''}`,
-          styles: { fontStyle: 'bold' },
-        },
-        {
-          content: `(- ${f.totalExaminados || 0} -) examinados${f.examinadosHastaHs ? ` hasta hs. ${f.examinadosHastaHs}` : ''}`,
-          styles: { halign: 'center', fontStyle: 'bold' },
-        },
-      ]);
-    });
-  } else {
-    forensesRows.push([
-      { content: parte.forense?.medicoNombre || 'Médico Policial Forense en Turno', styles: { fontStyle: 'bold' } },
-      { content: `Total (- ${parte.forense?.totalExaminados || 0} -) examinados hasta hs. ${parte.forense?.examinadosHastaHs || '07:00'}`, styles: { halign: 'center', fontStyle: 'bold' } },
-    ]);
+  let currentY = 10;
+  if (sec?.encabezado !== false) {
+    currentY = drawPoliceHeader(
+      doc,
+      config,
+      `PARTE DE NOVEDADES DE GUARDIA - ${parte.grupoGuardia.toUpperCase()}`,
+      10
+    );
   }
 
-  // Total de intervenciones row
-  forensesRows.push([
-    {
-      content: `TOTAL DE INTERVENCIONES [ - ${String(parte.intervenciones.length).padStart(2, '0')} - ]`,
-      colSpan: 2,
-      styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 244, 250], textColor: POLICE_NAVY },
-    },
-  ]);
+  // Cuadro superior: Título con período exacto del modelo
+  if (sec?.funcionesPersonal !== false && parte.funcionesPersonal && parte.funcionesPersonal.length > 0) {
+    const tituloPeriodo = `NOVEDADES SERVICIO DE GUARDIA DE ${parte.horaInicio} HS. DEL ${parte.fechaInicio} A ${parte.horaFin} HS. DEL ${parte.fechaFin}`;
 
-  autoTable(doc, {
-    startY: currentY,
-    head: [[{ content: 'MÉDICO(S) FORENSE(S) DE TURNO & RELEVOS POLICIALES', colSpan: 2, styles: { halign: 'center', fillColor: POLICE_LIGHT_BLUE, textColor: POLICE_NAVY, fontStyle: 'bold', fontSize: 8.5 } }]],
-    body: forensesRows,
-    theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.2 },
-    margin: { left: 14, right: 14 },
-  });
+    autoTable(doc, {
+      startY: currentY,
+      head: [[{ content: tituloPeriodo, colSpan: 2, styles: { halign: 'center', fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 } }]],
+      body: parte.funcionesPersonal.map((f) => [
+        { content: f.funcionSecundaria ? `${f.funcion} / ${f.funcionSecundaria}` : f.funcion, styles: { fontStyle: 'bold', cellWidth: Math.min(85, pageWidth * 0.4), textColor: TEXT_DARK } },
+        { content: f.personalNombre || '---', styles: { textColor: TEXT_DARK } },
+      ]),
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+      margin: { left: 14, right: 14 },
+    });
 
-  currentY = (doc as any).lastAutoTable.finalY + 1.5;
+    currentY = (doc as any).lastAutoTable.finalY + 1.5;
+  }
+
+  // Cuadro: FORENSE DE TURNO Y RELEVOS POLICIALES + TOTAL DE INTERVENCIONES
+  if (sec?.forenses !== false) {
+    const forensesRows: any[] = [];
+    if (parte.forensesTurno && parte.forensesTurno.length > 0) {
+      parte.forensesTurno.forEach((f) => {
+        forensesRows.push([
+          {
+            content: `${f.medicoNombre}${f.turno ? ` (${f.turno}: ${f.horaIngreso} a ${f.horaEgreso || '--:--'} hs.)` : ''}`,
+            styles: { fontStyle: 'bold' },
+          },
+          {
+            content: `(- ${f.totalExaminados || 0} -) examinados${f.examinadosHastaHs ? ` hasta hs. ${f.examinadosHastaHs}` : ''}`,
+            styles: { halign: 'center', fontStyle: 'bold' },
+          },
+        ]);
+      });
+    } else {
+      forensesRows.push([
+        { content: parte.forense?.medicoNombre || 'Médico Policial Forense en Turno', styles: { fontStyle: 'bold' } },
+        { content: `Total (- ${parte.forense?.totalExaminados || 0} -) examinados hasta hs. ${parte.forense?.examinadosHastaHs || '07:00'}`, styles: { halign: 'center', fontStyle: 'bold' } },
+      ]);
+    }
+
+    // Total de intervenciones row
+    forensesRows.push([
+      {
+        content: `TOTAL DE INTERVENCIONES [ - ${String(parte.intervenciones.length).padStart(2, '0')} - ]`,
+        colSpan: 2,
+        styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 244, 250], textColor: POLICE_NAVY },
+      },
+    ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [[{ content: 'MÉDICO(S) FORENSE(S) DE TURNO & RELEVOS POLICIALES', colSpan: 2, styles: { halign: 'center', fillColor: POLICE_LIGHT_BLUE, textColor: POLICE_NAVY, fontStyle: 'bold', fontSize: 8.5 } }]],
+      body: forensesRows,
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+      margin: { left: 14, right: 14 },
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 1.5;
+  }
 
   // Cuadro: MÓVILES AFECTADOS
-  autoTable(doc, {
-    startY: currentY,
-    head: [[{ content: 'MÓVILES AFECTADOS', colSpan: 2, styles: { halign: 'center', fillColor: POLICE_LIGHT_BLUE, textColor: POLICE_NAVY, fontStyle: 'bold', fontSize: 8.5 } }]],
-    body: parte.movilesAfectados.length > 0
-      ? parte.movilesAfectados.map((m) => [
-          { content: m.descripcion, styles: { textColor: TEXT_DARK } },
-          { content: m.estado, styles: { fontStyle: 'bold', halign: 'center', textColor: m.estado === 'En servicio' ? [22, 101, 52] : [185, 28, 28] } },
-        ])
-      : [['Sin móviles asignados registrados en guardia', '']],
-    theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.2 },
-    margin: { left: 14, right: 14 },
+  if (sec?.moviles !== false) {
+    autoTable(doc, {
+      startY: currentY,
+      head: [[{ content: 'MÓVILES AFECTADOS', colSpan: 2, styles: { halign: 'center', fillColor: POLICE_LIGHT_BLUE, textColor: POLICE_NAVY, fontStyle: 'bold', fontSize: 8.5 } }]],
+      body: parte.movilesAfectados.length > 0
+        ? parte.movilesAfectados.map((m) => [
+            { content: m.descripcion, styles: { textColor: TEXT_DARK } },
+            { content: m.estado, styles: { fontStyle: 'bold', halign: 'center', textColor: m.estado === 'En servicio' ? [22, 101, 52] : [185, 28, 28] } },
+          ])
+        : [['Sin móviles asignados registrados en guardia', '']],
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+      margin: { left: 14, right: 14 },
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 4;
+  }
+
+  // AHORA: Renderizado exacto de cada INTERVENCIÓN (Criminalística y Accidentológica) filtrado por sección
+  const intervencionesFiltradas = parte.intervenciones.filter((interv) => {
+    const esSiniestro =
+      interv.tipoIntervencion === 'Accidentológica' ||
+      (interv.hecho || '').toUpperCase().includes('SINIESTRO') ||
+      (interv.hecho || '').toUpperCase().includes('VIAL') ||
+      (interv.hecho || '').toUpperCase().includes('TRÁNSITO') ||
+      (interv.hecho || '').toUpperCase().includes('COLISIÓN');
+    if (esSiniestro) {
+      return sec?.siniestros !== false;
+    }
+    return sec?.lc !== false;
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 4;
-
-  // AHORA: Renderizado exacto de cada INTERVENCIÓN (Criminalística y Accidentológica)
-  parte.intervenciones.forEach((interv, idx) => {
+  intervencionesFiltradas.forEach((interv, idx) => {
     // Si queda poco espacio en la página, saltar a nueva página
-    if (currentY > 210) {
+    if (currentY > pageHeight - 60) {
       doc.addPage();
       currentY = drawPoliceHeader(doc, config, 'PARTE DE NOVEDADES DE GUARDIA (CONTINUACIÓN)', 10);
     }
@@ -363,9 +417,9 @@ export function generarPdfParteGuardia(
     currentY = (doc as any).lastAutoTable.finalY + 4;
   });
 
-  // SECCIÓN OFICIAL AL FINAL: DIVISIÓN CIBERCRIMEN
-  if (parte.cibercrimenRegistros && parte.cibercrimenRegistros.length > 0) {
-    if (currentY > 195) {
+  // SECCIÓN OFICIAL AL FINAL: DIVISIÓN CIBERCRIMEN (CON RESUMEN Y REGISTROS OPERATIVOS)
+  if (sec?.cibercrimen !== false && parte.cibercrimenRegistros && parte.cibercrimenRegistros.length > 0) {
+    if (currentY > pageHeight - 65) {
       doc.addPage();
       currentY = drawPoliceHeader(doc, config, 'PARTE DE NOVEDADES DE GUARDIA (CONTINUACIÓN)', 10);
     }
@@ -411,7 +465,7 @@ export function generarPdfParteGuardia(
     currentY = (doc as any).lastAutoTable.finalY + 2.5;
 
     parte.cibercrimenRegistros.forEach((ciber, cIdx) => {
-      if (currentY > 215) {
+      if (currentY > pageHeight - 55) {
         doc.addPage();
         currentY = drawPoliceHeader(doc, config, 'PARTE DE NOVEDADES DE GUARDIA - DIVISIÓN CIBERCRIMEN', 10);
       }
@@ -497,22 +551,29 @@ export function generarPdfParteGuardia(
     });
   }
 
-  // Firma oficial exclusiva del Jefe (Ubicada a la derecha)
-  if (currentY > 235) {
-    doc.addPage();
-    currentY = 40;
-  }
-  doc.setDrawColor(50, 60, 75);
-  doc.setLineWidth(0.4);
-  doc.line(125, currentY + 14, 185, currentY + 14);
+  // Firma oficial exclusiva del Jefe (Ubicada a la derecha y responsive al ancho de página)
+  if (opts.incluirFirmaJefe !== false && sec?.firmaJefe !== false) {
+    if (currentY > pageHeight - 45) {
+      doc.addPage();
+      currentY = 40;
+    }
+    const rightMargin = pageWidth - 20;
+    const signWidth = 65;
+    const signLeftX = rightMargin - signWidth;
+    const signCenterX = signLeftX + signWidth / 2;
 
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 41, 59);
-  doc.text('JEFE DE DIVISIÓN / UNIDAD', 155, currentY + 18, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.text('Firma, Aclaración y Sello Oficial', 155, currentY + 22, { align: 'center' });
+    doc.setDrawColor(50, 60, 75);
+    doc.setLineWidth(0.4);
+    doc.line(signLeftX, currentY + 14, rightMargin, currentY + 14);
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('JEFE DE DIVISIÓN / UNIDAD', signCenterX, currentY + 18, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text('Firma, Aclaración y Sello Oficial', signCenterX, currentY + 22, { align: 'center' });
+  }
 
   drawPoliceFooter(doc, config);
 
@@ -1119,8 +1180,8 @@ export function generarPdfLegajoPersonal(
         { content: personal.jerarquia, styles: { fontStyle: 'bold', textColor: POLICE_NAVY } },
       ],
       [
-        { content: 'DNI / SEXO:', styles: { fontStyle: 'bold' } },
-        { content: `${personal.dni} / ${personal.sexo}` },
+        { content: 'DNI / CÉDULA PROV.:', styles: { fontStyle: 'bold' } },
+        { content: `${personal.dni}${personal.cedulaProvincial ? `  |  CP: ${personal.cedulaProvincial}` : ''}  (${personal.sexo})` },
         { content: 'PLAZA / LEGAJO:', styles: { fontStyle: 'bold' } },
         { content: personal.plaza },
       ],

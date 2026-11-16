@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ExpedienteJudicial,
   ConfiguracionSistema,
@@ -98,6 +98,7 @@ export const ExpedienteModal: React.FC<ExpedienteModalProps> = ({
   });
 
   const [listaIOs, setListaIOs] = useState<InspeccionOcular[]>([]);
+  const [searchIOQuery, setSearchIOQuery] = useState('');
   const [showPersonalSelector, setShowPersonalSelector] = useState(false);
   const [selectedPreviewImg, setSelectedPreviewImg] = useState<string | null>(null);
   const [editorTarget, setEditorTarget] = useState<{
@@ -112,6 +113,21 @@ export const ExpedienteModal: React.FC<ExpedienteModalProps> = ({
       setListaIOs(ios || []);
     }).catch(console.error);
   }, []);
+
+  const filteredIOs = useMemo(() => {
+    if (!searchIOQuery.trim()) return listaIOs;
+    const q = searchIOQuery.toLowerCase().trim();
+    return listaIOs.filter((io) =>
+      (io.nroIO || '').toLowerCase().includes(q) ||
+      (io.fecha || '').toLowerCase().includes(q) ||
+      (io.lugar || '').toLowerCase().includes(q) ||
+      (io.direccion || '').toLowerCase().includes(q) ||
+      (io.hecho || '').toLowerCase().includes(q) ||
+      (io.dependenciaSolicitante || '').toLowerCase().includes(q) ||
+      (io.perito || '').toLowerCase().includes(q) ||
+      (io.tipo || '').toLowerCase().includes(q)
+    );
+  }, [listaIOs, searchIOQuery]);
 
   const updatePpi = (patch: Partial<NonNullable<ExpedienteJudicial['ppi']>>) => {
     setFormData((prev) => ({
@@ -519,25 +535,90 @@ export const ExpedienteModal: React.FC<ExpedienteModalProps> = ({
 
             {formData.vincularInspeccionOcular && (
               <div className="space-y-3 pt-2 border-t border-indigo-200">
-                {listaIOs.length > 0 && (
-                  <div>
-                    <label className="block text-[11px] font-semibold text-indigo-950 mb-1">
-                      Seleccionar desde Inspecciones Oculares registradas (Autocompletar):
+                {/* Buscador inteligente de Inspecciones Oculares por N°, Fecha, Lugar, Hecho */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[11px] font-bold text-indigo-950 flex items-center gap-1.5">
+                      <Search className="w-3.5 h-3.5 text-indigo-700" />
+                      <span>Buscador de Inspecciones Oculares (N° I.O, Fecha, Lugar, Hecho, Perito):</span>
                     </label>
-                    <select
-                      value={formData.inspeccionOcularVinculadaId || ''}
-                      onChange={(e) => handleVincularIOSelect(e.target.value)}
-                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-indigo-300 bg-white"
-                    >
-                      <option value="">-- Seleccionar Inspección Ocular existente --</option>
-                      {listaIOs.map((io) => (
-                        <option key={io.id} value={io.id}>
-                          {io.nroIO} - {io.tipo} ({io.fecha}) | {io.dependenciaSolicitante}
-                        </option>
-                      ))}
-                    </select>
+                    {formData.inspeccionOcularVinculadaId && (
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-700" />
+                        <span>I.O. Vinculada</span>
+                      </span>
+                    )}
                   </div>
-                )}
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={searchIOQuery}
+                      onChange={(e) => setSearchIOQuery(e.target.value)}
+                      placeholder="Escriba para filtrar por N° I.O., fecha, lugar o motivo..."
+                      className="w-full text-xs px-3 py-2 rounded-lg border border-indigo-300 bg-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500"
+                    />
+                    {searchIOQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchIOQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs font-bold"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {filteredIOs.length > 0 ? (
+                    <div className="max-h-40 overflow-y-auto space-y-1 border border-indigo-200 rounded-lg p-1.5 bg-white shadow-2xs">
+                      {filteredIOs.map((io) => {
+                        const isSelected = formData.inspeccionOcularVinculadaId === io.id;
+                        return (
+                          <button
+                            key={io.id}
+                            type="button"
+                            onClick={() => handleVincularIOSelect(io.id)}
+                            className={`w-full text-left p-2 rounded-md transition-all text-xs flex items-center justify-between gap-2 cursor-pointer border ${
+                              isSelected
+                                ? 'bg-indigo-900 text-white border-indigo-950 shadow-2xs'
+                                : 'bg-slate-50 hover:bg-indigo-50 text-slate-800 border-slate-200'
+                            }`}
+                          >
+                            <div className="space-y-0.5 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`font-mono font-bold ${isSelected ? 'text-indigo-200' : 'text-indigo-900'}`}>
+                                  {io.nroIO}
+                                </span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                                  isSelected ? 'bg-indigo-950 text-indigo-300' : 'bg-slate-200 text-slate-700'
+                                }`}>
+                                  {io.tipo}
+                                </span>
+                                <span className="text-[11px] opacity-80 font-mono">
+                                  {io.fecha} {io.hora || ''}
+                                </span>
+                              </div>
+                              <div className="text-[11px] truncate opacity-90">
+                                <strong>Lugar:</strong> {io.lugar || io.direccion || 's/d'} • <strong>Hecho:</strong> {io.hecho}
+                              </div>
+                            </div>
+                            {isSelected ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            ) : (
+                              <span className="text-[10px] font-bold text-indigo-700 bg-white border border-indigo-200 px-2 py-0.5 rounded shrink-0">
+                                Seleccionar
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="p-2 text-center text-slate-400 text-xs italic bg-white rounded border border-indigo-100">
+                      No se encontraron inspecciones con el criterio "{searchIOQuery}".
+                    </div>
+                  )}
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>

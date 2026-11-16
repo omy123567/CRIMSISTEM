@@ -23,6 +23,7 @@ export interface Personal {
   id: string;
   apellidoYNombre: string;
   dni: string;
+  cedulaProvincial?: string; // N° Cédula Provincial
   sexo: 'M' | 'F' | 'Otro';
   jerarquia: Jerarquia | string;
   plaza: string;
@@ -87,6 +88,8 @@ export interface Personal {
     disposicion?: string;
     usuarioRegistro?: string;
   }>;
+  destinoActual?: string;
+  fechaIngreso?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -294,6 +297,9 @@ export interface MovilPolicial {
   anioModelo?: string | number;
   observaciones?: string;
   fotoUrl?: string;
+  tipoVehiculo?: string;
+  tipoCombustible?: string;
+  choferHabitual?: string;
   delegacionId?: string;
   createdAt: string;
   updatedAt: string;
@@ -318,6 +324,14 @@ export interface RecargoOperativo {
   personalIds: string[]; // IDs de Personal asignados
   estado: EstadoRecargo;
   observaciones?: string;
+  tipoServicio?: string;
+  seccionGrupo?: string;
+  fechaServicio?: string;
+  horaInicio?: string;
+  horaFin?: string;
+  lugar?: string;
+  motivo?: string;
+  personalAsignado?: any;
   delegacionId?: string;
   createdAt: string;
   updatedAt: string;
@@ -467,6 +481,9 @@ export interface IntervencionParte {
   direccion?: string; // Lugar de ocurrido
   dependencia: string;
   referencia?: string;
+  presentaLesionesLC?: boolean;
+  tipoLesionesLC?: string;
+  detalleLesionesLC?: string;
 
   // Inspección Ocular complementaria
   nroIO?: string;
@@ -514,7 +531,15 @@ export interface MovilAfectadoGuardia {
   id: string;
   movilId?: string;
   descripcion: string; // Ej. "Móvil 301 - Ford Ranger"
-  estado: 'En servicio' | 'Fuera de servicio';
+  estado: 'En servicio' | 'Fuera de servicio' | 'En taller';
+  kmActual?: number;
+  condicionGeneral?: CondicionVehiculo;
+  novedadesMecanicas?: string;
+  requiereReparacion?: boolean;
+  tipoReparacion?: 'Mecánica' | 'Chapa y Pintura' | 'Eléctrica' | 'Neumáticos' | 'Frenos' | 'Service Programado' | 'Otro';
+  tallerProveedor?: string;
+  costoPresupuesto?: number;
+  repuestosCambiados?: string;
 }
 
 export interface ForenseEnGuardia {
@@ -637,6 +662,9 @@ export interface ConfiguracionSistema {
   tiposRecargo: string[];
   condicionesInvolucrado?: string[]; // "Demorado / Aprehendido", "Denunciante", "Damnificado / Víctima", "Testigo", "Imputado", "Conductor", "Acompañante"
   funcionesGuardiaCatalogo?: string[]; // "Oficial de servicio – Perito de turno", "Chofer – Fotógrafo", etc.
+  causasReferencia?: string[]; // "S/ Robo Calificado", "S/ Siniestro Vial Grave", "S/ Averiguación de Causal de Muerte", etc.
+  tiposLesionCatalogo?: string[]; // "Sin Lesiones", "Leves", "Graves", "Gravísimas", "A Determinar / En Observación"
+  ordenColumnasGuardia?: string[]; // Orden personalizable: ['personal', 'moviles', 'lc', 'forense', 'segVial', 'cibercrimen']
 
   // Supabase Sync opcional
   supabaseUrl?: string;
@@ -657,6 +685,12 @@ export interface ConfiguracionSistema {
 
   // Estructura y Orden de Módulos personalizable (Módulos principales y submódulos)
   estructuraModulos?: ModuloEstructuraConfig[];
+  estructuraModulosUpdatedAt?: string;
+
+  // Notificaciones y Recordatorios de Mantenimiento de Móviles (RTO y Servis)
+  recordatorioRtoDias?: number; // Días previos al vencimiento de RTO para avisar (ej. 30 días)
+  intervaloServiceKm?: number; // Cada cuántos km se hace el service (ej. 10000 km)
+  recordatorioServiceKm?: number; // A cuántos km antes del service activar aviso (ej. 500 km)
 
   // Retención y depuración de registros de auditoría (configurable solo por superadmin)
   diasRetencionAuditoria?: number; // ej. 30, 60, 90, 180, 365 días
@@ -665,13 +699,19 @@ export interface ConfiguracionSistema {
   delegacionId?: string;
 }
 
+export type TonalidadModulo = 'azul' | 'esmeralda' | 'violeta' | 'ambar' | 'rojo' | 'cian' | 'slate';
+
 export interface ModuloEstructuraConfig {
-  id: string; // ID del módulo / tab (ej. 'dashboard', 'guardias', 'inspecciones', etc.)
+  id: string; // ID del módulo / tab o ID del módulo principal agrupador
   label: string; // Título visible del módulo
   desc?: string; // Descripción breve
   orden: number; // Posición numérica de orden
   padreId?: string | null; // ID del módulo padre si es un submódulo (null si es módulo principal)
   visible?: boolean;
+  esGrupoPersonalizado?: boolean; // True si es un módulo principal contenedor creado por el usuario (carpeta agrupador)
+  iconoPersonalizado?: string; // Icono para la carpeta agrupador (ej. 'folder', 'shield', 'clipboard', 'layers')
+  modulosHijosIds?: string[]; // IDs de los submódulos agrupados
+  colorTonalidad?: TonalidadModulo; // Tonalidad de color para diferenciación visual
 }
 
 export interface GrupoPersonal {
@@ -724,7 +764,44 @@ export interface RolSistema {
   updatedAt?: string;
 }
 
-export type RolUsuario = 'Operador' | 'Administrador' | 'superusuario' | string;
+export type RolUsuario =
+  | 'Operador'
+  | 'Administrador'
+  | 'superusuario'
+  | 'Oficial de Guardia'
+  | 'Carga / Editor'
+  | 'Solo Lectura (Auditor / Consulta)'
+  | string;
+
+export type PrioridadNovedad = 'Normal' | 'Alta' | 'Urgente' | 'Informativa';
+
+export interface AvisoNovedad {
+  id: string;
+  mensaje: string;
+  destinatarioDelegacionId: string; // ID de delegación o 'TODAS'
+  destinatarioNombre?: string;
+  destinatarioDelegacionNombre?: string;
+  destinoDelegacionId?: string;
+  destinoDelegacionNombre?: string;
+  prioridad: PrioridadNovedad;
+  origenDelegacionId: string;
+  origenDelegacionNombre: string;
+  usuarioEmisorId?: string;
+  usuarioEmisorNombre?: string;
+  remitenteUsuarioId?: string;
+  remitenteUsuarioNombre?: string;
+  emisorNombre?: string;
+  emisorUsername?: string;
+  tipo?: string;
+  fechaHora?: string;
+  leidoPor?: string[];
+  leidoPorUsuarios?: string[];
+  esTrasladoPersonal?: boolean;
+  personalTrasladadoId?: string;
+  personalTrasladadoNombre?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
 
 export interface DelegacionPolicial {
   id: string; // ej: 'del-laguna-blanca', 'del-clorinda'
@@ -752,12 +829,15 @@ export interface UsuarioSistema {
   username: string; // Nombre de usuario para login
   password: string; // Contraseña
   delegacionId: string; // Delegación primaria asignada
-  rol: RolUsuario; // 'Operador' | 'Administrador' | 'superusuario' o rol personalizado
+  rol: RolUsuario; // 'Operador' | 'Administrador' | 'superusuario' | 'Oficial de Guardia' | 'Carga / Editor' | 'Solo Lectura (Auditor / Consulta)'
   rolId?: string; // ID del RolSistema vinculado
   puedeVerOtrasDelegaciones: boolean;
   delegacionesPermitidas?: string[]; // IDs de delegaciones adicionales que puede ver
   modulosPermitidos: string[]; // Módulos a los que tiene acceso
   puedeEliminar: boolean; // Si tiene permisos para borrar registros
+  puedeCrear?: boolean; // Permiso para carga de registros nuevos
+  puedeModificar?: boolean; // Permiso para editar registros
+  esSoloLectura?: boolean; // Si es usuario de solo lectura / consulta
 
   // Acciones / permisos granulares
   accionesPersonalizadas?: Partial<AccionesRol>;
@@ -776,6 +856,9 @@ export interface UsuarioSistema {
 
   // Permiso específico: Validar y confirmar cantidad de fotografías en Inspecciones Oculares
   puedeConfirmarFotografias?: boolean;
+
+  // Permiso específico: Emitir avisos o novedades inter-delegaciones
+  puedeEmitirNovedades?: boolean;
 
   activo: boolean;
   dni?: string;
