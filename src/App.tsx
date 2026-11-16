@@ -1688,7 +1688,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900 font-sans antialiased relative">
+    <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900 font-sans antialiased relative overflow-x-hidden">
       {/* Navbar Institucional con Selector de Delegación y Perfil */}
       <Navbar
         config={config}
@@ -1722,12 +1722,8 @@ export default function App() {
         </button>
       )}
 
-      {/* Contenido Principal con Sidebar adaptativo */}
-      <div
-        className={`flex-1 flex flex-col md:flex-row w-full ${
-          isSidebarVisible ? 'max-w-full xl:max-w-[1600px] 2xl:max-w-[1850px]' : 'max-w-full 2xl:max-w-[1900px]'
-        } mx-auto px-2 sm:px-4 lg:px-6 transition-all min-w-0`}
-      >
+      {/* Contenido Principal con Sidebar pegado al borde izquierdo */}
+      <div className="flex-1 flex flex-col md:flex-row w-full transition-all min-w-0">
         {isSidebarVisible && (
           <Sidebar
             activeTab={activeTab}
@@ -1751,7 +1747,7 @@ export default function App() {
           />
         )}
 
-        <main className="flex-1 p-2 sm:p-4 md:p-6 lg:p-8 min-w-0 overflow-y-auto">
+        <main className="flex-1 p-3 sm:p-5 lg:p-6 min-w-0 overflow-y-auto">
           {activeTab === 'dashboard' && (
             <DashboardView
               personalList={filteredPersonal}
