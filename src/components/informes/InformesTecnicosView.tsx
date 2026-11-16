@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { ModalOpcionesImpresion, OpcionesImpresion } from '../common/ModalOpcionesImpresion';
+import { FilePreviewModal } from '../common/FilePreviewModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
@@ -1353,21 +1354,39 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
                       className="text-[11px] text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-[11px] file:bg-blue-50 file:text-blue-700 file:font-semibold hover:file:bg-blue-100"
                     />
                     {formData.anexoOficioNombre && (
-                      <div className="mt-1 flex items-center justify-between text-[11px] text-blue-700 font-medium">
+                      <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-blue-700 font-medium">
                         <span className="truncate">📎 {formData.anexoOficioNombre}</span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              anexoOficioUrl: '',
-                              anexoOficioNombre: '',
-                            }))
-                          }
-                          className="text-red-500 hover:text-red-700 ml-1 text-xs"
-                        >
-                          ✕
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {formData.anexoOficioUrl && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPreviewFile({
+                                  name: formData.anexoOficioNombre || 'Oficio.pdf',
+                                  url: formData.anexoOficioUrl!,
+                                })
+                              }
+                              className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-800 inline-flex items-center gap-1 cursor-pointer"
+                              title="Vista preliminar con zoom"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Ver</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                anexoOficioUrl: '',
+                                anexoOficioNombre: '',
+                              }))
+                            }
+                            className="text-red-500 hover:text-red-700 ml-1 text-xs cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1384,21 +1403,39 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
                       className="text-[11px] text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-[11px] file:bg-emerald-50 file:text-emerald-700 file:font-semibold hover:file:bg-emerald-100"
                     />
                     {formData.anexoInformeNombre && (
-                      <div className="mt-1 flex items-center justify-between text-[11px] text-emerald-700 font-medium">
+                      <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-emerald-700 font-medium">
                         <span className="truncate">📎 {formData.anexoInformeNombre}</span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              anexoInformeUrl: '',
-                              anexoInformeNombre: '',
-                            }))
-                          }
-                          className="text-red-500 hover:text-red-700 ml-1 text-xs"
-                        >
-                          ✕
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {formData.anexoInformeUrl && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPreviewFile({
+                                  name: formData.anexoInformeNombre || 'Informe_Tecnico.pdf',
+                                  url: formData.anexoInformeUrl!,
+                                })
+                              }
+                              className="px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 inline-flex items-center gap-1 cursor-pointer"
+                              title="Vista preliminar con zoom"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Ver</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                anexoInformeUrl: '',
+                                anexoInformeNombre: '',
+                              }))
+                            }
+                            className="text-red-500 hover:text-red-700 ml-1 text-xs cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1484,37 +1521,19 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
         </div>
       )}
 
-      {/* Modal de Previsualización de Archivo Anexo */}
-      {previewFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-5 py-3 border-b border-slate-200 bg-slate-900 text-white flex items-center justify-between">
-              <span className="font-bold text-sm truncate">📎 {previewFile.name}</span>
-              <button
-                onClick={() => setPreviewFile(null)}
-                className="text-slate-400 hover:text-white font-bold"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="p-4 flex-1 overflow-auto flex items-center justify-center bg-slate-100">
-              {previewFile.url.startsWith('data:image/') ? (
-                <img
-                  src={previewFile.url}
-                  alt={previewFile.name}
-                  className="max-h-[70vh] object-contain rounded shadow"
-                />
-              ) : (
-                <iframe
-                  src={previewFile.url}
-                  title={previewFile.name}
-                  className="w-full h-[70vh] rounded border border-slate-300 bg-white"
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal de Previsualización Universal con Zoom */}
+      <FilePreviewModal
+        isOpen={Boolean(previewFile)}
+        file={
+          previewFile
+            ? {
+                nombre: previewFile.name,
+                dataUrl: previewFile.url,
+              }
+            : null
+        }
+        onClose={() => setPreviewFile(null)}
+      />
 
       {/* Confirmación de Eliminación */}
       <ConfirmModal

@@ -26,6 +26,7 @@ import {
   Bell,
   Folder,
   FolderOpen,
+  BookOpen,
 } from 'lucide-react';
 import { UsuarioSistema, ConfiguracionSistema, ModuloEstructuraConfig, TonalidadModulo } from '../../types/police';
 import { AdministrarModulosModal } from './AdministrarModulosModal';
@@ -41,6 +42,7 @@ export type ActiveTab =
   | 'recargos'
   | 'guardias'
   | 'novedades-delegaciones'
+  | 'charlas-prevencion'
   | 'inspecciones'
   | 'intervenciones'
   | 'causas-policiales'
@@ -69,6 +71,7 @@ interface SidebarProps {
     inspecciones?: number;
     personasTotal?: number;
     vehiculosTotal?: number;
+    charlasProximas?: number;
   };
 }
 
@@ -144,6 +147,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Novedades y Avisos',
       icon: Bell,
       desc: 'Avisos Inter-Delegaciones & Traslados',
+    },
+    {
+      id: 'charlas-prevencion',
+      label: 'Charlas y Prevención',
+      icon: BookOpen,
+      desc: 'Prevención Comunitaria & Agenda',
+      badge: badgeCounts.charlasProximas ? `${badgeCounts.charlasProximas} próx.` : undefined,
+      badgeColor: 'bg-emerald-600/30 text-emerald-300 border-emerald-600/50',
     },
     {
       id: 'inspecciones',

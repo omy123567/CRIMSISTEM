@@ -3,6 +3,7 @@ import { InspeccionOcular, ConfiguracionSistema, Personal, ParteNovedadesGuardia
 import { X, Camera, Eye, Upload, Trash2, CheckCircle2, ShieldCheck, UserCheck, AlertCircle, Sliders, ShieldAlert } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { ImageEditorModal } from '../common/ImageEditorModal';
+import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 
 interface InspeccionModalProps {
   inspeccion?: InspeccionOcular | null;
@@ -100,7 +101,10 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
     };
   });
 
-  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [previewPhotoState, setPreviewPhotoState] = useState<{
+    isOpen: boolean;
+    index: number;
+  }>({ isOpen: false, index: 0 });
   const [editorPhotoIdx, setEditorPhotoIdx] = useState<number | null>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -653,9 +657,9 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
                     <div className="absolute inset-0 bg-black/60 text-white flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         type="button"
-                        onClick={() => setPreviewPhoto(foto)}
+                        onClick={() => setPreviewPhotoState({ isOpen: true, index: idx })}
                         className="p-1 bg-white/20 hover:bg-white/40 rounded cursor-pointer"
-                        title="Ver foto"
+                        title="Vista preliminar con zoom"
                       >
                         <Eye className="w-3.5 h-3.5" />
                       </button>
@@ -719,27 +723,28 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
         />
       )}
 
-      {/* Modal Zoom Foto */}
-      {previewPhoto && (
-        <div
-          className="fixed inset-0 z-60 bg-black/85 flex items-center justify-center p-4"
-          onClick={() => setPreviewPhoto(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh]">
-            <img
-              src={previewPhoto}
-              alt="Foto I.O."
-              className="max-h-[85vh] max-w-full object-contain rounded-lg"
-            />
-            <button
-              onClick={() => setPreviewPhoto(null)}
-              className="absolute -top-3 -right-3 bg-white text-slate-900 rounded-full p-1.5 shadow-lg"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Visor Preliminar de Fotos con Zoom */}
+      <FilePreviewModal
+        isOpen={previewPhotoState.isOpen}
+        file={
+          (formData.fotosAdjuntas || [])[previewPhotoState.index]
+            ? {
+                id: `io-foto-${previewPhotoState.index}`,
+                nombre: `Foto ${previewPhotoState.index + 1} — ${formData.nroIO}`,
+                dataUrl: formData.fotosAdjuntas![previewPhotoState.index],
+              }
+            : null
+        }
+        files={(formData.fotosAdjuntas || []).map(
+          (url: string, idx: number): PreviewAttachmentItem => ({
+            id: `io-foto-${idx}`,
+            nombre: `Foto ${idx + 1} — ${formData.nroIO}`,
+            dataUrl: url,
+          })
+        )}
+        initialIndex={previewPhotoState.index}
+        onClose={() => setPreviewPhotoState({ isOpen: false, index: 0 })}
+      />
     </div>
   );
 };

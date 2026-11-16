@@ -33,6 +33,7 @@ import { FaltaOficioModal } from './FaltaOficioModal';
 import { AgrupacionModal } from './AgrupacionModal';
 import { generarPdfLibroExpedientes } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 
 interface ExpedientesViewProps {
   expedientesList: ExpedienteJudicial[];
@@ -75,7 +76,11 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
   const [isAgrupacionOpen, setIsAgrupacionOpen] = useState(false);
   const [selectedCasosIds, setSelectedCasosIds] = useState<string[]>([]);
 
-  const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const [previewGallery, setPreviewGallery] = useState<{
+    isOpen: boolean;
+    files: PreviewAttachmentItem[];
+    index: number;
+  }>({ isOpen: false, files: [], index: 0 });
   const [deleteExpConfirm, setDeleteExpConfirm] = useState<{
     isOpen: boolean;
     exp: ExpedienteJudicial | null;
@@ -602,7 +607,25 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
                             {exp.adjuntosOficio?.map((img, i) => (
                               <button
                                 key={`of-${i}`}
-                                onClick={() => setViewerImage(img)}
+                                onClick={() => {
+                                  const allFiles: PreviewAttachmentItem[] = [
+                                    ...(exp.adjuntosOficio || []).map((url, idx) => ({
+                                      id: `of-${idx}`,
+                                      nombre: `Oficio ${idx + 1} — ${exp.nroOficioLetras || exp.nroExpediente || 'Expediente'}`,
+                                      dataUrl: url,
+                                    })),
+                                    ...(exp.adjuntosRecibo || []).map((url, idx) => ({
+                                      id: `rec-${idx}`,
+                                      nombre: `Recibo ${idx + 1} — ${exp.nroOficioLetras || exp.nroExpediente || 'Expediente'}`,
+                                      dataUrl: url,
+                                    })),
+                                  ];
+                                  setPreviewGallery({
+                                    isOpen: true,
+                                    files: allFiles,
+                                    index: i,
+                                  });
+                                }}
                                 className="px-2 py-1 rounded bg-blue-100 text-blue-900 hover:bg-blue-200 flex items-center gap-1 font-semibold cursor-pointer"
                               >
                                 <Eye className="w-3 h-3" />
@@ -612,7 +635,26 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
                             {exp.adjuntosRecibo?.map((img, i) => (
                               <button
                                 key={`rec-${i}`}
-                                onClick={() => setViewerImage(img)}
+                                onClick={() => {
+                                  const oficioLen = exp.adjuntosOficio?.length || 0;
+                                  const allFiles: PreviewAttachmentItem[] = [
+                                    ...(exp.adjuntosOficio || []).map((url, idx) => ({
+                                      id: `of-${idx}`,
+                                      nombre: `Oficio ${idx + 1} — ${exp.nroOficioLetras || exp.nroExpediente || 'Expediente'}`,
+                                      dataUrl: url,
+                                    })),
+                                    ...(exp.adjuntosRecibo || []).map((url, idx) => ({
+                                      id: `rec-${idx}`,
+                                      nombre: `Recibo ${idx + 1} — ${exp.nroOficioLetras || exp.nroExpediente || 'Expediente'}`,
+                                      dataUrl: url,
+                                    })),
+                                  ];
+                                  setPreviewGallery({
+                                    isOpen: true,
+                                    files: allFiles,
+                                    index: oficioLen + i,
+                                  });
+                                }}
                                 className="px-2 py-1 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 flex items-center gap-1 font-semibold cursor-pointer"
                               >
                                 <Eye className="w-3 h-3" />
@@ -1511,27 +1553,14 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
         </div>
       )}
 
-      {/* Visor Modal de Adjuntos */}
-      {viewerImage && (
-        <div
-          className="fixed inset-0 z-60 bg-black/85 flex items-center justify-center p-4"
-          onClick={() => setViewerImage(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh]">
-            <img
-              src={viewerImage}
-              alt="Adjunto Oficio o Recibo"
-              className="max-h-[85vh] max-w-full object-contain rounded-lg shadow-2xl"
-            />
-            <button
-              onClick={() => setViewerImage(null)}
-              className="absolute -top-3 -right-3 bg-white text-slate-900 rounded-full p-1.5 shadow-lg"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Visor Preliminar de Adjuntos con Zoom */}
+      <FilePreviewModal
+        isOpen={previewGallery.isOpen}
+        file={previewGallery.files[previewGallery.index] || null}
+        files={previewGallery.files}
+        initialIndex={previewGallery.index}
+        onClose={() => setPreviewGallery({ isOpen: false, files: [], index: 0 })}
+      />
 
       {/* Confirmación Eliminar Expediente */}
       <ConfirmModal

@@ -39,6 +39,7 @@ export interface SispolDatabase {
   folios: any[];
   auditoria: any[];
   novedadesDelegaciones: any[];
+  charlasPrevencion: any[];
 }
 
 function getInitialDatabase(): SispolDatabase {
@@ -67,6 +68,7 @@ function getInitialDatabase(): SispolDatabase {
     folios: [],
     auditoria: [],
     novedadesDelegaciones: [],
+    charlasPrevencion: [],
   };
 }
 
@@ -199,6 +201,7 @@ export function wipeOperationalData(): SispolDatabase {
   db.folios = [];
   db.auditoria = [];
   db.novedadesDelegaciones = [];
+  db.charlasPrevencion = [];
 
   saveDatabase(db);
   return db;

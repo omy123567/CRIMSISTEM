@@ -169,6 +169,7 @@ export function getDefaultTonalidadForModule(moduleId: string): TonalidadModulo 
     case 'grupos':
     case 'forense':
     case 'licenciados':
+    case 'charlas-prevencion':
       return 'esmeralda';
     case 'guardias':
     case 'moviles':

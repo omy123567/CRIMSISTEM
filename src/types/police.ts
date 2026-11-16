@@ -775,6 +775,15 @@ export type RolUsuario =
 
 export type PrioridadNovedad = 'Normal' | 'Alta' | 'Urgente' | 'Informativa';
 
+export interface AdjuntoArchivo {
+  id: string;
+  nombre: string;
+  tipo: string;
+  dataUrl: string;
+  tamanoBytes?: number;
+  fecha?: string;
+}
+
 export interface AvisoNovedad {
   id: string;
   mensaje: string;
@@ -799,6 +808,7 @@ export interface AvisoNovedad {
   esTrasladoPersonal?: boolean;
   personalTrasladadoId?: string;
   personalTrasladadoNombre?: string;
+  adjuntos?: AdjuntoArchivo[];
   createdAt: string;
   updatedAt?: string;
 }
@@ -979,4 +989,24 @@ export interface AccidentologiaRegistro {
   updatedAt: string;
 }
 
+export type EstadoCharlaPrevencion = 'Programada' | 'Realizada' | 'Reprogramada' | 'Suspendida';
 
+export interface CharlaPrevencion {
+  id: string;
+  fecha: string; // YYYY-MM-DD (mostrado como DD/MM/AAAA)
+  hora: string; // HH:mm
+  localidad: string;
+  lugarInstitucion: string;
+  tema: string;
+  disertantePersonalId?: string;
+  disertanteNombre: string;
+  disertanteJerarquia?: string;
+  delegacionId: string;
+  delegacionNombre?: string;
+  observaciones?: string;
+  estado: EstadoCharlaPrevencion;
+  adjuntos?: AdjuntoArchivo[];
+  creadoPorUsuario?: string;
+  createdAt: string;
+  updatedAt?: string;
+}

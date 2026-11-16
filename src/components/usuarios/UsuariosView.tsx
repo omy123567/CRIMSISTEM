@@ -58,6 +58,8 @@ export const MODULOS_DISPONIBLES = [
   { id: 'moviles', label: 'Parque Automotor', desc: 'Móviles y Reparaciones' },
   { id: 'recargos', label: 'Recargos Operativos', desc: 'Servicios extraordinarios' },
   { id: 'guardias', label: 'Parte de Novedades', desc: 'Novedades de Guardia' },
+  { id: 'novedades-delegaciones', label: 'Novedades y Avisos', desc: 'Avisos Inter-Delegaciones' },
+  { id: 'charlas-prevencion', label: 'Charlas y Prevención Comunitaria', desc: 'Agenda, Disertantes & Eventos' },
   { id: 'inspecciones', label: 'Inspecciones Oculares', desc: 'Actas I.O.' },
   { id: 'intervenciones', label: 'Intervenciones', desc: 'LC y Siniestros Viales' },
   { id: 'causas-policiales', label: 'Causas c/ Personal Policial', desc: 'Hechos con Efectivos Policiales' },

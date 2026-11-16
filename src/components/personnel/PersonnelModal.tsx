@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { Personal, ConfiguracionSistema } from '../../types/police';
-import { X, Shield, AlertTriangle, Upload, Eye, Trash2, CheckCircle2, Printer } from 'lucide-react';
+import { X, Shield, AlertTriangle, Upload, Eye, Trash2, CheckCircle2, Printer, ArrowRightLeft, Building2, FileText } from 'lucide-react';
 import { generarPdfLegajoPersonal } from '../../services/pdfService';
+import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 
 interface PersonnelModalProps {
   personal?: Personal | null;
   config: ConfiguracionSistema;
   onSave: (data: Personal) => void;
   onClose: () => void;
+  onRequestTransfer?: (p: Personal) => void;
 }
 
 export const PersonnelModal: React.FC<PersonnelModalProps> = ({
@@ -15,6 +17,7 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
   config,
   onSave,
   onClose,
+  onRequestTransfer,
 }) => {
   const isEditing = Boolean(personal);
 
@@ -62,7 +65,10 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
   });
 
   const [activeTab, setActiveTab] = useState<'general' | 'licencia' | 'equipamiento' | 'adjuntos'>('general');
-  const [selectedPreviewDoc, setSelectedPreviewDoc] = useState<string | null>(null);
+  const [previewDocState, setPreviewDocState] = useState<{
+    isOpen: boolean;
+    index: number;
+  }>({ isOpen: false, index: 0 });
 
   // Manejo de carga de archivos de imagen para legajo
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -328,6 +334,28 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 />
               </div>
+
+              {isEditing && formData.historialTraslados && formData.historialTraslados.length > 0 && (
+                <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-3.5 space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-indigo-950 text-xs">
+                    <Building2 className="w-3.5 h-3.5 text-indigo-700" />
+                    <span>Historial de Traslados entre Delegaciones ({formData.historialTraslados.length})</span>
+                  </div>
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {formData.historialTraslados.map((tr) => (
+                      <div key={tr.id} className="bg-white border border-indigo-100 rounded-lg p-2 text-[11px] flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <div>
+                          <span className="font-bold text-slate-800">{tr.delegacionOrigenNombre}</span>
+                          <span className="mx-1.5 text-indigo-600 font-bold">→</span>
+                          <span className="font-bold text-indigo-900">{tr.delegacionDestinoNombre}</span>
+                          {tr.disposicion && <span className="ml-2 text-slate-500">({tr.disposicion})</span>}
+                        </div>
+                        <span className="font-mono text-[10px] text-slate-500 shrink-0">{tr.fecha}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -642,7 +670,7 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
               <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
                 <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                 <div className="font-semibold text-slate-700">
-                  Adjuntar Documentación Oficial (JPG, PNG, Imágenes)
+                  Adjuntar Documentación Oficial (Imágenes, PDF, Documentos)
                 </div>
                 <p className="text-xs text-slate-500 mb-3">
                   DNI, Título secundario/universitario, Cursos policiales, Partida de matrimonio, Licencia
@@ -652,7 +680,7 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
                   <input
                     type="file"
                     multiple
-                    accept="image/png,image/jpeg,image/webp,image/jpg"
+                    accept="image/*,.pdf,.doc,.docx"
                     onChange={handleFileUpload}
                     className="hidden"
                   />
@@ -662,62 +690,91 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
               {/* Lista de adjuntos */}
               {formData.documentosAdjuntos && formData.documentosAdjuntos.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {formData.documentosAdjuntos.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="p-2 border border-slate-200 rounded-lg bg-slate-50 flex flex-col justify-between"
-                    >
-                      <div className="h-28 overflow-hidden rounded bg-slate-200 flex items-center justify-center">
-                        <img
-                          src={doc.dataUrl}
-                          alt={doc.nombre}
-                          className="h-full w-full object-cover cursor-pointer"
-                          onClick={() => setSelectedPreviewDoc(doc.dataUrl)}
-                        />
-                      </div>
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="truncate font-medium text-slate-700 max-w-[120px]" title={doc.nombre}>
-                          {doc.nombre}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedPreviewDoc(doc.dataUrl)}
-                            className="p-1 text-blue-600 hover:bg-blue-100 rounded"
-                            title="Ver vista previa completa"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeDoc(doc.id)}
-                            className="p-1 text-red-600 hover:bg-red-100 rounded"
-                            title="Eliminar documento"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                  {formData.documentosAdjuntos.map((doc, idx) => {
+                    const isImg =
+                      doc.tipo?.startsWith('image/') || doc.dataUrl.startsWith('data:image/');
+                    return (
+                      <div
+                        key={doc.id}
+                        className="p-2 border border-slate-200 rounded-lg bg-slate-50 flex flex-col justify-between"
+                      >
+                        <div
+                          onClick={() => setPreviewDocState({ isOpen: true, index: idx })}
+                          className="h-28 overflow-hidden rounded bg-slate-200 flex items-center justify-center cursor-pointer"
+                          title="Abrir vista preliminar con zoom"
+                        >
+                          {isImg ? (
+                            <img
+                              src={doc.dataUrl}
+                              alt={doc.nombre}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-600 p-2 text-center">
+                              <FileText className="w-8 h-8 text-rose-600 mb-1" />
+                              <span className="text-[10px] font-semibold line-clamp-2">
+                                {doc.nombre}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="truncate font-medium text-slate-700 max-w-[120px]" title={doc.nombre}>
+                            {doc.nombre}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewDocState({ isOpen: true, index: idx })}
+                              className="p-1 text-blue-600 hover:bg-blue-100 rounded cursor-pointer"
+                              title="Ver vista preliminar con zoom"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeDoc(doc.id)}
+                              className="p-1 text-red-600 hover:bg-red-100 rounded cursor-pointer"
+                              title="Eliminar documento"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
           )}
 
           {/* Footer Modal */}
-          <div className="pt-4 border-t border-slate-200 flex items-center justify-between gap-2">
-            {formData.apellidoYNombre ? (
-              <button
-                type="button"
-                onClick={() => generarPdfLegajoPersonal(formData, config)}
-                className="px-3.5 py-2 rounded-lg border border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100 font-semibold transition-colors flex items-center gap-1.5 text-xs cursor-pointer shadow-2xs"
-                title="Generar Ficha Personal oficial con firma del efectivo registrado"
-              >
-                <Printer className="w-4 h-4 text-blue-700" />
-                <span>Imprimir Ficha Personal (PDF)</span>
-              </button>
-            ) : <div />}
+          <div className="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {formData.apellidoYNombre && (
+                <button
+                  type="button"
+                  onClick={() => generarPdfLegajoPersonal(formData, config)}
+                  className="px-3.5 py-2 rounded-lg border border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100 font-semibold transition-colors flex items-center gap-1.5 text-xs cursor-pointer shadow-2xs"
+                  title="Generar Ficha Personal oficial con firma del efectivo registrado"
+                >
+                  <Printer className="w-4 h-4 text-blue-700" />
+                  <span>Imprimir Ficha Personal (PDF)</span>
+                </button>
+              )}
+              {isEditing && onRequestTransfer && (
+                <button
+                  type="button"
+                  onClick={() => onRequestTransfer(formData)}
+                  className="px-3.5 py-2 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-900 hover:bg-indigo-100 font-semibold transition-colors flex items-center gap-1.5 text-xs cursor-pointer shadow-2xs"
+                  title="Trasladar este efectivo a otra Delegación y enviar notificación"
+                >
+                  <ArrowRightLeft className="w-4 h-4 text-indigo-700" />
+                  <span>Trasladar a otra Delegación</span>
+                </button>
+              )}
+            </div>
 
             <div className="flex items-center gap-2">
               <button
@@ -739,27 +796,30 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
         </form>
       </div>
 
-      {/* Visor Modal de Imagen */}
-      {selectedPreviewDoc && (
-        <div
-          className="fixed inset-0 z-60 bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setSelectedPreviewDoc(null)}
-        >
-          <div className="relative max-w-3xl max-h-[90vh]">
-            <img
-              src={selectedPreviewDoc}
-              alt="Vista previa documento"
-              className="max-h-[85vh] max-w-full object-contain rounded-lg"
-            />
-            <button
-              onClick={() => setSelectedPreviewDoc(null)}
-              className="absolute -top-3 -right-3 bg-white text-slate-900 rounded-full p-1.5 shadow-lg"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Visor Preliminar con Zoom */}
+      <FilePreviewModal
+        isOpen={previewDocState.isOpen}
+        file={
+          (formData.documentosAdjuntos || [])[previewDocState.index]
+            ? {
+                id: formData.documentosAdjuntos![previewDocState.index].id,
+                nombre: formData.documentosAdjuntos![previewDocState.index].nombre,
+                tipo: formData.documentosAdjuntos![previewDocState.index].tipo,
+                dataUrl: formData.documentosAdjuntos![previewDocState.index].dataUrl,
+              }
+            : null
+        }
+        files={(formData.documentosAdjuntos || []).map(
+          (d): PreviewAttachmentItem => ({
+            id: d.id,
+            nombre: d.nombre,
+            tipo: d.tipo,
+            dataUrl: d.dataUrl,
+          })
+        )}
+        initialIndex={previewDocState.index}
+        onClose={() => setPreviewDocState({ isOpen: false, index: 0 })}
+      />
     </div>
   );
 };

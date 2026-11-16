@@ -55,6 +55,7 @@ export const MODULOS_BASE_CATALOGO: Array<{ id: string; label: string; desc: str
   { id: 'recargos', label: 'Recargos Operativos', desc: 'Servicios extraordinarios' },
   { id: 'guardias', label: 'Parte de Novedades', desc: 'Guardia & Criminalística' },
   { id: 'novedades-delegaciones', label: 'Novedades y Avisos', desc: 'Avisos Inter-Delegaciones & Traslados' },
+  { id: 'charlas-prevencion', label: 'Charlas y Prevención', desc: 'Prevención Comunitaria & Agenda' },
   { id: 'inspecciones', label: 'Inspecciones Oculares', desc: 'Intervenciones Criminalísticas' },
   { id: 'intervenciones', label: 'Intervenciones', desc: 'LC & Siniestros Viales' },
   { id: 'causas-policiales', label: 'Causas c/ Pers. Policial', desc: 'Hechos con Efectivos Policiales' },

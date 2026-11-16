@@ -29,6 +29,7 @@ const COLLECTIONS = [
   'roles',
   'configuracion',
   'novedadesDelegaciones',
+  'charlasPrevencion',
 ] as const;
 
 type CollectionName = (typeof COLLECTIONS)[number];

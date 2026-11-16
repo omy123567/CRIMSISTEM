@@ -23,6 +23,7 @@ import {
   RolSistema,
   AccionesRol,
   AvisoNovedad,
+  CharlaPrevencion,
 } from '../types/police';
 
 export class SisPolDatabase extends Dexie {
@@ -48,6 +49,7 @@ export class SisPolDatabase extends Dexie {
   accidentologia!: Table<AccidentologiaRegistro, string>;
   roles!: Table<RolSistema, string>;
   novedadesDelegaciones!: Table<AvisoNovedad, string>;
+  charlasPrevencion!: Table<CharlaPrevencion, string>;
 
   constructor() {
     super('SisPolDB');
@@ -93,6 +95,9 @@ export class SisPolDatabase extends Dexie {
     });
     this.version(10).stores({
       novedadesDelegaciones: 'id, fechaHora, destinatarioDelegacionId, origenDelegacionId, prioridad, createdAt',
+    });
+    this.version(11).stores({
+      charlasPrevencion: 'id, fecha, hora, localidad, delegacionId, disertantePersonalId, estado',
     });
   }
 }
@@ -496,7 +501,7 @@ export const DEFAULT_ROLES: RolSistema[] = [
       'moviles', 'recargos', 'guardias', 'inspecciones', 'intervenciones',
       'causas-policiales', 'accidentologia', 'personas', 'vehiculos',
       'forense', 'licenciados', 'informes-tecnicos', 'numerario',
-      'usuarios', 'auditoria', 'config'
+      'usuarios', 'auditoria', 'config', 'charlas-prevencion'
     ],
     acciones: {
       puedeCrear: true,
@@ -527,7 +532,7 @@ export const DEFAULT_ROLES: RolSistema[] = [
       'moviles', 'recargos', 'guardias', 'inspecciones', 'intervenciones',
       'causas-policiales', 'accidentologia', 'personas', 'vehiculos',
       'forense', 'licenciados', 'informes-tecnicos', 'numerario',
-      'usuarios', 'config'
+      'usuarios', 'config', 'charlas-prevencion'
     ],
     acciones: {
       puedeCrear: true,
@@ -666,7 +671,7 @@ export const DEFAULT_ROLES: RolSistema[] = [
     esSistema: true,
     modulosPermitidos: [
       'dashboard', 'guardias', 'inspecciones', 'intervenciones', 'moviles',
-      'recargos', 'vehiculos', 'personas', 'accidentologia', 'forense', 'licenciados', 'novedades-delegaciones'
+      'recargos', 'vehiculos', 'personas', 'accidentologia', 'forense', 'licenciados', 'novedades-delegaciones', 'charlas-prevencion'
     ],
     acciones: {
       puedeCrear: true,
@@ -694,7 +699,7 @@ export const DEFAULT_ROLES: RolSistema[] = [
     esSistema: true,
     modulosPermitidos: [
       'dashboard', 'guardias', 'inspecciones', 'intervenciones', 'expedientes',
-      'falta-oficio', 'vehiculos', 'personas', 'accidentologia', 'informes-tecnicos', 'novedades-delegaciones'
+      'falta-oficio', 'vehiculos', 'personas', 'accidentologia', 'informes-tecnicos', 'novedades-delegaciones', 'charlas-prevencion'
     ],
     acciones: {
       puedeCrear: true,
@@ -722,7 +727,7 @@ export const DEFAULT_ROLES: RolSistema[] = [
     esSistema: true,
     modulosPermitidos: [
       'dashboard', 'personal', 'expedientes', 'guardias', 'inspecciones',
-      'intervenciones', 'accidentologia', 'numerario', 'auditoria', 'novedades-delegaciones'
+      'intervenciones', 'accidentologia', 'numerario', 'auditoria', 'novedades-delegaciones', 'charlas-prevencion'
     ],
     acciones: {
       puedeCrear: false,
@@ -780,6 +785,8 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
       'informes-tecnicos',
       'numerario',
       'accidentologia',
+      'novedades-delegaciones',
+      'charlas-prevencion',
       'usuarios',
       'config',
     ],
@@ -825,6 +832,8 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
       'informes-tecnicos',
       'numerario',
       'accidentologia',
+      'novedades-delegaciones',
+      'charlas-prevencion',
       'usuarios',
       'config',
     ],
@@ -863,6 +872,8 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
       'informes-tecnicos',
       'numerario',
       'accidentologia',
+      'novedades-delegaciones',
+      'charlas-prevencion',
       'usuarios',
       'config',
     ],
@@ -891,6 +902,7 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
       'falta-oficio',
       'personas',
       'vehiculos',
+      'charlas-prevencion',
     ],
     puedeEliminar: false,
     activo: true,
@@ -922,6 +934,8 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
       'personas',
       'vehiculos',
       'forense',
+      'novedades-delegaciones',
+      'charlas-prevencion',
       'usuarios',
       'config',
     ],
@@ -1095,5 +1109,6 @@ export async function wipeAllOperationalData() {
     db.licenciados.clear(),
     db.informesTecnicos.clear(),
     db.novedadesDelegaciones.clear(),
+    db.charlasPrevencion.clear(),
   ]);
 }

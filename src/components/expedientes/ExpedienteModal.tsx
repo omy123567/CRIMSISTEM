@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { ImageEditorModal } from '../common/ImageEditorModal';
+import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 import { db } from '../../db/database';
 
 interface ExpedienteModalProps {
@@ -100,7 +101,11 @@ export const ExpedienteModal: React.FC<ExpedienteModalProps> = ({
   const [listaIOs, setListaIOs] = useState<InspeccionOcular[]>([]);
   const [searchIOQuery, setSearchIOQuery] = useState('');
   const [showPersonalSelector, setShowPersonalSelector] = useState(false);
-  const [selectedPreviewImg, setSelectedPreviewImg] = useState<string | null>(null);
+  const [previewGallery, setPreviewGallery] = useState<{
+    isOpen: boolean;
+    files: PreviewAttachmentItem[];
+    index: number;
+  }>({ isOpen: false, files: [], index: 0 });
   const [editorTarget, setEditorTarget] = useState<{
     src: string;
     field: 'adjuntosOficio' | 'adjuntosRecibo';
@@ -972,9 +977,19 @@ export const ExpedienteModal: React.FC<ExpedienteModalProps> = ({
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-1">
                       <button
                         type="button"
-                        onClick={() => setSelectedPreviewImg(img)}
+                        onClick={() =>
+                          setPreviewGallery({
+                            isOpen: true,
+                            files: (formData.adjuntosOficio || []).map((url, idx) => ({
+                              id: `of-${idx}`,
+                              nombre: `Oficio ${idx + 1}`,
+                              dataUrl: url,
+                            })),
+                            index: i,
+                          })
+                        }
                         className="p-1 bg-white/20 hover:bg-white/40 text-white rounded cursor-pointer"
-                        title="Ver en grande"
+                        title="Vista preliminar con zoom"
                       >
                         <Eye className="w-3.5 h-3.5" />
                       </button>
@@ -1035,9 +1050,19 @@ export const ExpedienteModal: React.FC<ExpedienteModalProps> = ({
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-1">
                       <button
                         type="button"
-                        onClick={() => setSelectedPreviewImg(img)}
+                        onClick={() =>
+                          setPreviewGallery({
+                            isOpen: true,
+                            files: (formData.adjuntosRecibo || []).map((url, idx) => ({
+                              id: `rec-${idx}`,
+                              nombre: `Recibo ${idx + 1}`,
+                              dataUrl: url,
+                            })),
+                            index: i,
+                          })
+                        }
                         className="p-1 bg-white/20 hover:bg-white/40 text-white rounded cursor-pointer"
-                        title="Ver en grande"
+                        title="Vista preliminar con zoom"
                       >
                         <Eye className="w-3.5 h-3.5" />
                       </button>
@@ -1104,27 +1129,14 @@ export const ExpedienteModal: React.FC<ExpedienteModalProps> = ({
         />
       )}
 
-      {/* Visor modal de imagen con zoom */}
-      {selectedPreviewImg && (
-        <div
-          className="fixed inset-0 z-60 bg-black/85 flex items-center justify-center p-4"
-          onClick={() => setSelectedPreviewImg(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh]">
-            <img
-              src={selectedPreviewImg}
-              alt="Adjunto digital"
-              className="max-h-[85vh] max-w-full object-contain rounded-lg"
-            />
-            <button
-              onClick={() => setSelectedPreviewImg(null)}
-              className="absolute -top-3 -right-3 bg-white text-slate-900 rounded-full p-1.5 shadow-lg"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Visor Preliminar con Zoom */}
+      <FilePreviewModal
+        isOpen={previewGallery.isOpen}
+        file={previewGallery.files[previewGallery.index] || null}
+        files={previewGallery.files}
+        initialIndex={previewGallery.index}
+        onClose={() => setPreviewGallery({ isOpen: false, files: [], index: 0 })}
+      />
     </div>
   );
 };

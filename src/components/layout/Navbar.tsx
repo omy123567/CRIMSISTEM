@@ -6,6 +6,7 @@ import {
   DelegacionPolicial,
   AvisoNovedad,
   MovilPolicial,
+  CharlaPrevencion,
 } from '../../types/police';
 import {
   Wifi,
@@ -28,9 +29,13 @@ import {
   Wrench,
   Gauge,
   Calendar,
+  BookOpen,
+  Paperclip,
 } from 'lucide-react';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 import { OfflineIndicator } from '../common/OfflineIndicator';
+import { formatFechaDDMMAAAA } from '../charlas/CharlaModal';
+import { getDiasHastaCharla } from '../charlas/CharlasPrevencionView';
 
 interface NavbarProps {
   config: ConfiguracionSistema;
@@ -39,8 +44,10 @@ interface NavbarProps {
   delegacionesList: DelegacionPolicial[];
   novedadesList?: AvisoNovedad[];
   movilesList?: MovilPolicial[];
+  charlasList?: CharlaPrevencion[];
   onNavigateToNovedades?: () => void;
   onNavigateToMoviles?: () => void;
+  onNavigateToCharlas?: () => void;
   onSelectDelegacion: (delegacionId: string) => void;
   onOpenCambiarPassword: () => void;
   onLogout: () => void;
@@ -56,8 +63,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   delegacionesList,
   novedadesList = [],
   movilesList = [],
+  charlasList = [],
   onNavigateToNovedades,
   onNavigateToMoviles,
+  onNavigateToCharlas,
   onSelectDelegacion,
   onOpenCambiarPassword,
   onLogout,
@@ -69,7 +78,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotificationsMenu, setShowNotificationsMenu] = useState(false);
-  const [activeNotifTab, setActiveNotifTab] = useState<'novedades' | 'moviles'>('novedades');
+  const [activeNotifTab, setActiveNotifTab] = useState<'novedades' | 'charlas' | 'moviles'>('novedades');
 
   useEffect(() => {
     const updateTime = () => {
@@ -136,12 +145,18 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
-  const notificacionesRelevantes = (novedadesList || []).filter(
-    (n) =>
-      n.destinoDelegacionId === 'TODAS' ||
-      n.destinoDelegacionId === activeDelegacionId ||
-      n.destinoDelegacionId === currentUser?.delegacionId
-  );
+  const notificacionesRelevantes = (novedadesList || [])
+    .filter((n) => {
+      const targetDelId = n.destinoDelegacionId || n.destinatarioDelegacionId;
+      return (
+        targetDelId === 'TODAS' ||
+        targetDelId === activeDelegacionId ||
+        targetDelId === currentUser?.delegacionId
+      );
+    })
+    .sort((a, b) =>
+      (b.fechaHora || b.createdAt || '').localeCompare(a.fechaHora || a.createdAt || '')
+    );
 
   // Cálculo de Alertas de Mantenimiento de Móviles (RTO y Servis)
   const diasAvisoRto = config.recordatorioRtoDias ?? 30;
@@ -207,13 +222,24 @@ export const Navbar: React.FC<NavbarProps> = ({
       return items;
     });
 
+  // Recordatorio de Charlas y Prevención Comunitaria próximas (hoy hasta +7 días)
+  const charlasProximas = (charlasList || [])
+    .filter((c) => {
+      if (c.estado === 'Realizada' || c.estado === 'Suspendida') return false;
+      const diff = getDiasHastaCharla(c.fecha);
+      return diff >= 0 && diff <= 7;
+    })
+    .sort((a, b) => `${a.fecha} ${a.hora}`.localeCompare(`${b.fecha} ${b.hora}`));
+
   const cantUrgentesNovedades = notificacionesRelevantes.filter(
     (n) => n.prioridad === 'Urgente' || n.prioridad === 'Alta'
   ).length;
 
   const cantUrgentesVehiculos = alertasVehiculos.filter((a) => a.urgente).length;
-  const cantUrgentes = cantUrgentesNovedades + cantUrgentesVehiculos;
-  const totalNotificaciones = notificacionesRelevantes.length + alertasVehiculos.length;
+  const cantUrgentesCharlas = charlasProximas.filter((c) => getDiasHastaCharla(c.fecha) <= 1).length;
+  const cantUrgentes = cantUrgentesNovedades + cantUrgentesVehiculos + cantUrgentesCharlas;
+  const totalNotificaciones =
+    notificacionesRelevantes.length + alertasVehiculos.length + charlasProximas.length;
 
 
   return (
@@ -337,17 +363,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
                   cantUrgentes > 0
-                    ? 'bg-rose-950/70 text-rose-200 border-rose-600/70 animate-pulse'
+                    ? 'bg-rose-950/70 text-rose-200 border-rose-600/70 hover:bg-rose-950'
                     : totalNotificaciones > 0
                     ? 'bg-slate-900 text-sky-300 border-slate-700 hover:bg-slate-800'
                     : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white hover:bg-slate-800'
                 }`}
-                title="Notificaciones: Novedades inter-delegaciones y Alertas de Servis/RTO"
+                title="Notificaciones: Novedades inter-delegaciones, Charlas próximas y Alertas de Servis/RTO"
               >
                 <div className="relative">
                   <Bell className="w-4 h-4" />
                   {cantUrgentes > 0 ? (
-                    <span className="w-2 h-2 rounded-full bg-rose-500 absolute -top-0.5 -right-0.5 animate-ping" />
+                    <span className="w-2 h-2 rounded-full bg-rose-500 absolute -top-0.5 -right-0.5" />
                   ) : null}
                 </div>
                 <span className="hidden sm:inline">Notificaciones</span>
@@ -385,11 +411,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
 
                     {/* Selector de Pestaña */}
-                    <div className="grid grid-cols-2 gap-1 bg-slate-900/80 p-1 rounded-lg border border-slate-700 text-xs">
+                    <div className="grid grid-cols-3 gap-1 bg-slate-900/80 p-1 rounded-lg border border-slate-700 text-[11px]">
                       <button
                         type="button"
                         onClick={() => setActiveNotifTab('novedades')}
-                        className={`py-1 px-2 rounded-md font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer ${
+                        className={`py-1 px-1.5 rounded-md font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer ${
                           activeNotifTab === 'novedades'
                             ? 'bg-blue-800 text-white shadow-2xs'
                             : 'text-slate-400 hover:text-white'
@@ -400,15 +426,28 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                       <button
                         type="button"
+                        onClick={() => setActiveNotifTab('charlas')}
+                        className={`py-1 px-1.5 rounded-md font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer ${
+                          activeNotifTab === 'charlas'
+                            ? 'bg-emerald-800 text-white shadow-2xs'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <BookOpen className="w-3 h-3 shrink-0" />
+                        <span>Charlas ({charlasProximas.length})</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => setActiveNotifTab('moviles')}
-                        className={`py-1 px-2 rounded-md font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer ${
+                        className={`py-1 px-1.5 rounded-md font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer ${
                           activeNotifTab === 'moviles'
                             ? 'bg-amber-800 text-white shadow-2xs'
                             : 'text-slate-400 hover:text-white'
                         }`}
                       >
-                        <Car className="w-3.5 h-3.5" />
-                        <span>Móviles / RTO ({alertasVehiculos.length})</span>
+                        <Car className="w-3 h-3 shrink-0" />
+                        <span>Móviles ({alertasVehiculos.length})</span>
                       </button>
                     </div>
                   </div>
@@ -423,19 +462,32 @@ export const Navbar: React.FC<NavbarProps> = ({
                       ) : (
                         notificacionesRelevantes.slice(0, 5).map((n) => (
                           <div key={n.id} className="p-2.5 hover:bg-slate-800/60 rounded-lg transition-colors space-y-1 text-xs">
-                            <div className="flex items-center justify-between">
-                              <span
-                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase ${
-                                  n.prioridad === 'Urgente'
-                                    ? 'bg-red-900/80 text-red-200 border border-red-700'
-                                    : n.prioridad === 'Alta'
-                                    ? 'bg-amber-900/80 text-amber-200 border border-amber-700'
-                                    : 'bg-blue-900/80 text-blue-200 border border-blue-700'
-                                }`}
-                              >
-                                {n.prioridad}
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase ${
+                                    n.prioridad === 'Urgente'
+                                      ? 'bg-red-900/80 text-red-200 border border-red-700'
+                                      : n.prioridad === 'Alta'
+                                      ? 'bg-amber-900/80 text-amber-200 border border-amber-700'
+                                      : 'bg-blue-900/80 text-blue-200 border border-blue-700'
+                                  }`}
+                                >
+                                  {n.prioridad}
+                                </span>
+                                {(n.tipo === 'traslado_personal' || n.esTrasladoPersonal) && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-900/90 text-indigo-200 border border-indigo-600">
+                                    Traslado
+                                  </span>
+                                )}
+                                {n.adjuntos && n.adjuntos.length > 0 && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-slate-800 text-sky-300 border border-slate-700 inline-flex items-center gap-1">
+                                    <Paperclip className="w-2.5 h-2.5" />
+                                    <span>{n.adjuntos.length}</span>
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-400 font-mono tabular-nums">
                                 {new Date(n.fechaHora || n.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
                             </div>
@@ -452,7 +504,60 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                   )}
 
-                  {/* Contenido Pestaña 2: Alertas de Mantenimiento de Móviles (RTO y Servis) */}
+                  {/* Contenido Pestaña 2: Recordatorios de Charlas y Prevención Comunitaria */}
+                  {activeNotifTab === 'charlas' && (
+                    <div className="max-h-80 overflow-y-auto divide-y divide-slate-800 p-1">
+                      {charlasProximas.length === 0 ? (
+                        <div className="p-4 text-center text-slate-400 text-xs">
+                          No hay charlas preventivas programadas para los próximos 7 días.
+                        </div>
+                      ) : (
+                        charlasProximas.map((c) => {
+                          const diff = getDiasHastaCharla(c.fecha);
+                          return (
+                            <div
+                              key={c.id}
+                              onClick={() => {
+                                if (onNavigateToCharlas) {
+                                  setShowNotificationsMenu(false);
+                                  onNavigateToCharlas();
+                                }
+                              }}
+                              className="p-2.5 hover:bg-slate-800/60 rounded-lg transition-colors space-y-1 text-xs cursor-pointer"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase ${
+                                    diff === 0
+                                      ? 'bg-rose-900/90 text-rose-100 border border-rose-700'
+                                      : diff === 1
+                                      ? 'bg-amber-900/90 text-amber-100 border border-amber-700'
+                                      : 'bg-emerald-900/80 text-emerald-200 border border-emerald-700'
+                                  }`}
+                                >
+                                  {diff === 0 ? 'Hoy' : diff === 1 ? 'Mañana' : `En ${diff} días`}
+                                </span>
+                                <span className="text-[10px] text-slate-300 font-mono tabular-nums">
+                                  {formatFechaDDMMAAAA(c.fecha)} · {c.hora} hs
+                                </span>
+                              </div>
+                              <div className="text-[11px] font-bold text-white leading-snug">
+                                {c.tema}
+                              </div>
+                              <div className="text-[10px] text-slate-300">
+                                {c.lugarInstitucion} · {c.localidad}
+                              </div>
+                              <div className="text-[10px] text-emerald-300 font-medium">
+                                Disertante: {c.disertanteNombre}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+
+                  {/* Contenido Pestaña 3: Alertas de Mantenimiento de Móviles (RTO y Servis) */}
                   {activeNotifTab === 'moviles' && (
                     <div className="max-h-80 overflow-y-auto divide-y divide-slate-800 p-1">
                       {alertasVehiculos.length === 0 ? (
@@ -487,7 +592,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   )}
 
                   {/* Acciones de Navegación Rápida */}
-                  <div className="p-2 bg-slate-800/90 border-t border-slate-700 flex items-center gap-2">
+                  <div className="p-2 bg-slate-800/90 border-t border-slate-700 flex items-center gap-1.5">
                     {onNavigateToNovedades && (
                       <button
                         type="button"
@@ -495,10 +600,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                           setShowNotificationsMenu(false);
                           onNavigateToNovedades();
                         }}
-                        className="flex-1 py-1.5 px-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                        className="flex-1 py-1.5 px-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                       >
                         <span>Novedades</span>
                         <ArrowRight className="w-3 h-3" />
+                      </button>
+                    )}
+
+                    {onNavigateToCharlas && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowNotificationsMenu(false);
+                          onNavigateToCharlas();
+                        }}
+                        className="flex-1 py-1.5 px-2 bg-emerald-800 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <BookOpen className="w-3 h-3" />
+                        <span>Charlas</span>
                       </button>
                     )}
 
@@ -509,10 +628,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                           setShowNotificationsMenu(false);
                           onNavigateToMoviles();
                         }}
-                        className="flex-1 py-1.5 px-2.5 bg-amber-800 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                        className="flex-1 py-1.5 px-2 bg-amber-800 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                       >
-                        <Car className="w-3.5 h-3.5" />
-                        <span>Parque Automotor</span>
+                        <Car className="w-3 h-3" />
+                        <span>Móviles</span>
                       </button>
                     )}
                   </div>

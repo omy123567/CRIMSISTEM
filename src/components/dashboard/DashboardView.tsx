@@ -7,6 +7,7 @@ import {
   ParteNovedadesGuardia,
   ConfiguracionSistema,
   InspeccionOcular,
+  CharlaPrevencion,
 } from '../../types/police';
 import {
   Users,
@@ -21,6 +22,11 @@ import {
   TrendingUp,
   FileCheck2,
   Camera,
+  BookOpen,
+  Clock,
+  MapPin,
+  UserCheck,
+  Bell,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -39,6 +45,8 @@ import {
   generarPdfReporteInspeccionesOcularesPorTipo,
 } from '../../services/pdfService';
 import { BirthdayDashboardWidget } from './BirthdayDashboardWidget';
+import { formatFechaDDMMAAAA } from '../charlas/CharlaModal';
+import { getDiasHastaCharla } from '../charlas/CharlasPrevencionView';
 
 
 interface DashboardViewProps {
@@ -48,6 +56,7 @@ interface DashboardViewProps {
   movilesList: MovilPolicial[];
   partesGuardiaList: ParteNovedadesGuardia[];
   inspeccionesList?: InspeccionOcular[];
+  charlasList?: CharlaPrevencion[];
   config: ConfiguracionSistema;
   onNavigate: (tab: any) => void;
 }
@@ -63,6 +72,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   movilesList,
   partesGuardiaList,
   inspeccionesList = [],
+  charlasList = [],
   config,
   onNavigate,
 }) => {
@@ -196,6 +206,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       { name: 'Accidentología Vial', value: accidentologia },
     ];
   }, [partesFiltrados]);
+
+  // Próximas Charlas y Prevención Comunitaria (Recordatorio en Dashboard)
+  const charlasProximas = useMemo(() => {
+    return (charlasList || [])
+      .filter((c) => {
+        if (c.estado === 'Realizada' || c.estado === 'Suspendida') return false;
+        return getDiasHastaCharla(c.fecha) >= 0;
+      })
+      .sort((a, b) => `${a.fecha} ${a.hora}`.localeCompare(`${b.fecha} ${b.hora}`))
+      .slice(0, 5);
+  }, [charlasList]);
 
   const handleExportPdf = () => {
     generarPdfReporteEjecutivo(
@@ -453,6 +474,118 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         config={config}
         onNavigateToPersonnel={() => onNavigate('personal')}
       />
+
+      {/* Agenda y Recordatorio de Charlas y Prevención Comunitaria */}
+      <div className="bg-white p-5 rounded-xl border border-slate-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Agenda de Charlas y Prevención Comunitaria
+              </h3>
+              <p className="text-xs text-slate-500">
+                Recordatorio de próximas jornadas educativas y comunitarias programadas
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('charlas-prevencion')}
+            className="text-xs text-emerald-800 hover:text-emerald-950 font-semibold flex items-center gap-1 cursor-pointer self-start sm:self-auto"
+          >
+            <span>Gestionar Charlas</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {charlasProximas.length === 0 ? (
+          <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-500 flex items-center justify-between gap-3">
+            <span>No hay charlas ni jornadas preventivas próximas en agenda.</span>
+            <button
+              type="button"
+              onClick={() => onNavigate('charlas-prevencion')}
+              className="text-emerald-800 font-semibold hover:underline cursor-pointer shrink-0"
+            >
+              + Programar charla
+            </button>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-200 border border-slate-200 rounded-lg overflow-hidden">
+            {charlasProximas.map((charla) => {
+              const diff = getDiasHastaCharla(charla.fecha);
+              const esInminente = diff <= 1;
+              const esSemana = diff <= 7;
+              return (
+                <div
+                  key={charla.id}
+                  onClick={() => onNavigate('charlas-prevencion')}
+                  className="p-3 hover:bg-slate-50 transition-colors cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs"
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div
+                      className={`px-2.5 py-1.5 rounded-lg border text-center shrink-0 min-w-[92px] ${
+                        esInminente
+                          ? 'bg-rose-50 border-rose-200 text-rose-800'
+                          : esSemana
+                          ? 'bg-amber-50 border-amber-200 text-amber-900'
+                          : 'bg-slate-50 border-slate-200 text-slate-800'
+                      }`}
+                    >
+                      <div className="font-mono tabular-nums font-bold text-[11px]">
+                        {formatFechaDDMMAAAA(charla.fecha)}
+                      </div>
+                      <div className="font-mono tabular-nums text-[10px] flex items-center justify-center gap-1 mt-0.5">
+                        <Clock className="w-2.5 h-2.5" />
+                        <span>{charla.hora} hs</span>
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                        <span>{charla.tema}</span>
+                        {esSemana && (
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                              diff === 0
+                                ? 'bg-rose-100 text-rose-800 border-rose-200'
+                                : diff === 1
+                                ? 'bg-amber-100 text-amber-800 border-amber-200'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            }`}
+                          >
+                            {diff === 0 ? 'Hoy' : diff === 1 ? 'Mañana' : `En ${diff} días`}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-slate-400" />
+                          <span>
+                            {charla.lugarInstitucion} · {charla.localidad}
+                          </span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-emerald-800 font-medium">
+                          <UserCheck className="w-3 h-3" />
+                          <span>Disertante: {charla.disertanteNombre}</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {charla.observaciones && (
+                    <div className="text-[11px] text-slate-500 md:max-w-[240px] truncate shrink-0">
+                      {charla.observaciones}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Gráficos Estadísticos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

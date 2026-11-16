@@ -4,8 +4,8 @@ import {
   PrioridadNovedad,
   DelegacionPolicial,
   UsuarioSistema,
-  Personal,
   ConfiguracionSistema,
+  AdjuntoArchivo,
 } from '../../types/police';
 import {
   Bell,
@@ -15,65 +15,51 @@ import {
   Flame,
   CheckCircle2,
   Trash2,
-  UserCheck,
   Building2,
-  Calendar,
-  Filter,
   Search,
   ArrowRight,
-  ArrowRightLeft,
   MessageSquare,
   Clock,
-  Sparkles,
+  Paperclip,
+  Upload,
+  Eye,
+  FileText,
+  X,
 } from 'lucide-react';
-import { TrasladarPersonalModal } from '../personnel/TrasladarPersonalModal';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 
 interface NovedadesDelegacionesViewProps {
   novedadesList: AvisoNovedad[];
   delegacionesList: DelegacionPolicial[];
-  personalList: Personal[];
   currentUser?: UsuarioSistema;
   activeDelegacionId: string;
   config: ConfiguracionSistema;
   onCrearNovedad: (novedad: Omit<AvisoNovedad, 'id' | 'createdAt'>) => Promise<void> | void;
   onMarcarLeido?: (id: string) => Promise<void> | void;
   onEliminarNovedad?: (id: string) => Promise<void> | void;
-  onTransferirPersonal?: (
-    personal: Personal,
-    nuevaDelegacionId: string,
-    motivo: string,
-    disposicion: string,
-    fecha: string
-  ) => Promise<void> | void;
 }
 
 export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps> = ({
   novedadesList,
   delegacionesList,
-  personalList,
   currentUser,
   activeDelegacionId,
   config,
   onCrearNovedad,
-  onMarcarLeido,
   onEliminarNovedad,
-  onTransferirPersonal,
 }) => {
   // Formulario único según requerimiento estricto:
   // "únicamente debe tener: Mensaje, a quien ira dirigido (Delegacion) o a todos. Prioridad."
   const [mensaje, setMensaje] = useState('');
   const [destinoDelegacionId, setDestinoDelegacionId] = useState<string>('TODAS');
   const [prioridad, setPrioridad] = useState<PrioridadNovedad>('Normal');
+  const [adjuntos, setAdjuntos] = useState<AdjuntoArchivo[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Filtros de visualización
   const [filtroPrioridad, setFiltroPrioridad] = useState<string>('todas');
   const [searchTerm, setSearchTerm] = useState<string>('');
-
-  // Modal para traslado de personal
-  const [isTrasladoModalOpen, setIsTrasladoModalOpen] = useState(false);
-  const [personalParaTraslado, setPersonalParaTraslado] = useState<Personal | null>(null);
 
   // Confirmación de eliminación
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string | null }>({
@@ -81,9 +67,43 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
     id: null,
   });
 
+  // Visor preliminar universal con zoom
+  const [previewGallery, setPreviewGallery] = useState<{
+    isOpen: boolean;
+    files: PreviewAttachmentItem[];
+    index: number;
+  }>({ isOpen: false, files: [], index: 0 });
+
   const delegacionActual =
     delegacionesList.find((d) => d.id === (currentUser?.delegacionId || activeDelegacionId)) ||
     delegacionesList[0];
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const nuevo: AdjuntoArchivo = {
+          id: `nov-adj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          nombre: file.name,
+          tipo: file.type || 'application/octet-stream',
+          dataUrl,
+          tamanoBytes: file.size,
+          fecha: new Date().toISOString().slice(0, 10),
+        };
+        setAdjuntos((prev) => [...prev, nuevo]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
+  const handleRemoveAdjunto = (id: string) => {
+    setAdjuntos((prev) => prev.filter((a) => a.id !== id));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,69 +129,41 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
         emisorUsername: currentUser?.username || 'usuario',
         fechaHora: new Date().toISOString(),
         tipo: 'comunicado',
+        adjuntos: adjuntos.length > 0 ? adjuntos : undefined,
         leidoPor: currentUser?.id ? [currentUser.id] : [],
       });
 
       setMensaje('');
       setPrioridad('Normal');
       setDestinoDelegacionId('TODAS');
+      setAdjuntos([]);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleCompletarTraslado = async (
-    personal: Personal,
-    nuevaDelegacionId: string,
-    motivo: string,
-    disposicion: string,
-    fecha: string
-  ) => {
-    if (onTransferirPersonal) {
-      await onTransferirPersonal(personal, nuevaDelegacionId, motivo, disposicion, fecha);
-    }
-
-    const nuevaDel = delegacionesList.find((d) => d.id === nuevaDelegacionId);
-    const mensajeAviso = `TRASLADO DE EFECTIVO POLICIAL: Se comunica el traslado del efectivo ${personal.jerarquia} ${personal.apellidoYNombre} (DNI ${personal.dni}, Plaza: ${personal.plaza || 's/p'}) con destino a ${nuevaDel?.nombre || 'nueva delegación'}. Motivo/Disposición: ${disposicion || motivo || 'Orden superior'}. Fecha de efectivización: ${fecha}.`;
-
-    // Generar automáticamente la novedad inter-delegación de prioridad Urgente
-    await onCrearNovedad({
-      mensaje: mensajeAviso,
-      origenDelegacionId: delegacionActual?.id || 'del-laguna-blanca',
-      origenDelegacionNombre: delegacionActual?.nombre || config.dependencia,
-      destinatarioDelegacionId: nuevaDelegacionId,
-      destinoDelegacionId: nuevaDelegacionId,
-      destinoDelegacionNombre: nuevaDel?.nombre || 'Nueva Delegación',
-      prioridad: 'Urgente',
-      emisorNombre: currentUser?.apellidoYNombre || currentUser?.username || 'Sistema',
-      emisorUsername: currentUser?.username || 'sistema',
-      fechaHora: new Date().toISOString(),
-      tipo: 'traslado_personal',
-      leidoPor: currentUser?.id ? [currentUser.id] : [],
-    });
-
-    setIsTrasladoModalOpen(false);
-    setPersonalParaTraslado(null);
-  };
-
   const filteredNovedades = useMemo(() => {
-    return novedadesList.filter((n) => {
-      // Búsqueda por texto
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
-        const match =
-          n.mensaje.toLowerCase().includes(term) ||
-          (n.origenDelegacionNombre || '').toLowerCase().includes(term) ||
-          (n.destinoDelegacionNombre || n.destinatarioDelegacionNombre || '').toLowerCase().includes(term) ||
-          (n.emisorNombre || n.usuarioEmisorNombre || n.remitenteUsuarioNombre || '').toLowerCase().includes(term);
-        if (!match) return false;
-      }
+    return novedadesList
+      .filter((n) => {
+        // Búsqueda por texto
+        if (searchTerm) {
+          const term = searchTerm.toLowerCase();
+          const match =
+            n.mensaje.toLowerCase().includes(term) ||
+            (n.origenDelegacionNombre || '').toLowerCase().includes(term) ||
+            (n.destinoDelegacionNombre || n.destinatarioDelegacionNombre || '').toLowerCase().includes(term) ||
+            (n.emisorNombre || n.usuarioEmisorNombre || n.remitenteUsuarioNombre || '').toLowerCase().includes(term);
+          if (!match) return false;
+        }
 
-      // Prioridad
-      if (filtroPrioridad !== 'todas' && n.prioridad !== filtroPrioridad) return false;
+        // Prioridad
+        if (filtroPrioridad !== 'todas' && n.prioridad !== filtroPrioridad) return false;
 
-      return true;
-    });
+        return true;
+      })
+      .sort((a, b) =>
+        (b.fechaHora || b.createdAt || '').localeCompare(a.fechaHora || a.createdAt || '')
+      );
   }, [novedadesList, searchTerm, filtroPrioridad]);
 
   const getPrioridadBadge = (prio: PrioridadNovedad) => {
@@ -219,26 +211,9 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Módulo oficial para emisión de avisos y directivas operativas entre delegaciones policiales y notificación automática de traslados.
+            Módulo oficial para emisión de avisos y directivas operativas entre delegaciones policiales y recepción de notificaciones de traslados de personal.
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            if (personalList.length === 0) {
-              alert('No hay efectivos cargados en la nómina para trasladar.');
-              return;
-            }
-            setPersonalParaTraslado(personalList[0]);
-            setIsTrasladoModalOpen(true);
-          }}
-          className="flex items-center gap-2 bg-gradient-to-r from-blue-900 to-indigo-900 hover:from-blue-950 hover:to-indigo-950 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer self-start sm:self-auto"
-          title="Trasladar un efectivo a otra delegación policial con aviso inmediato a la delegación destino"
-        >
-          <ArrowRightLeft className="w-4 h-4 text-amber-300" />
-          <span>Trasladar Personal a otra Delegación</span>
-        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -327,6 +302,104 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
               />
             </div>
 
+            {/* 4. Documentos e Imágenes Anexas */}
+            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                  <Paperclip className="w-3.5 h-3.5 text-blue-900" />
+                  <span>Anexar Documentos / Imágenes ({adjuntos.length})</span>
+                </div>
+                <label className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-semibold cursor-pointer inline-flex items-center gap-1 text-[11px] transition-colors">
+                  <Upload className="w-3 h-3" />
+                  <span>Adjuntar</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {adjuntos.length > 0 ? (
+                <div className="space-y-1.5">
+                  {adjuntos.map((adj, idx) => {
+                    const isImg =
+                      adj.tipo?.startsWith('image/') || adj.dataUrl.startsWith('data:image/');
+                    return (
+                      <div
+                        key={adj.id}
+                        className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-white border border-slate-200"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {isImg ? (
+                            <img
+                              src={adj.dataUrl}
+                              alt={adj.nombre}
+                              onClick={() =>
+                                setPreviewGallery({
+                                  isOpen: true,
+                                  files: adjuntos.map((a) => ({
+                                    id: a.id,
+                                    nombre: a.nombre,
+                                    tipo: a.tipo,
+                                    dataUrl: a.dataUrl,
+                                  })),
+                                  index: idx,
+                                })
+                              }
+                              className="w-8 h-8 rounded object-cover border border-slate-200 shrink-0 cursor-pointer"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 shrink-0">
+                              <FileText className="w-4 h-4 text-rose-600" />
+                            </div>
+                          )}
+                          <span className="truncate font-medium text-slate-700" title={adj.nombre}>
+                            {adj.nombre}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPreviewGallery({
+                                isOpen: true,
+                                files: adjuntos.map((a) => ({
+                                  id: a.id,
+                                  nombre: a.nombre,
+                                  tipo: a.tipo,
+                                  dataUrl: a.dataUrl,
+                                })),
+                                index: idx,
+                              })
+                            }
+                            className="p-1 text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+                            title="Vista preliminar con zoom"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAdjunto(adj.id)}
+                            className="p-1 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                            title="Quitar archivo"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-400">
+                  Opcional: adjunte notas PDF, imágenes, oficios o circulares.
+                </p>
+              )}
+            </div>
+
             <button
               type="submit"
               disabled={isSubmitting || !mensaje.trim()}
@@ -383,10 +456,11 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
               {filteredNovedades.map((n) => {
                 const prioBadge = getPrioridadBadge(n.prioridad);
                 const PrioIcon = prioBadge.icon;
+                const targetDelId = n.destinoDelegacionId || n.destinatarioDelegacionId;
                 const esParaMi =
-                  n.destinoDelegacionId === 'TODAS' ||
-                  n.destinoDelegacionId === activeDelegacionId ||
-                  n.destinoDelegacionId === currentUser?.delegacionId;
+                  targetDelId === 'TODAS' ||
+                  targetDelId === activeDelegacionId ||
+                  targetDelId === currentUser?.delegacionId;
 
                 const fechaFormateada = new Date(n.fechaHora || n.createdAt || Date.now()).toLocaleString('es-AR', {
                   day: '2-digit',
@@ -448,12 +522,12 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
                       <ArrowRight className="w-3 h-3 text-slate-400" />
                       <span
                         className={`font-bold ${
-                          n.destinoDelegacionId === 'TODAS'
+                          (n.destinoDelegacionId || n.destinatarioDelegacionId) === 'TODAS'
                             ? 'text-blue-900'
                             : 'text-amber-800'
                         }`}
                       >
-                        {n.destinoDelegacionNombre}
+                        {n.destinoDelegacionNombre || n.destinatarioDelegacionNombre || 'Todas las Delegaciones'}
                       </span>
                     </div>
 
@@ -462,9 +536,62 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
                       {n.mensaje}
                     </p>
 
+                    {/* Documentos e Imágenes Anexas con Vista Previa Zoom */}
+                    {n.adjuntos && n.adjuntos.length > 0 && (
+                      <div className="pt-1 flex flex-wrap items-center gap-2">
+                        {n.adjuntos.map((adj, idx) => {
+                          const isImg =
+                            adj.tipo?.startsWith('image/') ||
+                            adj.dataUrl.startsWith('data:image/');
+                          const openPreview = () =>
+                            setPreviewGallery({
+                              isOpen: true,
+                              files: (n.adjuntos || []).map((a) => ({
+                                id: a.id,
+                                nombre: a.nombre,
+                                tipo: a.tipo,
+                                dataUrl: a.dataUrl,
+                              })),
+                              index: idx,
+                            });
+
+                          return isImg ? (
+                            <button
+                              key={adj.id}
+                              type="button"
+                              onClick={openPreview}
+                              className="group relative w-16 h-16 rounded-lg border border-slate-200 overflow-hidden bg-slate-100 cursor-pointer shrink-0"
+                              title={`Ver ${adj.nombre} con zoom`}
+                            >
+                              <img
+                                src={adj.dataUrl}
+                                alt={adj.nombre}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                              />
+                              <div className="absolute inset-0 bg-slate-900/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                <Eye className="w-4 h-4" />
+                              </div>
+                            </button>
+                          ) : (
+                            <button
+                              key={adj.id}
+                              type="button"
+                              onClick={openPreview}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-800 hover:text-blue-900 border border-slate-200 hover:border-blue-300 text-[11px] font-semibold cursor-pointer transition-colors"
+                              title="Abrir vista preliminar con zoom"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                              <span className="truncate max-w-[160px]">{adj.nombre}</span>
+                              <Eye className="w-3 h-3 text-blue-700 shrink-0" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-100">
                       <span>
-                        Emitido por: <strong>{n.emisorNombre}</strong>
+                        Emitido por: <strong>{n.emisorNombre || n.remitenteUsuarioNombre || n.usuarioEmisorNombre || 'Sistema'}</strong>
                       </span>
                       {esParaMi && (
                         <span className="text-emerald-700 font-bold flex items-center gap-1 text-[10px]">
@@ -481,19 +608,6 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
         </div>
       </div>
 
-      {/* Modal de Traslado de Personal */}
-      {isTrasladoModalOpen && personalParaTraslado && (
-        <TrasladarPersonalModal
-          personal={personalParaTraslado}
-          delegacionesList={delegacionesList}
-          onConfirmTransfer={handleCompletarTraslado}
-          onClose={() => {
-            setIsTrasladoModalOpen(false);
-            setPersonalParaTraslado(null);
-          }}
-        />
-      )}
-
       {/* Confirmar Eliminación */}
       <ConfirmModal
         isOpen={deleteConfirm.isOpen}
@@ -508,6 +622,15 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
           setDeleteConfirm({ isOpen: false, id: null });
         }}
         onClose={() => setDeleteConfirm({ isOpen: false, id: null })}
+      />
+
+      {/* Vista Preliminar con Zoom */}
+      <FilePreviewModal
+        isOpen={previewGallery.isOpen}
+        file={previewGallery.files[previewGallery.index] || null}
+        files={previewGallery.files}
+        initialIndex={previewGallery.index}
+        onClose={() => setPreviewGallery({ isOpen: false, files: [], index: 0 })}
       />
     </div>
   );

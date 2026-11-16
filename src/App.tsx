@@ -23,11 +23,14 @@ import {
   RolSistema,
   AvisoNovedad,
   EstadoOperativoVehiculo,
+  PrioridadNovedad,
+  CharlaPrevencion,
 } from './types/police';
 
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { NovedadesDelegacionesView } from './components/novedades/NovedadesDelegacionesView';
+import { CharlasPrevencionView, getDiasHastaCharla } from './components/charlas/CharlasPrevencionView';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { PersonnelView } from './components/personnel/PersonnelView';
 import { GruposView } from './components/grupos/GruposView';
@@ -102,6 +105,7 @@ export default function App() {
   const [accidentologiaList, setAccidentologiaList] = useState<AccidentologiaRegistro[]>([]);
   const [rolesList, setRolesList] = useState<RolSistema[]>([]);
   const [novedadesList, setNovedadesList] = useState<AvisoNovedad[]>([]);
+  const [charlasList, setCharlasList] = useState<CharlaPrevencion[]>([]);
 
   // Delegación activa en visualización
   const [activeDelegacionId, setActiveDelegacionId] = useState<string>(() => {
@@ -164,6 +168,7 @@ export default function App() {
         acc,
         roles,
         novs,
+        charlas,
       ] = await Promise.all([
         db.personal.toArray(),
         db.grupos.toArray(),
@@ -185,6 +190,7 @@ export default function App() {
         db.accidentologia.toArray(),
         db.roles.toArray(),
         db.novedadesDelegaciones.toArray(),
+        db.charlasPrevencion.toArray(),
       ]);
 
       setPersonalList(pers);
@@ -207,6 +213,7 @@ export default function App() {
       setAccidentologiaList(acc);
       setRolesList(roles);
       setNovedadesList(novs);
+      setCharlasList(charlas);
 
       // Si el usuario ya está logueado, sincronizar su sesión fresca
       if (currentUser) {
@@ -422,6 +429,12 @@ export default function App() {
     );
   }, [foliosList, activeDelegacionId]);
 
+  const filteredCharlas = useMemo(() => {
+    return charlasList.filter(
+      (c) => (c.delegacionId || 'del-laguna-blanca') === activeDelegacionId
+    );
+  }, [charlasList, activeDelegacionId]);
+
   // Intervenciones de la delegación activa (combinadas de partes de guardia e independientes)
   const filteredIntervenciones = useMemo(() => {
     const fromPartes = filteredPartesGuardia.flatMap(
@@ -447,19 +460,19 @@ export default function App() {
     nuevaDelegacionId: string,
     motivo: string,
     disposicion: string,
-    fecha: string
+    fecha: string,
+    prioridadNotificacion: PrioridadNovedad = 'Urgente'
   ) => {
+    const origenId = personal.delegacionId || activeDelegacionId || 'del-laguna-blanca';
     const destinoDel = delegacionesList.find((d) => d.id === nuevaDelegacionId);
     const destinoNombre = destinoDel?.nombre || nuevaDelegacionId;
-    const origenDel = delegacionesList.find(
-      (d) => d.id === (personal.delegacionId || 'del-laguna-blanca')
-    );
-    const origenNombre = origenDel?.nombre || personal.delegacionId || 'Laguna Blanca';
+    const origenDel = delegacionesList.find((d) => d.id === origenId);
+    const origenNombre = origenDel?.nombre || origenId || 'Delegación Origen';
 
     const nuevoTraslado = {
       id: 'tras-' + Date.now(),
       fecha,
-      delegacionOrigenId: personal.delegacionId || 'del-laguna-blanca',
+      delegacionOrigenId: origenId,
       delegacionOrigenNombre: origenNombre,
       delegacionDestinoId: nuevaDelegacionId,
       delegacionDestinoNombre: destinoNombre,
@@ -485,19 +498,31 @@ export default function App() {
       prev.map((p) => (p.id === updatedPersonal.id ? updatedPersonal : p))
     );
 
-    // Emitir aviso inter-delegación automático a la nueva delegación
+    // Emitir aviso inter-delegación automático a la delegación destino correspondiente
+    const ahoraIso = new Date().toISOString();
+    const emisorNombre =
+      currentUser?.apellidoYNombre || currentUser?.username || 'Oficial de Turno';
     const avisoTraslado: AvisoNovedad = {
       id: `nov-traslado-${Date.now()}`,
       remitenteUsuarioId: currentUser?.id || 'sistema',
-      remitenteUsuarioNombre: currentUser?.apellidoYNombre || 'Oficial de Turno',
-      origenDelegacionId: personal.delegacionId || 'del-laguna-blanca',
+      remitenteUsuarioNombre: emisorNombre,
+      emisorNombre,
+      emisorUsername: currentUser?.username || 'sistema',
+      origenDelegacionId: origenId,
       origenDelegacionNombre: origenNombre,
       destinatarioDelegacionId: nuevaDelegacionId,
       destinatarioDelegacionNombre: destinoNombre,
-      mensaje: `TRASLADO DE EFECTIVO: El efectivo ${personal.jerarquia} ${personal.apellidoYNombre} (DNI ${personal.dni}) ha sido transferido e incorporado a la dotación de ${destinoNombre}. Disposición: ${disposicion || 'S/N'}. Motivo: ${motivo || 'Reasignación de destino'}.`,
-      prioridad: 'Alta',
+      destinoDelegacionId: nuevaDelegacionId,
+      destinoDelegacionNombre: destinoNombre,
+      mensaje: `TRASLADO DE EFECTIVO POLICIAL: Se notifica el traslado de ${personal.jerarquia} ${personal.apellidoYNombre} (DNI ${personal.dni}${personal.cedulaProvincial ? `, CP ${personal.cedulaProvincial}` : ''}, Plaza: ${personal.plaza || 's/p'}) desde ${origenNombre} hacia la dotación de ${destinoNombre}. Disposición: ${disposicion || 'S/N'}. Motivo: ${motivo || 'Reasignación de destino'}. Fecha de pase: ${fecha}.`,
+      prioridad: prioridadNotificacion,
+      tipo: 'traslado_personal',
+      esTrasladoPersonal: true,
+      personalTrasladadoId: personal.id,
+      personalTrasladadoNombre: `${personal.jerarquia} ${personal.apellidoYNombre}`,
+      fechaHora: ahoraIso,
       leidoPor: [],
-      createdAt: new Date().toISOString(),
+      createdAt: ahoraIso,
     };
     await db.novedadesDelegaciones.put(avisoTraslado);
     saveItemToServer('novedadesDelegaciones', avisoTraslado);
@@ -1481,6 +1506,50 @@ export default function App() {
     }
   };
 
+  // --- CRUD CHARLAS Y PREVENCIÓN COMUNITARIA ---
+  const handleSaveCharla = async (charla: CharlaPrevencion) => {
+    const isNew = !charlasList.some((c) => c.id === charla.id);
+    const entity: CharlaPrevencion = {
+      ...charla,
+      delegacionId: charla.delegacionId || activeDelegacionId,
+    };
+    await db.charlasPrevencion.put(entity);
+    saveItemToServer('charlasPrevencion', entity);
+    setCharlasList((prev) => {
+      const idx = prev.findIndex((c) => c.id === entity.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = entity;
+        return copy;
+      }
+      return [entity, ...prev];
+    });
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Charlas y Prevención Comunitaria',
+      accion: isNew ? 'CREAR' : 'MODIFICAR',
+      descripcion: `${isNew ? 'Registró' : 'Actualizó'} charla preventiva "${entity.tema}" (${entity.fecha} ${entity.hora} hs) en ${entity.lugarInstitucion} (${entity.localidad}). Disertante: ${entity.disertanteNombre}`,
+      delegacionId: entity.delegacionId,
+    });
+  };
+
+  const handleDeleteCharla = async (id: string) => {
+    if (!verificarPermisoEliminar()) return;
+    const target = charlasList.find((c) => c.id === id);
+    await db.charlasPrevencion.delete(id);
+    deleteItemFromServer('charlasPrevencion', id);
+    setCharlasList((prev) => prev.filter((c) => c.id !== id));
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Charlas y Prevención Comunitaria',
+      accion: 'ELIMINAR',
+      descripcion: `Eliminó charla preventiva "${target?.tema || id}" (${target?.fecha || ''})`,
+      delegacionId: target?.delegacionId || activeDelegacionId,
+    });
+  };
+
   // --- CAMBIO DE CONTRASEÑA ---
   const handleSavePassword = async (userId: string, newPass: string) => {
     const user = usuariosList.find((u) => u.id === userId);
@@ -1590,6 +1659,11 @@ export default function App() {
   const faltaOficioCount = filteredCasosFaltaOficio.filter((c) => c.estado === 'Pendiente').length;
   const movilesTallerCount = filteredMoviles.filter((m) => m.estadoOperativo === 'En Taller Mecánico').length;
   const armasRetenidasCount = filteredPersonal.filter((p) => p.armamento?.secuestradoORetenido).length;
+  const charlasProximasCount = filteredCharlas.filter((c) => {
+    if (c.estado === 'Realizada' || c.estado === 'Suspendida') return false;
+    const diff = getDiasHastaCharla(c.fecha);
+    return diff >= 0 && diff <= 7;
+  }).length;
 
   if (isLoading) {
     return (
@@ -1623,8 +1697,10 @@ export default function App() {
         delegacionesList={delegacionesList}
         novedadesList={novedadesList}
         movilesList={movilesList}
+        charlasList={filteredCharlas}
         onNavigateToNovedades={() => setActiveTab('novedades-delegaciones')}
         onNavigateToMoviles={() => setActiveTab('moviles')}
+        onNavigateToCharlas={() => setActiveTab('charlas-prevencion')}
         onSelectDelegacion={(newDelId) => setActiveDelegacionId(newDelId)}
         onOpenCambiarPassword={() => setIsPasswordModalOpen(true)}
         onLogout={handleLogout}
@@ -1664,6 +1740,7 @@ export default function App() {
               faltaOficio: faltaOficioCount,
               movilesTaller: movilesTallerCount,
               armasRetenidas: armasRetenidasCount,
+              charlasProximas: charlasProximasCount,
               inspecciones:
                 filteredInspecciones.length +
                 filteredPartesGuardia.reduce(
@@ -1683,6 +1760,7 @@ export default function App() {
               movilesList={filteredMoviles}
               partesGuardiaList={filteredPartesGuardia}
               inspeccionesList={filteredInspecciones}
+              charlasList={filteredCharlas}
               config={config}
               onNavigate={(tab) => setActiveTab(tab)}
             />
@@ -1927,14 +2005,25 @@ export default function App() {
             <NovedadesDelegacionesView
               novedadesList={novedadesList}
               delegacionesList={delegacionesList}
-              personalList={personalList}
               currentUser={currentUser || undefined}
               activeDelegacionId={activeDelegacionId}
               config={config}
               onCrearNovedad={handleCrearNovedad}
               onMarcarLeido={handleMarcarLeidoNovedad}
               onEliminarNovedad={handleEliminarNovedad}
-              onTransferirPersonal={handleTransferirPersonal}
+            />
+          )}
+
+          {activeTab === 'charlas-prevencion' && (
+            <CharlasPrevencionView
+              charlasList={filteredCharlas}
+              personalList={personalList}
+              delegacionesList={delegacionesList}
+              activeDelegacionId={activeDelegacionId}
+              currentUser={currentUser || undefined}
+              config={config}
+              onSaveCharla={handleSaveCharla}
+              onDeleteCharla={handleDeleteCharla}
             />
           )}
 
