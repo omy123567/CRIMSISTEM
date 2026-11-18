@@ -782,6 +782,7 @@ export interface AdjuntoArchivo {
   dataUrl: string;
   tamanoBytes?: number;
   fecha?: string;
+  integrityHash?: string;
 }
 
 export interface AvisoNovedad {
@@ -809,6 +810,7 @@ export interface AvisoNovedad {
   personalTrasladadoId?: string;
   personalTrasladadoNombre?: string;
   adjuntos?: AdjuntoArchivo[];
+  integrityHash?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -837,7 +839,9 @@ export interface UsuarioSistema {
   apellidoYNombre: string;
   email: string;
   username: string; // Nombre de usuario para login
-  password: string; // Contraseña
+  password?: string; // Solo se envía desde formularios al crear/cambiar; nunca se persiste ni retorna en claro
+  passwordHash?: string; // Hash scrypt almacenado exclusivamente en servidor
+  offlineVerifier?: string; // Verificador salado local para acceso PWA offline
   delegacionId: string; // Delegación primaria asignada
   rol: RolUsuario; // 'Operador' | 'Administrador' | 'superusuario' | 'Oficial de Guardia' | 'Carga / Editor' | 'Solo Lectura (Auditor / Consulta)'
   rolId?: string; // ID del RolSistema vinculado
@@ -891,6 +895,8 @@ export interface RegistroAuditoria {
   accion: 'CREAR' | 'MODIFICAR' | 'ELIMINAR' | 'LOGIN' | 'RESETEO_CONTADOR' | 'CAMBIO_PASSWORD' | 'TRASLADO' | 'OTRO';
   descripcion: string;
   detalles?: string;
+  ipOrigen?: string;
+  integrityHash?: string;
 }
 
 export interface SerieNumerario {

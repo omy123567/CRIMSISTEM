@@ -1,6 +1,15 @@
 import JSZip from 'jszip';
 import { db } from '../db/database';
-import { wipeAllDataFromServer, pushAllLocalDataToServer } from './apiService';
+import {
+  wipeAllDataFromServer,
+  pushAllLocalDataToServer,
+  restoreDatabaseOnServer,
+} from './apiService';
+import {
+  encryptBackupPayload,
+  isEncryptedBackup,
+  decryptBackupPayload,
+} from './securityClient';
 
 export interface DatabaseCounts {
   personal: number;
@@ -362,8 +371,14 @@ export async function restaurarJsonPeriodo(
 }
 
 export async function exportGeneralJsonBackup(): Promise<string> {
+  const rawUsuarios = await db.usuarios.toArray();
+  const sanitizedUsuarios = rawUsuarios.map(({ passwordHash: _ph, offlineVerifier: _ov, ...rest }) => ({
+    ...rest,
+    password: '',
+  }));
+
   const data = {
-    version: '2.0',
+    version: '2.1',
     exportDate: new Date().toISOString(),
     system: 'Sis.Pol. - Sistema de Gestión Policial y Operativa',
     configuracion: await db.configuracion.toArray(),
@@ -382,13 +397,21 @@ export async function exportGeneralJsonBackup(): Promise<string> {
     licenciados: await db.licenciados.toArray(),
     grupos: await db.grupos.toArray(),
     delegaciones: await db.delegaciones.toArray(),
-    usuarios: await db.usuarios.toArray(),
+    roles: await db.roles.toArray(),
+    usuarios: sanitizedUsuarios,
     auditoria: await db.auditoria.toArray(),
     seriesNumerario: await db.seriesNumerario.toArray(),
     folios: await db.folios.toArray(),
+    novedadesDelegaciones: await db.novedadesDelegaciones.toArray(),
+    charlasPrevencion: await db.charlasPrevencion.toArray(),
   };
 
   return JSON.stringify(data, null, 2);
+}
+
+export async function exportEncryptedJsonBackup(password: string): Promise<string> {
+  const plainJson = await exportGeneralJsonBackup();
+  return encryptBackupPayload(plainJson, password);
 }
 
 export async function exportModuleJson(moduleName: string): Promise<string> {
@@ -442,9 +465,24 @@ export async function exportZipBackup(): Promise<Blob> {
   return await zip.generateAsync({ type: 'blob' });
 }
 
-export async function importGeneralJsonBackup(jsonString: string): Promise<{ success: boolean; message: string }> {
+export async function importGeneralJsonBackup(
+  jsonString: string,
+  decryptionPassword?: string
+): Promise<{ success: boolean; message: string; needsPassword?: boolean }> {
   try {
-    const data = JSON.parse(jsonString);
+    let workingJson = jsonString;
+    if (isEncryptedBackup(workingJson)) {
+      if (!decryptionPassword || !decryptionPassword.trim()) {
+        return {
+          success: false,
+          needsPassword: true,
+          message: 'El respaldo está cifrado con AES-256-GCM. Ingrese la contraseña para descifrarlo.',
+        };
+      }
+      workingJson = await decryptBackupPayload(workingJson, decryptionPassword);
+    }
+
+    const data = JSON.parse(workingJson);
 
     if (!data.system || (!data.personal && !data.expedientes && !data.partesGuardia)) {
       return { success: false, message: 'El archivo JSON no posee la estructura válida del sistema Sis.Pol.' };
@@ -467,10 +505,13 @@ export async function importGeneralJsonBackup(jsonString: string): Promise<{ suc
       db.licenciados,
       db.grupos,
       db.delegaciones,
+      db.roles,
       db.usuarios,
       db.auditoria,
       db.seriesNumerario,
       db.folios,
+      db.novedadesDelegaciones,
+      db.charlasPrevencion,
     ], async () => {
       if (data.configuracion?.length) await db.configuracion.bulkPut(data.configuracion);
       if (data.personal?.length) await db.personal.bulkPut(data.personal);
@@ -488,14 +529,23 @@ export async function importGeneralJsonBackup(jsonString: string): Promise<{ suc
       if (data.licenciados?.length) await db.licenciados.bulkPut(data.licenciados);
       if (data.grupos?.length) await db.grupos.bulkPut(data.grupos);
       if (data.delegaciones?.length) await db.delegaciones.bulkPut(data.delegaciones);
-      if (data.usuarios?.length) await db.usuarios.bulkPut(data.usuarios);
+      if (data.roles?.length) await db.roles.bulkPut(data.roles);
+      if (data.usuarios?.length) {
+        const cleanUsers = data.usuarios.map((u: any) => ({ ...u, password: '' }));
+        await db.usuarios.bulkPut(cleanUsers);
+      }
       if (data.auditoria?.length) await db.auditoria.bulkPut(data.auditoria);
       if (data.seriesNumerario?.length) await db.seriesNumerario.bulkPut(data.seriesNumerario);
       if (data.folios?.length) await db.folios.bulkPut(data.folios);
+      if (data.novedadesDelegaciones?.length) await db.novedadesDelegaciones.bulkPut(data.novedadesDelegaciones);
+      if (data.charlasPrevencion?.length) await db.charlasPrevencion.bulkPut(data.charlasPrevencion);
     });
 
     try {
-      await pushAllLocalDataToServer();
+      const ok = await restoreDatabaseOnServer(data);
+      if (!ok) {
+        await pushAllLocalDataToServer();
+      }
     } catch (e) {
       console.warn('No se pudo replicar restauración al servidor central:', e);
     }
@@ -506,7 +556,10 @@ export async function importGeneralJsonBackup(jsonString: string): Promise<{ suc
   }
 }
 
-export async function importZipBackup(file: File): Promise<{ success: boolean; message: string }> {
+export async function importZipBackup(
+  file: File,
+  decryptionPassword?: string
+): Promise<{ success: boolean; message: string; needsPassword?: boolean }> {
   try {
     const zip = await JSZip.loadAsync(file);
     const dumpFile = zip.file('database_dump.json');
@@ -515,7 +568,7 @@ export async function importZipBackup(file: File): Promise<{ success: boolean; m
     }
 
     const jsonText = await dumpFile.async('text');
-    return await importGeneralJsonBackup(jsonText);
+    return await importGeneralJsonBackup(jsonText, decryptionPassword);
   } catch (error: any) {
     return { success: false, message: `Error leyendo el paquete ZIP: ${error?.message || 'Archivo corrupto'}` };
   }

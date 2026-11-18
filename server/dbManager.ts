@@ -46,11 +46,11 @@ function getInitialDatabase(): SispolDatabase {
   return {
     version: 1,
     lastUpdated: new Date().toISOString(),
-    configuracion: [DEFAULT_CONFIG],
-    usuarios: [...DEFAULT_USUARIOS],
-    delegaciones: [...DEFAULT_DELEGACIONES],
-    roles: [...DEFAULT_ROLES],
-    seriesNumerario: [...DEFAULT_SERIES_NUMERARIO],
+    configuracion: [{ ...DEFAULT_CONFIG }],
+    usuarios: DEFAULT_USUARIOS.map((u) => ({ ...u })),
+    delegaciones: DEFAULT_DELEGACIONES.map((d) => ({ ...d })),
+    roles: DEFAULT_ROLES.map((r) => ({ ...r })),
+    seriesNumerario: DEFAULT_SERIES_NUMERARIO.map((s) => ({ ...s })),
     personal: [],
     grupos: [],
     expedientes: [],
@@ -102,7 +102,7 @@ export function initDatabase(): SispolDatabase {
     if (parsed.usuarios && Array.isArray(parsed.usuarios)) {
       for (const defUsr of DEFAULT_USUARIOS) {
         if (!parsed.usuarios.some((u: any) => u.id === defUsr.id || u.username === defUsr.username)) {
-          parsed.usuarios.push(defUsr);
+          parsed.usuarios.push({ ...defUsr });
           modified = true;
         }
       }
@@ -112,7 +112,7 @@ export function initDatabase(): SispolDatabase {
     if (parsed.delegaciones && Array.isArray(parsed.delegaciones)) {
       for (const defDel of DEFAULT_DELEGACIONES) {
         if (!parsed.delegaciones.some((d: any) => d.id === defDel.id)) {
-          parsed.delegaciones.push(defDel);
+          parsed.delegaciones.push({ ...defDel });
           modified = true;
         }
       }
@@ -183,7 +183,7 @@ export function deleteItem(collection: keyof SispolDatabase, id: string): Sispol
 
 export function wipeOperationalData(): SispolDatabase {
   const db = initDatabase();
-  // Vaciar solo las tablas operativas, preservando cuentas, delegaciones y config
+  // Vaciar solo las tablas operativas, preservando cuentas, delegaciones, config y auditoría
   db.personal = [];
   db.grupos = [];
   db.expedientes = [];
@@ -199,7 +199,6 @@ export function wipeOperationalData(): SispolDatabase {
   db.intervenciones = [];
   db.accidentologia = [];
   db.folios = [];
-  db.auditoria = [];
   db.novedadesDelegaciones = [];
   db.charlasPrevencion = [];
 

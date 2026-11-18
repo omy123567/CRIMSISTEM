@@ -1,6 +1,17 @@
 import React, { useState } from 'react';
-import { ParteNovedadesGuardia, ForenseEnGuardia, ConfiguracionSistema } from '../../types/police';
-import { X, Stethoscope, Plus, Trash2, CheckCircle2, Clock, UserCheck } from 'lucide-react';
+import {
+  ParteNovedadesGuardia,
+  ForenseEnGuardia,
+  ConfiguracionSistema,
+} from '../../types/police';
+import {
+  X,
+  Stethoscope,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  Minus,
+} from 'lucide-react';
 
 interface GestionForenseGuardiaModalProps {
   parte: ParteNovedadesGuardia;
@@ -15,32 +26,34 @@ export const GestionForenseGuardiaModal: React.FC<GestionForenseGuardiaModalProp
   onSave,
   onClose,
 }) => {
+  const medicosCatalogo = config.medicosForensesCatalogo || [];
+
   const [forenses, setForenses] = useState<ForenseEnGuardia[]>(() => {
     if (parte.forensesTurno && parte.forensesTurno.length > 0) {
       return [...parte.forensesTurno];
     }
-    return [
-      {
-        id: 'fg-1',
-        medicoNombre: parte.forense?.medicoNombre || (config.medicosForensesCatalogo?.[0] || 'Dr. Guillermo Navarro'),
-        turno: 'Guardia Principal',
-        horaIngreso: parte.horaInicio || '08:00',
-        horaEgreso: parte.horaFin || '20:00',
-        totalExaminados: parte.forense?.totalExaminados || 0,
-        examinadosHastaHs: parte.forense?.examinadosHastaHs || '20:00 hs.',
-      },
-    ];
+    if (parte.forense?.medicoNombre && parte.forense.medicoNombre.trim()) {
+      return [
+        {
+          id: 'fg-1',
+          medicoNombre: parte.forense.medicoNombre.trim(),
+          turno: '',
+          horaIngreso: parte.horaInicio || '',
+          horaEgreso: parte.horaFin || '',
+          totalExaminados: parte.forense.totalExaminados || 0,
+          examinadosHastaHs: parte.forense.examinadosHastaHs || '',
+        },
+      ];
+    }
+    return [];
   });
 
-  const [nuevoForense, setNuevoForense] = useState<ForenseEnGuardia>({
-    id: '',
-    medicoNombre: config.medicosForensesCatalogo?.[0] || '',
-    turno: 'Relevo Guardia',
-    horaIngreso: '14:00',
-    horaEgreso: '20:00',
-    totalExaminados: 0,
-    examinadosHastaHs: '19:30 hs.',
-  });
+  const [nuevoMedico, setNuevoMedico] = useState<string>('');
+  const [nuevoExaminados, setNuevoExaminados] = useState<number>(0);
+  const [customModeRows, setCustomModeRows] = useState<Record<number, boolean>>({});
+  const [customModeNuevo, setCustomModeNuevo] = useState<boolean>(
+    medicosCatalogo.length === 0
+  );
 
   const handleUpdate = (index: number, campo: keyof ForenseEnGuardia, valor: any) => {
     setForenses((prev) => {
@@ -55,42 +68,72 @@ export const GestionForenseGuardiaModal: React.FC<GestionForenseGuardiaModalProp
   };
 
   const handleAdd = () => {
-    if (!nuevoForense.medicoNombre.trim()) return;
+    const nombre = nuevoMedico.trim();
+    if (!nombre) return;
     setForenses((prev) => [
       ...prev,
       {
-        ...nuevoForense,
-        id: 'fg-' + Date.now(),
+        id: `fg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        medicoNombre: nombre,
+        turno: '',
+        horaIngreso: parte.horaInicio || '',
+        horaEgreso: parte.horaFin || '',
+        totalExaminados: Math.max(0, Number(nuevoExaminados) || 0),
+        examinadosHastaHs: '',
       },
     ]);
-    setNuevoForense({
-      id: '',
-      medicoNombre: config.medicosForensesCatalogo?.[0] || '',
-      turno: 'Relevo Guardia',
-      horaIngreso: '20:00',
-      horaEgreso: '08:00',
-      totalExaminados: 0,
-      examinadosHastaHs: '07:30 hs.',
-    });
+    setNuevoMedico('');
+    setNuevoExaminados(0);
+    setCustomModeNuevo(medicosCatalogo.length === 0);
   };
 
-  const totalExaminadosGeneral = forenses.reduce((acc, f) => acc + (Number(f.totalExaminados) || 0), 0);
+  // Si hay un médico escrito/seleccionado pendiente en "Agregar otro forense", incluirlo automáticamente al guardar
+  const listaFinalPreview = React.useMemo(() => {
+    const cleanList = forenses.filter((f) => f.medicoNombre.trim().length > 0);
+    if (nuevoMedico.trim()) {
+      return [
+        ...cleanList,
+        {
+          id: `fg-${Date.now()}-pending`,
+          medicoNombre: nuevoMedico.trim(),
+          turno: '',
+          horaIngreso: parte.horaInicio || '',
+          horaEgreso: parte.horaFin || '',
+          totalExaminados: Math.max(0, Number(nuevoExaminados) || 0),
+          examinadosHastaHs: '',
+        },
+      ];
+    }
+    return cleanList;
+  }, [forenses, nuevoMedico, nuevoExaminados, parte.horaInicio, parte.horaFin]);
+
+  const totalExaminadosGeneral = listaFinalPreview.reduce(
+    (acc, f) => acc + (Number(f.totalExaminados) || 0),
+    0
+  );
 
   const handleSave = () => {
-    const principal = forenses[0] || {
-      medicoNombre: 'Sin médico asignado',
-      totalExaminados: 0,
-      examinadosHastaHs: 'S/D',
-    };
+    const finalList = listaFinalPreview;
+    const total = finalList.reduce((acc, f) => acc + (Number(f.totalExaminados) || 0), 0);
+    const principal = finalList[0];
 
     onSave({
       ...parte,
-      forensesTurno: forenses,
-      forense: {
-        medicoNombre: principal.medicoNombre,
-        totalExaminados: totalExaminadosGeneral,
-        examinadosHastaHs: principal.examinadosHastaHs || `${principal.horaEgreso || '20:00'} hs.`,
-      },
+      forensesTurno: finalList,
+      forense: principal
+        ? {
+            medicoNombre:
+              finalList.length > 1
+                ? finalList.map((f) => f.medicoNombre).join(' / ')
+                : principal.medicoNombre,
+            totalExaminados: total,
+            examinadosHastaHs: principal.examinadosHastaHs || '',
+          }
+        : {
+            medicoNombre: '',
+            totalExaminados: 0,
+            examinadosHastaHs: '',
+          },
       updatedAt: new Date().toISOString(),
     });
     onClose();
@@ -98,25 +141,26 @@ export const GestionForenseGuardiaModal: React.FC<GestionForenseGuardiaModalProp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl my-8 overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl my-8 overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="bg-linear-to-r from-teal-900 via-blue-900 to-slate-900 p-4 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/10 rounded-lg">
-              <Stethoscope className="w-5 h-5 text-teal-200" />
+        <div className="bg-slate-900 px-5 py-4 text-white flex items-center justify-between border-b border-slate-800">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 bg-teal-900/80 border border-teal-700/60 rounded-lg shrink-0">
+              <Stethoscope className="w-5 h-5 text-teal-300" />
             </div>
-            <div>
-              <h2 className="text-base font-bold">
-                Forense de Turno y Relevos de Guardia
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-bold truncate">
+                Forenses de Turno y Examinados
               </h2>
-              <p className="text-xs text-teal-200">
-                Guardia: {parte.tipoGuardia || parte.grupoGuardia} ({parte.fechaInicio} - {parte.fechaFin})
+              <p className="text-xs text-slate-300 truncate">
+                Guardia: {parte.tipoGuardia || parte.grupoGuardia} ({parte.fechaInicio})
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -124,204 +168,229 @@ export const GestionForenseGuardiaModal: React.FC<GestionForenseGuardiaModalProp
 
         {/* Content Body */}
         <div className="p-5 overflow-y-auto space-y-4 text-xs flex-1">
-          {/* Banner total examinados */}
-          <div className="bg-teal-50 border border-teal-200 p-3 rounded-xl flex items-center justify-between">
+          {/* Resumen Total */}
+          <div className="bg-teal-50 border border-teal-200 px-4 py-3 rounded-xl flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold text-teal-950 uppercase">
-                Total de Personas Examinadas en Esta Guardia
+              <p className="text-xs font-bold text-teal-950">
+                Total de Examinados en la Guardia
               </p>
-              <p className="text-[11px] text-teal-700">
-                Suma consolidada de todos los médicos legistas y relevos de turno
+              <p className="text-[11px] text-teal-800">
+                {listaFinalPreview.length}{' '}
+                {listaFinalPreview.length === 1 ? 'forense asignado' : 'forenses asignados'}
               </p>
             </div>
-            <div className="text-2xl font-black text-teal-900 font-mono px-3 py-1 bg-white border border-teal-300 rounded-lg shadow-2xs">
+            <div className="text-2xl font-black text-teal-900 font-mono tabular-nums px-3.5 py-1 bg-white border border-teal-300 rounded-lg">
               {totalExaminadosGeneral}
             </div>
           </div>
 
-          {/* Lista de Forenses */}
-          <div className="border border-slate-300 rounded-xl p-4 bg-slate-50/70 shadow-xs space-y-3">
-            <h3 className="font-bold text-slate-800 text-xs tracking-wide">
-              MÉDICOS FORENSES REGISTRADOS ({forenses.length})
+          {/* Lista de Forenses asignados */}
+          <div className="space-y-2.5">
+            <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wide">
+              Médicos de Turno Asignados ({forenses.length})
             </h3>
 
-            <div className="space-y-3">
-              {forenses.map((f, idx) => (
-                <div
-                  key={f.id || idx}
-                  className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-2xs space-y-2.5"
-                >
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                    <span className="font-bold text-blue-900 text-xs">
-                      #{idx + 1} Médico Legista / Forense
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemove(idx)}
-                      className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                      title="Eliminar médico de la guardia"
+            {forenses.length === 0 ? (
+              <div className="p-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-center text-slate-500">
+                No hay médicos forenses cargados todavía en esta guardia. Agregue uno abajo.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {forenses.map((f, idx) => {
+                  const isInCatalog = medicosCatalogo.includes(f.medicoNombre);
+                  const showCustomInput =
+                    customModeRows[idx] ||
+                    medicosCatalogo.length === 0 ||
+                    (f.medicoNombre.trim() !== '' && !isInCatalog);
+
+                  return (
+                    <div
+                      key={f.id || idx}
+                      className="p-3 bg-white border border-slate-200 rounded-xl space-y-2.5"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-teal-900 text-xs">
+                          Médico de Turno #{idx + 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemove(idx)}
+                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                          title="Quitar forense de la guardia"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                        Nombre del Médico Legista / Forense:
-                      </label>
-                      <input
-                        type="text"
-                        list="medicos-cat-list"
-                        value={f.medicoNombre}
-                        onChange={(e) => handleUpdate(idx, 'medicoNombre', e.target.value)}
-                        placeholder="Dr. Nombre y Apellido..."
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-medium text-slate-900"
-                      />
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                        <div className="sm:col-span-7 space-y-1.5">
+                          <label className="block text-[11px] font-semibold text-slate-700">
+                            Médico de Turno
+                          </label>
+                          {medicosCatalogo.length > 0 && (
+                            <select
+                              value={showCustomInput ? '__CUSTOM__' : f.medicoNombre}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '__CUSTOM__') {
+                                  setCustomModeRows((prev) => ({ ...prev, [idx]: true }));
+                                  if (isInCatalog) handleUpdate(idx, 'medicoNombre', '');
+                                } else {
+                                  setCustomModeRows((prev) => ({ ...prev, [idx]: false }));
+                                  handleUpdate(idx, 'medicoNombre', val);
+                                }
+                              }}
+                              className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 font-medium"
+                            >
+                              <option value="">-- Seleccionar Médico de Turno --</option>
+                              {medicosCatalogo.map((m) => (
+                                <option key={m} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                              <option value="__CUSTOM__">Otro médico (escribir nombre)...</option>
+                            </select>
+                          )}
+
+                          {showCustomInput && (
+                            <input
+                              type="text"
+                              value={f.medicoNombre}
+                              onChange={(e) => handleUpdate(idx, 'medicoNombre', e.target.value)}
+                              placeholder="Nombre del Médico de Turno..."
+                              className="w-full px-2.5 py-2 border border-slate-300 rounded-lg font-medium text-slate-900"
+                            />
+                          )}
+                        </div>
+
+                        <div className="sm:col-span-5">
+                          <label className="block text-[11px] font-semibold text-teal-900 mb-1">
+                            Cantidad Examinados
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUpdate(
+                                  idx,
+                                  'totalExaminados',
+                                  Math.max(0, (Number(f.totalExaminados) || 0) - 1)
+                                )
+                              }
+                              className="p-2 border border-slate-300 bg-slate-50 hover:bg-slate-100 rounded-lg text-slate-700 cursor-pointer"
+                              title="Restar 1"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <input
+                              type="number"
+                              min="0"
+                              value={f.totalExaminados}
+                              onChange={(e) =>
+                                handleUpdate(
+                                  idx,
+                                  'totalExaminados',
+                                  Math.max(0, parseInt(e.target.value, 10) || 0)
+                                )
+                              }
+                              className="w-full px-2.5 py-1.5 border border-teal-400 bg-teal-50/40 rounded-lg font-bold font-mono tabular-nums text-teal-950 text-center text-sm"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUpdate(
+                                  idx,
+                                  'totalExaminados',
+                                  (Number(f.totalExaminados) || 0) + 1
+                                )
+                              }
+                              className="p-2 border border-teal-300 bg-teal-50 hover:bg-teal-100 rounded-lg text-teal-900 cursor-pointer"
+                              title="Sumar 1"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                        Turno / Relevo:
-                      </label>
-                      <input
-                        type="text"
-                        value={f.turno}
-                        onChange={(e) => handleUpdate(idx, 'turno', e.target.value)}
-                        placeholder="Ej. Guardia Noche, Relevo 1"
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                        Cant. Examinados:
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={f.totalExaminados}
-                        onChange={(e) => handleUpdate(idx, 'totalExaminados', parseInt(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 border border-teal-400 bg-teal-50/50 rounded-lg font-bold text-teal-900 text-center"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                        Hora Ingreso:
-                      </label>
-                      <input
-                        type="time"
-                        value={f.horaIngreso || '08:00'}
-                        onChange={(e) => handleUpdate(idx, 'horaIngreso', e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800 font-mono"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                        Hora Egreso:
-                      </label>
-                      <input
-                        type="time"
-                        value={f.horaEgreso || '20:00'}
-                        onChange={(e) => handleUpdate(idx, 'horaEgreso', e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800 font-mono"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                        Corte / Examinados hasta Hs.:
-                      </label>
-                      <input
-                        type="text"
-                        value={f.examinadosHastaHs}
-                        onChange={(e) => handleUpdate(idx, 'examinadosHastaHs', e.target.value)}
-                        placeholder="Ej. 19:30 hs."
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800"
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Catálogo de Médicos Forenses datalist */}
-            <datalist id="medicos-cat-list">
-              {(config.medicosForensesCatalogo || []).map((m, i) => (
-                <option key={i} value={m} />
-              ))}
-            </datalist>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Formulario Agregar Relevo */}
-          <div className="border border-slate-300 rounded-xl p-4 bg-white shadow-xs space-y-3">
-            <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+          {/* Agregar Otro Forense */}
+          <div className="border border-teal-200 rounded-xl p-4 bg-teal-50/40 space-y-3">
+            <h4 className="font-bold text-teal-950 text-xs flex items-center gap-1.5">
               <Plus className="w-4 h-4 text-teal-700" />
-              <span>Agregar Relevo / Médico Adicional a Esta Guardia</span>
+              <span>Agregar Otro Forense</span>
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <div className="sm:col-span-2">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                  Médico Forense (del catálogo o nuevo):
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+              <div className="sm:col-span-6 space-y-1.5">
+                <label className="block text-[11px] font-semibold text-slate-700">
+                  Médico de Turno
+                </label>
+                {medicosCatalogo.length > 0 && (
+                  <select
+                    value={customModeNuevo ? '__CUSTOM__' : nuevoMedico}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '__CUSTOM__') {
+                        setCustomModeNuevo(true);
+                        setNuevoMedico('');
+                      } else {
+                        setCustomModeNuevo(false);
+                        setNuevoMedico(val);
+                      }
+                    }}
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 font-medium"
+                  >
+                    <option value="">-- Seleccionar Médico --</option>
+                    {medicosCatalogo.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                    <option value="__CUSTOM__">Otro médico (escribir nombre)...</option>
+                  </select>
+                )}
+
+                {customModeNuevo && (
+                  <input
+                    type="text"
+                    value={nuevoMedico}
+                    onChange={(e) => setNuevoMedico(e.target.value)}
+                    placeholder="Nombre del Médico de Turno..."
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 font-medium"
+                  />
+                )}
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Cant. Examinados
                 </label>
                 <input
-                  type="text"
-                  list="medicos-cat-list"
-                  value={nuevoForense.medicoNombre}
-                  onChange={(e) => setNuevoForense({ ...nuevoForense, medicoNombre: e.target.value })}
-                  placeholder="Seleccionar o escribir nombre..."
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800"
+                  type="number"
+                  min="0"
+                  value={nuevoExaminados}
+                  onChange={(e) =>
+                    setNuevoExaminados(Math.max(0, parseInt(e.target.value, 10) || 0))
+                  }
+                  className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white font-bold font-mono tabular-nums text-center text-slate-900"
                 />
               </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                  Turno:
-                </label>
-                <input
-                  type="text"
-                  value={nuevoForense.turno}
-                  onChange={(e) => setNuevoForense({ ...nuevoForense, turno: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                  Horario Ingreso:
-                </label>
-                <input
-                  type="time"
-                  value={nuevoForense.horaIngreso}
-                  onChange={(e) => setNuevoForense({ ...nuevoForense, horaIngreso: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-0.5">
-                  Horario Egreso:
-                </label>
-                <input
-                  type="time"
-                  value={nuevoForense.horaEgreso || ''}
-                  onChange={(e) => setNuevoForense({ ...nuevoForense, horaEgreso: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-800 font-mono"
-                />
-              </div>
-
-              <div className="flex items-end">
+              <div className="sm:col-span-3">
                 <button
                   type="button"
                   onClick={handleAdd}
-                  disabled={!nuevoForense.medicoNombre.trim()}
-                  className="w-full px-4 py-2 bg-teal-800 hover:bg-teal-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                  disabled={!nuevoMedico.trim()}
+                  className="w-full px-3 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>+ Agregar Relevo</span>
+                  <span>Agregar</span>
                 </button>
               </div>
             </div>
@@ -333,17 +402,17 @@ export const GestionForenseGuardiaModal: React.FC<GestionForenseGuardiaModalProp
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-slate-700 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+            className="px-4 py-2 text-slate-700 hover:bg-slate-200 rounded-lg font-medium transition-colors cursor-pointer"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="px-5 py-2 bg-teal-800 hover:bg-teal-700 text-white rounded-lg font-bold shadow-xs flex items-center gap-1.5 transition-colors"
+            className="px-5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-lg font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" />
-            <span>Guardar Forenses de Guardia</span>
+            <span>Guardar Forenses</span>
           </button>
         </div>
       </div>

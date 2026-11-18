@@ -1,4 +1,12 @@
 import { db, wipeAllOperationalData } from '../db/database';
+import {
+  authFetch,
+  getAuthToken,
+  setAuthToken,
+  clearAuthToken,
+  crearOfflineVerifier,
+} from './securityClient';
+import { RegistroAuditoria, UsuarioSistema } from '../types/police';
 
 export interface ServerSyncStatus {
   isOnline: boolean;
@@ -56,8 +64,124 @@ export function subscribeToSyncStatus(listener: (status: ServerSyncStatus) => vo
   };
 }
 
+export interface ServerLoginResponse {
+  ok: boolean;
+  offline?: boolean;
+  user?: UsuarioSistema;
+  token?: string;
+  error?: string;
+  status?: number;
+}
+
 /**
- * Descarga todos los datos del servidor central y los sincroniza con la base local IndexedDB (Dexie).
+ * Autentica contra el servidor central (/api/auth/login).
+ * Si el servidor no está accesible (offline real), retorna { ok: false, offline: true }.
+ */
+export async function loginOnServer(
+  usernameOrEmail: string,
+  password: string
+): Promise<ServerLoginResponse> {
+  if (!navigator.onLine) {
+    return { ok: false, offline: true };
+  }
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ usernameOrEmail, password }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        ok: false,
+        offline: false,
+        status: res.status,
+        error: data.error || `Error de autenticación (HTTP ${res.status})`,
+      };
+    }
+
+    if (data.token && data.user) {
+      setAuthToken(data.token);
+      // Guardar verificador criptográfico salado localmente para permitir acceso PWA si cae la red
+      try {
+        const verifier = await crearOfflineVerifier(data.user.username, password);
+        const existingLocal = await db.usuarios.get(data.user.id);
+        await db.usuarios.put({
+          ...(existingLocal || {}),
+          ...data.user,
+          password: '',
+          offlineVerifier: verifier,
+        });
+      } catch (e) {
+        console.warn('[Security] No se pudo actualizar verificador offline:', e);
+      }
+
+      currentStatus.isOnline = true;
+      currentStatus.serverError = null;
+      notifyStatus();
+      return { ok: true, user: data.user, token: data.token };
+    }
+
+    return { ok: false, error: 'Respuesta inválida del servidor de autenticación.' };
+  } catch (err: any) {
+    console.warn('[Auth] Servidor inaccesible, evaluando modo offline:', err?.message);
+    return { ok: false, offline: true };
+  }
+}
+
+export async function logoutOnServer(): Promise<void> {
+  try {
+    if (navigator.onLine && getAuthToken()) {
+      await authFetch('/api/auth/logout', { method: 'POST' });
+    }
+  } catch {
+    // ignore
+  } finally {
+    clearAuthToken();
+  }
+}
+
+export async function changePasswordOnServer(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; user?: UsuarioSistema; error?: string }> {
+  try {
+    const res = await authFetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data.error || `Error HTTP ${res.status}` };
+    }
+
+    if (data.user) {
+      try {
+        const verifier = await crearOfflineVerifier(data.user.username, newPassword);
+        await db.usuarios.put({
+          ...data.user,
+          password: '',
+          offlineVerifier: verifier,
+        });
+      } catch {
+        // ignore
+      }
+    }
+    return { success: true, user: data.user };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'No se pudo conectar al servidor para actualizar la contraseña.',
+    };
+  }
+}
+
+/**
+ * Descarga los datos autorizados del servidor central y los sincroniza con IndexedDB (Dexie).
  */
 export async function syncWithServer(): Promise<boolean> {
   if (!navigator.onLine) {
@@ -66,12 +190,16 @@ export async function syncWithServer(): Promise<boolean> {
     return false;
   }
 
+  if (!getAuthToken()) {
+    return false;
+  }
+
   currentStatus.isSyncing = true;
   currentStatus.serverError = null;
   notifyStatus();
 
   try {
-    const res = await fetch('/api/data', {
+    const res = await authFetch('/api/data', {
       headers: { 'Cache-Control': 'no-cache' },
     });
 
@@ -84,6 +212,14 @@ export async function syncWithServer(): Promise<boolean> {
       throw new Error('Respuesta inválida del servidor');
     }
 
+    // Preservar offlineVerifier locales de usuarios antes de refrescar tabla usuarios
+    const localUsers = await db.usuarios.toArray().catch(() => []);
+    const verifierMap = new Map(
+      localUsers
+        .filter((u) => Boolean(u.offlineVerifier))
+        .map((u) => [u.id, u.offlineVerifier])
+    );
+
     // Actualizar cada tabla en Dexie
     for (const col of COLLECTIONS) {
       const serverItems = serverDb[col];
@@ -91,9 +227,22 @@ export async function syncWithServer(): Promise<boolean> {
       if (table && Array.isArray(serverItems)) {
         await table.clear();
         if (serverItems.length > 0) {
-          await table.bulkPut(serverItems);
+          if (col === 'usuarios') {
+            const mergedUsers = serverItems.map((u: any) => ({
+              ...u,
+              password: '',
+              offlineVerifier: verifierMap.get(u.id),
+            }));
+            await table.bulkPut(mergedUsers);
+          } else {
+            await table.bulkPut(serverItems);
+          }
         }
       }
+    }
+
+    if (Array.isArray(serverDb.auditoria) && serverDb.auditoria.length > 0) {
+      await db.auditoria.bulkPut(serverDb.auditoria);
     }
 
     currentStatus.isOnline = true;
@@ -112,46 +261,62 @@ export async function syncWithServer(): Promise<boolean> {
 }
 
 /**
- * Guarda un elemento tanto en el servidor central como en IndexedDB.
+ * Guarda un elemento tanto en IndexedDB local (sin contraseñas en claro) como en el servidor central.
  */
-export async function saveItemToServer(collection: CollectionName, item: any): Promise<void> {
-  // 1. Guardar de inmediato en IndexedDB local
+export async function saveItemToServer(collection: CollectionName, item: any): Promise<any> {
+  // 1. Guardar en IndexedDB local (si es usuario, no persistir contraseña en texto claro)
   try {
     const table = (db as any)[collection];
     if (table) {
-      await table.put(item);
+      if (collection === 'usuarios') {
+        const existingLocal = await db.usuarios.get(item.id).catch(() => undefined);
+        let offlineVerifier = existingLocal?.offlineVerifier;
+        if (item.password && String(item.password).trim().length >= 8) {
+          offlineVerifier = await crearOfflineVerifier(item.username, String(item.password).trim());
+        }
+        await table.put({
+          ...item,
+          password: '',
+          offlineVerifier,
+        });
+      } else {
+        await table.put(item);
+      }
     }
   } catch (err) {
     console.error(`[Local DB] Error al guardar en ${collection}:`, err);
   }
 
-  // 2. Persistir en el servidor Ubuntu
+  // 2. Persistir en el servidor central
   try {
-    const res = await fetch('/api/data/item', {
+    const res = await authFetch('/api/data/item', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ collection, item }),
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+      throw new Error(data.error || `HTTP ${res.status}`);
     }
     currentStatus.lastSyncTime = new Date();
     currentStatus.isOnline = true;
+    currentStatus.serverError = null;
     notifyStatus();
+    return data.item || item;
   } catch (err: any) {
     console.warn(`[Sync POST /api/data/item] No se pudo enviar al servidor:`, err.message);
     currentStatus.serverError = err.message;
     notifyStatus();
+    return item;
   }
 }
 
 /**
- * Elimina un elemento tanto del servidor central como de IndexedDB.
+ * Elimina un elemento tanto de IndexedDB como del servidor central.
  */
 export async function deleteItemFromServer(collection: CollectionName, id: string): Promise<void> {
-  // 1. Eliminar de IndexedDB local
   try {
     const table = (db as any)[collection];
     if (table) {
@@ -161,16 +326,17 @@ export async function deleteItemFromServer(collection: CollectionName, id: strin
     console.error(`[Local DB] Error al eliminar de ${collection}:`, err);
   }
 
-  // 2. Eliminar del servidor Ubuntu
   try {
-    const res = await fetch(`/api/data/item/${collection}/${encodeURIComponent(id)}`, {
+    const res = await authFetch(`/api/data/item/${collection}/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
     }
     currentStatus.lastSyncTime = new Date();
     currentStatus.isOnline = true;
+    currentStatus.serverError = null;
     notifyStatus();
   } catch (err: any) {
     console.warn(`[Sync DELETE /api/data/item] No se pudo eliminar en el servidor:`, err.message);
@@ -183,12 +349,10 @@ export async function deleteItemFromServer(collection: CollectionName, id: strin
  * Vacía todos los datos operativos tanto del servidor central como de IndexedDB.
  */
 export async function wipeAllDataFromServer(): Promise<boolean> {
-  // 1. Limpiar Dexie local
   await wipeAllOperationalData();
 
-  // 2. Limpiar servidor central
   try {
-    const res = await fetch('/api/data/wipe', {
+    const res = await authFetch('/api/data/wipe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -220,7 +384,7 @@ export async function pushAllLocalDataToServer(): Promise<boolean> {
       }
     }
 
-    const res = await fetch('/api/data/sync', {
+    const res = await authFetch('/api/data/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fullDatabase }),
@@ -238,5 +402,55 @@ export async function pushAllLocalDataToServer(): Promise<boolean> {
     currentStatus.serverError = err.message;
     notifyStatus();
     return false;
+  }
+}
+
+export async function restoreDatabaseOnServer(data: any): Promise<boolean> {
+  try {
+    const res = await authFetch('/api/data/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchAuditFromServer(): Promise<RegistroAuditoria[] | null> {
+  try {
+    if (!navigator.onLine || !getAuthToken()) return null;
+    const res = await authFetch('/api/audit');
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (Array.isArray(data.auditoria)) {
+      if (data.auditoria.length > 0) {
+        await db.auditoria.bulkPut(data.auditoria).catch(() => {});
+      }
+      return data.auditoria;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function purgeAuditOnServer(
+  dias: number
+): Promise<{ success: boolean; removed?: number; error?: string }> {
+  try {
+    const res = await authFetch('/api/audit/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dias }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data.error || `HTTP ${res.status}` };
+    }
+    return { success: true, removed: data.removed };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error de red' };
   }
 }

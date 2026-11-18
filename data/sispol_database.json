@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-11-07T12:23:30.780Z",
+  "lastUpdated": "2026-11-18T10:28:31.158Z",
   "configuracion": [
     {
       "id": "global-config",
@@ -393,7 +393,7 @@
       "apellidoYNombre": "División Cibercrimen Laguna Blanca",
       "email": "divcibercrimenlagunablanca@gmail.com",
       "username": "cibercrimen",
-      "password": "cibercrimen2026",
+      "password": "",
       "delegacionId": "del-laguna-blanca",
       "rol": "superusuario",
       "puedeVerOtrasDelegaciones": true,
@@ -431,14 +431,15 @@
       "dni": "30445566",
       "nombre": "División Cibercrimen",
       "createdAt": "2026-11-07T12:23:30.779Z",
-      "updatedAt": "2026-11-07T12:23:30.779Z"
+      "updatedAt": "2026-11-07T12:23:30.779Z",
+      "passwordHash": "scrypt$da2619840e17853e357c3291dfadff74$f3ece9818f145c45db32e045aa75436b765fc26bbb641064e8ba508dd2e38ce03bdd86e27ab3322d2c5c164732d6ed6d955cb78f7ebe4993e0a7b27aa8f5c3a3"
     },
     {
       "id": "usr-superadmin",
       "apellidoYNombre": "Comisario Mayor D.G.P.C.",
       "email": "superadmin.dpc@formosa.gov.ar",
       "username": "superadmin",
-      "password": "admin123",
+      "password": "",
       "delegacionId": "del-laguna-blanca",
       "rol": "superusuario",
       "puedeVerOtrasDelegaciones": true,
@@ -476,14 +477,15 @@
       "dni": "28001122",
       "nombre": "Comisario Mayor D.G.P.C.",
       "createdAt": "2026-11-07T12:23:30.779Z",
-      "updatedAt": "2026-11-07T12:23:30.779Z"
+      "updatedAt": "2026-11-07T12:23:30.779Z",
+      "passwordHash": "scrypt$32a6187247940fa54034b31043525d18$832af985c1a0e9b847e110fa9dbc1581603e55e8140a6d592a8d616dd386a340ece1326722f2ffb778004688b327b1ed1371d4f1aa2c4208b2653600f9dcb2e5"
     },
     {
       "id": "usr-admin-lb",
       "apellidoYNombre": "Crio. Insp. ALVAREZ Marcos",
       "email": "alvarez.marcos@formosa.gov.ar",
       "username": "admin.lb",
-      "password": "laguna123",
+      "password": "",
       "delegacionId": "del-laguna-blanca",
       "rol": "Administrador",
       "puedeVerOtrasDelegaciones": false,
@@ -516,14 +518,15 @@
       "dni": "32456789",
       "nombre": "ALVAREZ Marcos",
       "createdAt": "2026-11-07T12:23:30.779Z",
-      "updatedAt": "2026-11-07T12:23:30.779Z"
+      "updatedAt": "2026-11-07T12:23:30.779Z",
+      "passwordHash": "scrypt$4d89695b40a871ca5e4967692535d5e1$4940ece9ef0921d017d73821769e14925334803fa32b86566dd807b74eab4dac3667aea4a4d54094178f28f180cd4db5e1a9cb20baa04b2316091e201f64b1a6"
     },
     {
       "id": "usr-operador-lb",
       "apellidoYNombre": "Of. Ppal. GOMEZ Valeria",
       "email": "gomez.valeria@formosa.gov.ar",
       "username": "operador.lb",
-      "password": "operador123",
+      "password": "",
       "delegacionId": "del-laguna-blanca",
       "rol": "Operador",
       "puedeVerOtrasDelegaciones": false,
@@ -544,14 +547,15 @@
       "dni": "35112449",
       "nombre": "GOMEZ Valeria",
       "createdAt": "2026-11-07T12:23:30.779Z",
-      "updatedAt": "2026-11-07T12:23:30.779Z"
+      "updatedAt": "2026-11-07T12:23:30.779Z",
+      "passwordHash": "scrypt$6f8d6adc8ec7b388ada362b7b44684d9$ccca9f00a9d143f40fb43b544721c76b16facf93d60628275d7b05e01cc1d51ec1e4c73fdc0d6956b4117fdd0520292214a80ccef98a44e9062ae57e38e8398c"
     },
     {
       "id": "usr-admin-clorinda",
       "apellidoYNombre": "Subcrio. FERNANDEZ Raúl",
       "email": "fernandez.raul@formosa.gov.ar",
       "username": "admin.clorinda",
-      "password": "clorinda123",
+      "password": "",
       "delegacionId": "del-clorinda",
       "rol": "Administrador",
       "puedeVerOtrasDelegaciones": false,
@@ -579,14 +583,15 @@
       "dni": "30882199",
       "nombre": "FERNANDEZ Raúl",
       "createdAt": "2026-11-07T12:23:30.779Z",
-      "updatedAt": "2026-11-07T12:23:30.779Z"
+      "updatedAt": "2026-11-07T12:23:30.779Z",
+      "passwordHash": "scrypt$deb8b950ee7d4caa85a884fae8da3641$a15168bb60cc05de50f7c7e6c56c4e026bd6dc27010455ab3e4c781444427bf7a1414fb1c107643a1f1c8d8d8b5788a14d4f0749c8ff12c6856dcea9ee06a111"
     },
     {
       "id": "usr-supervisor-regional",
       "apellidoYNombre": "Crio. Mayor BENITEZ Hugo",
       "email": "benitez.hugo@formosa.gov.ar",
       "username": "supervisor.dpc",
-      "password": "super123",
+      "password": "",
       "delegacionId": "del-formosa-central",
       "rol": "Administrador",
       "puedeVerOtrasDelegaciones": true,
@@ -608,7 +613,8 @@
       "dni": "27554901",
       "nombre": "BENITEZ Hugo",
       "createdAt": "2026-11-07T12:23:30.779Z",
-      "updatedAt": "2026-11-07T12:23:30.779Z"
+      "updatedAt": "2026-11-07T12:23:30.779Z",
+      "passwordHash": "scrypt$0014fa9032d1e26c8ad3862f5f889b0c$5076c8b0372c07c450e7561e46661930e818f0266f921b46258352c094f111a9244f464999db8dd7d85bdbc487d914b39adf595295d43f25a72dbf28a284aa65"
     }
   ],
   "delegaciones": [
@@ -1283,5 +1289,23 @@
   "intervenciones": [],
   "accidentologia": [],
   "folios": [],
-  "auditoria": []
+  "auditoria": [
+    {
+      "id": "aud-1794997711158-3c7ae6",
+      "fechaHora": "2026-11-18T10:28:31.158Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "OTRO",
+      "descripcion": "Intento de inicio de sesión fallido para \"superadmin\"",
+      "detalles": "IP: 127.0.0.1 | Intentos restantes antes de bloqueo: 4",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "aedd921eeaa0874391197cd0990d6105493bfb35d568bda0b232ca55556bcd35"
+    }
+  ],
+  "novedadesDelegaciones": [],
+  "charlasPrevencion": []
 }

@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { UsuarioSistema } from '../../types/police';
-import { X, Lock, KeyRound, CheckCircle2, AlertCircle } from 'lucide-react';
+import { changePasswordOnServer } from '../../services/apiService';
+import { evaluarFortalezaPassword } from '../../services/securityClient';
+import { X, Lock, KeyRound, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 interface CambiarPasswordModalProps {
   currentUser: UsuarioSistema;
-  onSavePassword: (userId: string, newPass: string) => Promise<void> | void;
+  onSavePassword: (userId: string, newPass: string, updatedUser?: UsuarioSistema) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -16,20 +18,24 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
+  const [showPass, setShowPass] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+
+  const strength = evaluarFortalezaPassword(newPass);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (currentPass !== currentUser.password) {
-      setErrorMsg('La contraseña actual ingresada es incorrecta.');
+    if (!currentPass.trim()) {
+      setErrorMsg('Debe ingresar su contraseña actual.');
       return;
     }
 
-    if (!newPass || newPass.length < 4) {
-      setErrorMsg('La nueva contraseña debe tener al menos 4 caracteres.');
+    if (!newPass || newPass.trim().length < 8) {
+      setErrorMsg('La nueva contraseña debe tener al menos 8 caracteres.');
       return;
     }
 
@@ -43,7 +49,16 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({
       return;
     }
 
-    await onSavePassword(currentUser.id, newPass);
+    setIsSubmitting(true);
+    const res = await changePasswordOnServer(currentPass.trim(), newPass.trim());
+    setIsSubmitting(false);
+
+    if (!res.success) {
+      setErrorMsg(res.error || 'No se pudo actualizar la contraseña en el servidor.');
+      return;
+    }
+
+    await onSavePassword(currentUser.id, newPass.trim(), res.user);
     setIsSuccess(true);
     setTimeout(() => {
       onClose();
@@ -83,7 +98,7 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({
                 ¡Contraseña Modificada con Éxito!
               </h3>
               <p className="text-xs text-slate-500">
-                Sus nuevas credenciales se han actualizado en la base de datos.
+                Sus nuevas credenciales han sido cifradas (scrypt) y actualizadas en el servidor central.
               </p>
             </div>
           ) : (
@@ -96,13 +111,23 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({
               )}
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Contraseña Actual *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-slate-700">
+                    Contraseña Actual *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowPass((v) => !v)}
+                    className="text-[11px] text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {showPass ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    <span>{showPass ? 'Ocultar' : 'Mostrar'}</span>
+                  </button>
+                </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
-                    type="password"
+                    type={showPass ? 'text' : 'password'}
                     required
                     value={currentPass}
                     onChange={(e) => setCurrentPass(e.target.value)}
@@ -119,14 +144,30 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({
                 <div className="relative">
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
-                    type="password"
+                    type={showPass ? 'text' : 'password'}
                     required
+                    minLength={8}
                     value={newPass}
                     onChange={(e) => setNewPass(e.target.value)}
-                    placeholder="Mínimo 4 caracteres"
+                    placeholder="Mínimo 8 caracteres (mayúscula, minúscula, número)"
                     className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white"
                   />
                 </div>
+
+                {newPass.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-slate-500">Fortaleza:</span>
+                      <span className={`font-bold ${strength.colorClass}`}>{strength.label}</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${strength.barColor}`}
+                        style={{ width: `${(strength.score / 4) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -136,8 +177,9 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({
                 <div className="relative">
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
-                    type="password"
+                    type={showPass ? 'text' : 'password'}
                     required
+                    minLength={8}
                     value={confirmPass}
                     onChange={(e) => setConfirmPass(e.target.value)}
                     placeholder="Repita la nueva contraseña"
@@ -156,9 +198,10 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-bold text-xs shadow-xs cursor-pointer"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white rounded-lg font-bold text-xs shadow-xs cursor-pointer"
                 >
-                  Guardar Nueva Contraseña
+                  {isSubmitting ? 'Actualizando...' : 'Guardar Nueva Contraseña'}
                 </button>
               </div>
             </form>

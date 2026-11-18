@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { UsuarioSistema, DelegacionPolicial } from '../../types/police';
 import { DEFAULT_USUARIOS } from '../../db/database';
+import { loginOnServer } from '../../services/apiService';
+import { verificarOfflineVerifier } from '../../services/securityClient';
 import {
   Lock,
   User,
@@ -9,6 +11,7 @@ import {
   Eye,
   EyeOff,
   ShieldCheck,
+  WifiOff,
 } from 'lucide-react';
 
 interface LoginViewProps {
@@ -25,6 +28,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [offlineNotice, setOfflineNotice] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const shieldImg =
@@ -33,9 +37,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const effectiveUsersList =
     usuariosList && usuariosList.length > 0 ? usuariosList : DEFAULT_USUARIOS;
 
-  const handleLogin = (e?: React.FormEvent) => {
+  const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMsg(null);
+    setOfflineNotice(false);
 
     const term = usernameOrEmail.trim().toLowerCase();
     const pass = password.trim();
@@ -47,34 +52,67 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      // Buscar en lista activa o en lista por defecto
-      const user =
-        effectiveUsersList.find(
-          (u) =>
-            u &&
-            u.activo &&
-            ((u.username && u.username.toLowerCase() === term) ||
-              (u.email && u.email.toLowerCase() === term)) &&
-            u.password === pass
-        ) ||
-        DEFAULT_USUARIOS.find(
-          (u) =>
-            u &&
-            ((u.username && u.username.toLowerCase() === term) ||
-              (u.email && u.email.toLowerCase() === term)) &&
-            u.password === pass
-        );
+    try {
+      // 1. Autenticación prioritaria contra el servidor central (scrypt + token firmado + anti-fuerza bruta)
+      const serverRes = await loginOnServer(term, pass);
 
-      if (!user) {
+      if (serverRes.ok && serverRes.user) {
         setIsLoading(false);
-        setErrorMsg('Credenciales incorrectas o usuario inactivo en el sistema.');
+        onLoginSuccess(serverRes.user);
+        return;
+      }
+
+      // Si el servidor respondió rechazando credenciales o bloqueando por fuerza bruta (401/429)
+      if (!serverRes.offline) {
+        setIsLoading(false);
+        setErrorMsg(serverRes.error || 'Credenciales incorrectas o usuario inactivo.');
+        return;
+      }
+
+      // 2. Fallback exclusivo en modo Offline PWA (sin conectividad al servidor central)
+      setOfflineNotice(true);
+      const candidate = effectiveUsersList.find(
+        (u) =>
+          u &&
+          u.activo &&
+          ((u.username && u.username.toLowerCase() === term) ||
+            (u.email && u.email.toLowerCase() === term))
+      );
+
+      if (candidate) {
+        const matchVerifier = candidate.offlineVerifier
+          ? await verificarOfflineVerifier(candidate.username, pass, candidate.offlineVerifier)
+          : false;
+        const matchLegacy = !candidate.offlineVerifier && candidate.password === pass;
+
+        if (matchVerifier || matchLegacy) {
+          setIsLoading(false);
+          onLoginSuccess({ ...candidate, password: '' });
+          return;
+        }
+      }
+
+      // Fallback de emergencia solo offline sobre cuentas iniciales si no existe aún en IndexedDB
+      const defCandidate = DEFAULT_USUARIOS.find(
+        (u) =>
+          u &&
+          ((u.username && u.username.toLowerCase() === term) ||
+            (u.email && u.email.toLowerCase() === term)) &&
+          u.password === pass
+      );
+
+      if (defCandidate && !candidate) {
+        setIsLoading(false);
+        onLoginSuccess({ ...defCandidate, password: '' });
         return;
       }
 
       setIsLoading(false);
-      onLoginSuccess(user);
-    }, 300);
+      setErrorMsg('Sin conexión al servidor y credenciales offline no verificadas.');
+    } catch {
+      setIsLoading(false);
+      setErrorMsg('Error al intentar iniciar sesión.');
+    }
   };
 
   return (
@@ -109,6 +147,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Aviso Offline */}
+        {offlineNotice && (
+          <div className="bg-amber-950/70 border border-amber-700 text-amber-200 px-3.5 py-2 rounded-xl text-[11px] flex items-center gap-2">
+            <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Modo Offline detectado: verificando credenciales locales cifradas.</span>
+          </div>
+        )}
 
         {/* Error Feedback */}
         {errorMsg && (
@@ -145,7 +191,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <label className="block text-slate-300 font-semibold">
                 Contraseña de acceso:
               </label>
-              <span className="text-[10px] text-slate-400">Seguridad Encriptada</span>
+              <span className="text-[10px] text-emerald-400 font-mono">Scrypt + HMAC-SHA256</span>
             </div>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />

@@ -271,7 +271,7 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
           label: 'Forense',
           bgTh: 'bg-teal-50/50',
           bgTd: 'bg-teal-50/30',
-          title: 'Forense de turno y relevos',
+          title: 'Médico de turno, examinados y agregar forense',
           render: (p: ParteNovedadesGuardia, counts: any) => (
             <button
               type="button"
@@ -283,12 +283,31 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                 }
                 setForenseModalParte(p);
               }}
-              className="inline-flex items-center gap-1 font-mono font-bold text-teal-950 hover:text-teal-800 hover:bg-teal-100 px-2 py-0.5 rounded transition-colors text-[11px]"
-              title="Forense de turno y relevos (Horarios y personas examinadas)"
+              className={`inline-flex flex-col items-center gap-0.5 px-2 py-1 rounded transition-colors cursor-pointer ${
+                counts.forenseMedicosCount > 0
+                  ? 'text-teal-950 hover:bg-teal-100'
+                  : 'text-slate-500 hover:text-teal-900 hover:bg-teal-50'
+              }`}
+              title={
+                counts.forenseMedicosCount > 0
+                  ? `Médico(s): ${counts.forenseMedicos.join(', ')} • Examinados: ${counts.forenseCount} (Click para editar examinados o agregar otro forense)`
+                  : 'Sin médico de turno asignado (Click para cargar Médico de Turno y Examinados)'
+              }
             >
-              <Search className="w-3 h-3 text-teal-400" />
-              <Stethoscope className="w-3.5 h-3.5 text-teal-700" />
-              <span>{counts.forenseCount}</span>
+              <span className="inline-flex items-center gap-1 font-mono tabular-nums font-bold text-[11px]">
+                <Search className="w-3 h-3 text-teal-500" />
+                <Stethoscope
+                  className={`w-3.5 h-3.5 ${
+                    counts.forenseMedicosCount > 0 ? 'text-teal-700' : 'text-slate-400'
+                  }`}
+                />
+                <span>{counts.forenseMedicosCount > 0 ? counts.forenseCount : '+'}</span>
+              </span>
+              {counts.forenseLabel && (
+                <span className="text-[10px] font-semibold text-teal-800 max-w-[115px] truncate leading-none">
+                  {counts.forenseLabel}
+                </span>
+              )}
             </button>
           ),
         };
@@ -439,11 +458,29 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
       }
     });
 
-    // Total de examinados por médico forense de turno y relevos
+    // Médicos forenses y total de examinados
+    const forenseMedicos =
+      p.forensesTurno && p.forensesTurno.length > 0
+        ? p.forensesTurno.map((f) => f.medicoNombre.trim()).filter(Boolean)
+        : p.forense?.medicoNombre?.trim()
+        ? p.forense.medicoNombre
+            .split('/')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+
     const totalExaminadosForense =
       p.forensesTurno && p.forensesTurno.length > 0
         ? p.forensesTurno.reduce((acc, f) => acc + (Number(f.totalExaminados) || 0), 0)
         : p.forense?.totalExaminados || 0;
+
+    const cleanShortDocName = (name: string) => name.replace(/\s*\([^)]*\)\s*/g, '').trim();
+    const forenseLabel =
+      forenseMedicos.length === 0
+        ? ''
+        : forenseMedicos.length === 1
+        ? cleanShortDocName(forenseMedicos[0])
+        : `${forenseMedicos.length} forenses`;
 
     return {
       personalCount:
@@ -452,6 +489,9 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
       movilesCount: p.movilesAfectados.length,
       lc,
       forenseCount: totalExaminadosForense,
+      forenseMedicos,
+      forenseMedicosCount: forenseMedicos.length,
+      forenseLabel,
       segVial,
     };
   };

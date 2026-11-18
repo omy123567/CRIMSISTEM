@@ -29,6 +29,11 @@ import {
   FolderTree,
   Clock,
   AlertTriangle,
+  Lock,
+  KeyRound,
+  EyeOff,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { AdministrarModulosModal } from '../layout/AdministrarModulosModal';
@@ -37,12 +42,14 @@ import {
   getDatabaseCounts,
   DatabaseCounts,
   exportGeneralJsonBackup,
+  exportEncryptedJsonBackup,
   exportModuleJson,
   exportZipBackup,
   importGeneralJsonBackup,
   importZipBackup,
   vaciarBaseDeDatosCompleta,
 } from '../../services/backupService';
+import { evaluarFortalezaPassword } from '../../services/securityClient';
 import { db, seedInitialDataIfEmpty } from '../../db/database';
 import { GestionPeriodoDatos } from './GestionPeriodoDatos';
 
@@ -81,10 +88,37 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   const [palabraConfirmacionVaciar, setPalabraConfirmacionVaciar] = useState('');
   const [isWipingData, setIsWipingData] = useState(false);
 
+  // Estado modal exportación cifrada AES-256-GCM
+  const [isEncryptModalOpen, setIsEncryptModalOpen] = useState(false);
+  const [encryptPass, setEncryptPass] = useState('');
+  const [encryptConfirm, setEncryptConfirm] = useState('');
+  const [encryptError, setEncryptError] = useState<string | null>(null);
+  const [showEncryptPass, setShowEncryptPass] = useState(false);
+
+  // Estado modal descifrado al restaurar respaldo cifrado
+  const [decryptModal, setDecryptModal] = useState<{
+    isOpen: boolean;
+    type: 'json' | 'zip';
+    rawJson?: string;
+    zipFile?: File;
+    password: string;
+    error: string | null;
+    showPass: boolean;
+  }>({
+    isOpen: false,
+    type: 'json',
+    password: '',
+    error: null,
+    showPass: false,
+  });
+
   const handleVaciarTodo = async () => {
     const texto = palabraConfirmacionVaciar.trim().toUpperCase();
     if (texto !== 'VACIAR' && texto !== 'CONFIRMAR') {
-      alert('Debe escribir exactamente "VACIAR" o "CONFIRMAR" para autorizar la acción.');
+      setBackupStatusMsg({
+        text: 'Debe escribir exactamente "VACIAR" o "CONFIRMAR" para autorizar la acción.',
+        isError: true,
+      });
       return;
     }
 
@@ -220,7 +254,10 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         : []);
 
     if (currentList.some((item) => item.toLowerCase() === nuevoItemCatalogo.trim().toLowerCase())) {
-      alert('El valor ya existe en este catálogo (se evitan duplicados)');
+      setBackupStatusMsg({
+        text: 'El valor ya existe en este catálogo (se evitan duplicados).',
+        isError: true,
+      });
       return;
     }
     const updated = {
@@ -264,6 +301,43 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     }
   };
 
+  // Exportar Backup JSON Cifrado AES-256-GCM
+  const handleConfirmExportEncrypted = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEncryptError(null);
+
+    if (encryptPass.trim().length < 8) {
+      setEncryptError('La contraseña de cifrado debe tener al menos 8 caracteres.');
+      return;
+    }
+    if (encryptPass !== encryptConfirm) {
+      setEncryptError('Las contraseñas ingresadas no coinciden.');
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      const encryptedStr = await exportEncryptedJsonBackup(encryptPass.trim());
+      const blob = new Blob([encryptedStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SisPol_Backup_Cifrado_AES256_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setIsEncryptModalOpen(false);
+      setEncryptPass('');
+      setEncryptConfirm('');
+      setBackupStatusMsg({
+        text: 'Copia de seguridad cifrada con AES-256-GCM + SHA-256 descargada correctamente.',
+      });
+    } catch (err: any) {
+      setEncryptError(err?.message || 'Error al cifrar el respaldo.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // Exportar Backup ZIP Completo (Base de datos + Adjuntos)
   const handleExportZip = async () => {
     try {
@@ -295,11 +369,11 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
-      alert(`Error al exportar módulo: ${err?.message}`);
+      setBackupStatusMsg({ text: `Error al exportar módulo: ${err?.message}`, isError: true });
     }
   };
 
-  // Importar JSON
+  // Importar JSON (detecta si está cifrado AES-256-GCM)
   const handleImportJsonFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -308,7 +382,19 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     reader.onload = async () => {
       try {
         setIsProcessing(true);
-        const result = await importGeneralJsonBackup(reader.result as string);
+        const rawJson = reader.result as string;
+        const result = await importGeneralJsonBackup(rawJson);
+        if (result.needsPassword) {
+          setDecryptModal({
+            isOpen: true,
+            type: 'json',
+            rawJson,
+            password: '',
+            error: null,
+            showPass: false,
+          });
+          return;
+        }
         if (result.success) {
           setBackupStatusMsg({ text: result.message });
           await loadCounts();
@@ -334,6 +420,17 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     try {
       setIsProcessing(true);
       const result = await importZipBackup(file);
+      if (result.needsPassword) {
+        setDecryptModal({
+          isOpen: true,
+          type: 'zip',
+          zipFile: file,
+          password: '',
+          error: null,
+          showPass: false,
+        });
+        return;
+      }
       if (result.success) {
         setBackupStatusMsg({ text: result.message });
         await loadCounts();
@@ -347,6 +444,48 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
       setIsProcessing(false);
     }
     e.target.value = '';
+  };
+
+  const handleConfirmDecryptImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!decryptModal.password.trim()) {
+      setDecryptModal((prev) => ({
+        ...prev,
+        error: 'Ingrese la contraseña del respaldo cifrado.',
+      }));
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      setDecryptModal((prev) => ({ ...prev, error: null }));
+      const result =
+        decryptModal.type === 'zip' && decryptModal.zipFile
+          ? await importZipBackup(decryptModal.zipFile, decryptModal.password.trim())
+          : await importGeneralJsonBackup(decryptModal.rawJson || '', decryptModal.password.trim());
+
+      if (result.success) {
+        setDecryptModal({
+          isOpen: false,
+          type: 'json',
+          password: '',
+          error: null,
+          showPass: false,
+        });
+        setBackupStatusMsg({ text: result.message });
+        await loadCounts();
+        onReloadAllData();
+      } else {
+        setDecryptModal((prev) => ({ ...prev, error: result.message }));
+      }
+    } catch (err: any) {
+      setDecryptModal((prev) => ({
+        ...prev,
+        error: err?.message || 'Contraseña incorrecta o respaldo corrupto.',
+      }));
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const [isDemoConfirmOpen, setIsDemoConfirmOpen] = useState(false);
@@ -367,7 +506,10 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     const puedeResetear =
       currentUser?.rol === 'superusuario' || Boolean(currentUser?.puedeResetearContadores);
     if (!puedeResetear) {
-      alert('Acceso restringido: Solo el Superusuario o usuarios con permiso explícito pueden resetear o alterar contadores.');
+      setBackupStatusMsg({
+        text: 'Acceso restringido: Solo el Superusuario o usuarios con permiso explícito pueden resetear o alterar contadores.',
+        isError: true,
+      });
       return;
     }
 
@@ -524,6 +666,22 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
               Genere copias de seguridad portables para resguardar la base de datos ante contingencias.
             </p>
             <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  setEncryptPass('');
+                  setEncryptConfirm('');
+                  setEncryptError(null);
+                  setShowEncryptPass(false);
+                  setIsEncryptModalOpen(true);
+                }}
+                disabled={isProcessing}
+                className="flex items-center gap-1.5 bg-indigo-900 hover:bg-indigo-950 text-white font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+                title="Exporta un archivo JSON protegido con cifrado AES-256-GCM + verificación SHA-256"
+              >
+                <Lock className="w-3.5 h-3.5 text-indigo-200" />
+                <span>Exportar JSON Cifrado (AES-256)</span>
+              </button>
+
               <button
                 onClick={handleExportJson}
                 disabled={isProcessing}
@@ -1724,6 +1882,214 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Exportar Respaldo Cifrado AES-256-GCM */}
+      {isEncryptModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-indigo-200 overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="bg-slate-900 text-white p-4 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-indigo-800 rounded-xl text-indigo-200">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">Exportar Respaldo Cifrado (AES-256-GCM)</h3>
+                  <p className="text-[11px] text-slate-300">
+                    Protegido con PBKDF2-SHA256 e integridad SHA-256
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEncryptModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmExportEncrypted} className="p-5 space-y-4 text-xs">
+              {encryptError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>{encryptError}</span>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-700">Contraseña de Cifrado *</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowEncryptPass((v) => !v)}
+                    className="text-[11px] text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {showEncryptPass ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    <span>{showEncryptPass ? 'Ocultar' : 'Mostrar'}</span>
+                  </button>
+                </div>
+                <input
+                  type={showEncryptPass ? 'text' : 'password'}
+                  required
+                  minLength={8}
+                  value={encryptPass}
+                  onChange={(e) => setEncryptPass(e.target.value)}
+                  placeholder="Mínimo 8 caracteres"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 font-mono text-xs focus:ring-2 focus:ring-indigo-600"
+                />
+                {encryptPass.length > 0 && (() => {
+                  const s = evaluarFortalezaPassword(encryptPass);
+                  return (
+                    <div className="mt-1.5 space-y-1">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="text-slate-500">Fortaleza:</span>
+                        <span className={`font-bold ${s.colorClass}`}>{s.label}</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div className={`h-full ${s.barColor}`} style={{ width: `${(s.score / 4) * 100}%` }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Confirmar Contraseña *
+                </label>
+                <input
+                  type={showEncryptPass ? 'text' : 'password'}
+                  required
+                  minLength={8}
+                  value={encryptConfirm}
+                  onChange={(e) => setEncryptConfirm(e.target.value)}
+                  placeholder="Repita la contraseña"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 font-mono text-xs focus:ring-2 focus:ring-indigo-600"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEncryptModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg font-semibold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="px-4 py-2 bg-indigo-900 hover:bg-indigo-950 text-white font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Cifrar y Descargar</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Descifrar Respaldo Cifrado al Importar */}
+      {decryptModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-amber-200 overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="bg-slate-900 text-white p-4 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-700 rounded-xl text-amber-100">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">Respaldo Protegido con Cifrado</h3>
+                  <p className="text-[11px] text-slate-300">
+                    Ingrese la contraseña para descifrar y verificar integridad
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setDecryptModal({
+                    isOpen: false,
+                    type: 'json',
+                    password: '',
+                    error: null,
+                    showPass: false,
+                  })
+                }
+                className="text-slate-400 hover:text-white p-1 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmDecryptImport} className="p-5 space-y-4 text-xs">
+              {decryptModal.error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>{decryptModal.error}</span>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-700">Contraseña del Respaldo *</label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDecryptModal((prev) => ({ ...prev, showPass: !prev.showPass }))
+                    }
+                    className="text-[11px] text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {decryptModal.showPass ? (
+                      <EyeOff className="w-3 h-3" />
+                    ) : (
+                      <Eye className="w-3 h-3" />
+                    )}
+                    <span>{decryptModal.showPass ? 'Ocultar' : 'Mostrar'}</span>
+                  </button>
+                </div>
+                <input
+                  type={decryptModal.showPass ? 'text' : 'password'}
+                  required
+                  value={decryptModal.password}
+                  onChange={(e) =>
+                    setDecryptModal((prev) => ({ ...prev, password: e.target.value }))
+                  }
+                  placeholder="Contraseña ingresada al exportar"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 font-mono text-xs focus:ring-2 focus:ring-amber-600"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDecryptModal({
+                      isOpen: false,
+                      type: 'json',
+                      password: '',
+                      error: null,
+                      showPass: false,
+                    })
+                  }
+                  className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg font-semibold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{isProcessing ? 'Descifrando...' : 'Descifrar y Restaurar'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

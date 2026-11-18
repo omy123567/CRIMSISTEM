@@ -291,45 +291,44 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
     cargarNominaDeGrupo(nuevoGrupo);
   };
 
-  // Forenses de turno (Múltiples forenses / relevos con reloj)
-  const [nuevoForense, setNuevoForense] = useState<ForenseEnGuardia>({
-    id: '',
-    medicoNombre: config.medicosForensesCatalogo?.[0] || '',
-    turno: 'Relevo Guardia',
-    horaIngreso: '14:00',
-    horaEgreso: '20:00',
-    totalExaminados: 0,
-    examinadosHastaHs: '19:30 hs.',
-  });
+  // Forenses de turno (Carga simple: únicamente Médico de Turno)
+  const [customForenseRows, setCustomForenseRows] = useState<Record<number, boolean>>({});
 
   const handleAddForense = () => {
-    if (!nuevoForense.medicoNombre.trim()) return;
     const item: ForenseEnGuardia = {
-      ...nuevoForense,
-      id: 'fg-' + Date.now(),
+      id: `fg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      medicoNombre: config.medicosForensesCatalogo?.[0] || '',
+      turno: '',
+      horaIngreso: formData.horaInicio || '',
+      horaEgreso: formData.horaFin || '',
+      totalExaminados: 0,
+      examinadosHastaHs: '',
     };
-    setFormData((prev) => ({
-      ...prev,
-      forensesTurno: [...(prev.forensesTurno || []), item],
-      forense: {
-        medicoNombre: item.medicoNombre,
-        totalExaminados: (prev.forensesTurno || []).reduce((acc, f) => acc + f.totalExaminados, item.totalExaminados),
-        examinadosHastaHs: item.examinadosHastaHs,
-      },
-    }));
+    setFormData((prev) => {
+      const nextList = [...(prev.forensesTurno || []), item];
+      return {
+        ...prev,
+        forensesTurno: nextList,
+        forense: {
+          medicoNombre: nextList.map((f) => f.medicoNombre).filter(Boolean).join(' / '),
+          totalExaminados: nextList.reduce((acc, f) => acc + (Number(f.totalExaminados) || 0), 0),
+          examinadosHastaHs: prev.forense?.examinadosHastaHs || '',
+        },
+      };
+    });
   };
 
   const handleUpdateForense = (idx: number, campo: keyof ForenseEnGuardia, valor: any) => {
     const list = [...(formData.forensesTurno || [])];
     list[idx] = { ...list[idx], [campo]: valor };
-    const totalExaminadosSuma = list.reduce((acc, f) => acc + (f.totalExaminados || 0), 0);
+    const totalExaminadosSuma = list.reduce((acc, f) => acc + (Number(f.totalExaminados) || 0), 0);
     setFormData((prev) => ({
       ...prev,
       forensesTurno: list,
       forense: {
-        medicoNombre: list[0]?.medicoNombre || prev.forense.medicoNombre,
+        medicoNombre: list.map((f) => f.medicoNombre).filter(Boolean).join(' / '),
         totalExaminados: totalExaminadosSuma,
-        examinadosHastaHs: list[0]?.examinadosHastaHs || prev.forense.examinadosHastaHs,
+        examinadosHastaHs: list[0]?.examinadosHastaHs || prev.forense?.examinadosHastaHs || '',
       },
     }));
   };
@@ -337,9 +336,15 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
   const handleRemoveForense = (idx: number) => {
     const list = [...(formData.forensesTurno || [])];
     list.splice(idx, 1);
+    const totalExaminadosSuma = list.reduce((acc, f) => acc + (Number(f.totalExaminados) || 0), 0);
     setFormData((prev) => ({
       ...prev,
       forensesTurno: list,
+      forense: {
+        medicoNombre: list.map((f) => f.medicoNombre).filter(Boolean).join(' / '),
+        totalExaminados: totalExaminadosSuma,
+        examinadosHastaHs: list[0]?.examinadosHastaHs || '',
+      },
     }));
   };
 
@@ -380,8 +385,22 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const forensesValidados = habilitarForenses
+      ? (formData.forensesTurno || []).filter((f) => f.medicoNombre.trim().length > 0)
+      : [];
+    const totalExaminados = forensesValidados.reduce(
+      (acc, f) => acc + (Number(f.totalExaminados) || 0),
+      0
+    );
+
     onSave({
       ...formData,
+      forensesTurno: forensesValidados,
+      forense: {
+        medicoNombre: forensesValidados.map((f) => f.medicoNombre.trim()).join(' / '),
+        totalExaminados,
+        examinadosHastaHs: forensesValidados[0]?.examinadosHastaHs || '',
+      },
       fechaHoraDesde: `${formData.fechaInicio} ${formData.horaInicio}:00`,
       fechaHoraHasta: `${formData.fechaFin} ${formData.horaFin}:00`,
       totalIntervenciones: formData.intervenciones.length,
@@ -738,13 +757,13 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
             </datalist>
           </div>
 
-          {/* 3. Forenses Policiales de Turno & Relevos con reloj (Habilitable mediante Checkbox) */}
+          {/* 3. Forense Policial de Turno (Simple: solo Médico de Turno, habilitable mediante Checkbox) */}
           <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-200 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-200/80 pb-2">
               <div className="flex items-center gap-2">
                 <Stethoscope className="w-4 h-4 text-blue-900" />
                 <span className="font-bold text-blue-950 uppercase text-xs">
-                  3. Forenses Policiales de Turno & Relevos
+                  3. Forense Policial de Turno
                 </span>
               </div>
 
@@ -762,193 +781,117 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
                         forense: { medicoNombre: '', totalExaminados: 0, examinadosHastaHs: '' },
                       }));
                     } else if (!formData.forensesTurno || formData.forensesTurno.length === 0) {
-                      const nombreForense = config.medicosForensesCatalogo?.[0] || 'Dr. Guillermo Navarro (Médico Legista Forense)';
+                      const nombreForense = config.medicosForensesCatalogo?.[0] || '';
                       setFormData((prev) => ({
                         ...prev,
                         forensesTurno: [
                           {
                             id: 'fg-' + Date.now(),
                             medicoNombre: nombreForense,
-                            turno: 'Guardia Rotativa',
-                            horaIngreso: '08:00',
-                            horaEgreso: '20:00',
+                            turno: '',
+                            horaIngreso: prev.horaInicio || '',
+                            horaEgreso: prev.horaFin || '',
                             totalExaminados: 0,
-                            examinadosHastaHs: '20:00 hs.',
+                            examinadosHastaHs: '',
                           },
                         ],
                         forense: {
                           medicoNombre: nombreForense,
                           totalExaminados: 0,
-                          examinadosHastaHs: '20:00 hs.',
+                          examinadosHastaHs: '',
                         },
                       }));
                     }
                   }}
                   className="w-4 h-4 text-blue-900 rounded"
                 />
-                <span>¿Habilitar Forenses de Turno? (Opcional por Delegación)</span>
+                <span>¿Habilitar Médico de Turno? (Opcional por Delegación)</span>
               </label>
             </div>
 
             {!habilitarForenses ? (
               <div className="p-3 bg-white/80 border border-blue-200 rounded-lg text-slate-600 text-xs">
-                ℹ️ <strong>Forenses no requeridos:</strong> Esta delegación o turno de guardia no cuenta con médico forense policial asignado.
+                Esta delegación o turno de guardia no requiere médico forense asignado.
               </div>
             ) : (
-              <div className="space-y-3 animate-in fade-in">
-                {/* Lista de forenses de esta guardia */}
-                <div className="space-y-2">
-                  {formData.forensesTurno?.map((f, idx) => (
-                    <div key={f.id || idx} className="bg-white p-3 rounded-lg border border-blue-200 shadow-2xs space-y-2">
-                      <div className="flex items-center justify-between border-b pb-1">
-                        <span className="font-bold text-blue-900">
-                          Forense #{idx + 1}: {f.medicoNombre || 'Sin nombre asignado'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveForense(idx)}
-                          className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+              <div className="space-y-2.5 animate-in fade-in">
+                {(formData.forensesTurno || []).map((f, idx) => {
+                  const catalogo = config.medicosForensesCatalogo || [];
+                  const isInCatalog = catalogo.includes(f.medicoNombre);
+                  const showCustomInput =
+                    customForenseRows[idx] ||
+                    catalogo.length === 0 ||
+                    (f.medicoNombre.trim() !== '' && !isInCatalog);
 
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                        <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-semibold text-slate-500">Médico Legista</label>
+                  return (
+                    <div
+                      key={f.id || idx}
+                      className="bg-white p-3 rounded-lg border border-blue-200 flex flex-col sm:flex-row sm:items-end gap-2.5"
+                    >
+                      <div className="flex-1 space-y-1.5">
+                        <label className="block text-[11px] font-bold text-slate-700">
+                          Médico de Turno {formData.forensesTurno && formData.forensesTurno.length > 1 ? `#${idx + 1}` : ''}
+                        </label>
+                        {catalogo.length > 0 && (
+                          <select
+                            value={showCustomInput ? '__CUSTOM__' : f.medicoNombre}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '__CUSTOM__') {
+                                setCustomForenseRows((prev) => ({ ...prev, [idx]: true }));
+                                if (isInCatalog) handleUpdateForense(idx, 'medicoNombre', '');
+                              } else {
+                                setCustomForenseRows((prev) => ({ ...prev, [idx]: false }));
+                                handleUpdateForense(idx, 'medicoNombre', val);
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-semibold text-slate-900 text-xs"
+                          >
+                            <option value="">-- Seleccionar Médico de Turno --</option>
+                            {catalogo.map((m) => (
+                              <option key={m} value={m}>
+                                {m}
+                              </option>
+                            ))}
+                            <option value="__CUSTOM__">Otro médico (escribir nombre)...</option>
+                          </select>
+                        )}
+                        {showCustomInput && (
                           <input
                             type="text"
+                            placeholder="Escriba el nombre del Médico de Turno..."
                             value={f.medicoNombre}
                             onChange={(e) => handleUpdateForense(idx, 'medicoNombre', e.target.value)}
-                            className="w-full px-2 py-1 rounded border border-slate-300 font-semibold"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 font-semibold text-slate-900 text-xs"
                           />
-                        </div>
-
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-500">Turno</label>
-                          <input
-                            type="text"
-                            value={f.turno}
-                            onChange={(e) => handleUpdateForense(idx, 'turno', e.target.value)}
-                            placeholder="Guardia Mañana / Noche"
-                            className="w-full px-2 py-1 rounded border border-slate-300"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[10px] font-semibold text-blue-900 font-bold">
-                            Cantidad Examinados *
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            value={f.totalExaminados}
-                            onChange={(e) => handleUpdateForense(idx, 'totalExaminados', Number(e.target.value))}
-                            className="w-full px-2 py-1 rounded border border-blue-400 font-mono font-bold text-blue-950 bg-blue-50"
-                          />
-                        </div>
+                        )}
                       </div>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
-                        <div>
-                          <span className="text-slate-500 font-medium flex items-center gap-1 mb-0.5">
-                            <Clock className="w-3 h-3 text-blue-800" />
-                            <span>Hora Ingreso (Reloj):</span>
-                          </span>
-                          <input
-                            type="time"
-                            value={f.horaIngreso}
-                            onChange={(e) => handleUpdateForense(idx, 'horaIngreso', e.target.value)}
-                            className="w-full px-2 py-1 rounded border border-slate-300 font-mono font-bold"
-                          />
-                        </div>
-                        <div>
-                          <span className="text-slate-500 font-medium flex items-center gap-1 mb-0.5">
-                            <Clock className="w-3 h-3 text-blue-800" />
-                            <span>Hora Egreso (Reloj):</span>
-                          </span>
-                          <input
-                            type="time"
-                            value={f.horaEgreso || ''}
-                            onChange={(e) => handleUpdateForense(idx, 'horaEgreso', e.target.value)}
-                            className="w-full px-2 py-1 rounded border border-slate-300 font-mono font-bold"
-                          />
-                        </div>
-                        <div>
-                          <span className="text-slate-500 font-medium mb-0.5 block">Examinados hasta hs:</span>
-                          <input
-                            type="text"
-                            value={f.examinadosHastaHs}
-                            onChange={(e) => handleUpdateForense(idx, 'examinadosHastaHs', e.target.value)}
-                            className="w-full px-2 py-1 rounded border border-slate-300 font-mono"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Agregar nuevo forense con selector de reloj */}
-                <div className="bg-white p-3 rounded-lg border border-slate-300 space-y-2">
-                  <span className="font-bold text-slate-800 block text-xs">+ Agregar Forense / Relevo</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                    <div className="sm:col-span-4">
-                      <input
-                        type="text"
-                        list="medicos-forenses-catalogo"
-                        placeholder="Nombre del médico legista..."
-                        value={nuevoForense.medicoNombre}
-                        onChange={(e) => setNuevoForense({ ...nuevoForense, medicoNombre: e.target.value })}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-semibold"
-                      />
-                      <datalist id="medicos-forenses-catalogo">
-                        {(config.medicosForensesCatalogo || ['Dr. Guillermo Navarro', 'Dra. María Elena Ramos']).map((m, i) => (
-                          <option key={i} value={m} />
-                        ))}
-                      </datalist>
-                    </div>
-
-                    <div className="sm:col-span-3">
-                      <input
-                        type="text"
-                        placeholder="Turno (ej. Relevo 14:00)"
-                        value={nuevoForense.turno}
-                        onChange={(e) => setNuevoForense({ ...nuevoForense, turno: e.target.value })}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <input
-                        type="time"
-                        value={nuevoForense.horaIngreso}
-                        onChange={(e) => setNuevoForense({ ...nuevoForense, horaIngreso: e.target.value })}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-mono font-bold"
-                        title="Hora de Ingreso (Reloj)"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <input
-                        type="time"
-                        value={nuevoForense.horaEgreso}
-                        onChange={(e) => setNuevoForense({ ...nuevoForense, horaEgreso: e.target.value })}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-mono font-bold"
-                        title="Hora de Egreso (Reloj)"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-1">
                       <button
                         type="button"
-                        onClick={handleAddForense}
-                        className="w-full bg-blue-900 hover:bg-blue-950 text-white font-bold p-1.5 rounded flex items-center justify-center cursor-pointer"
-                        title="Agregar forense"
+                        onClick={() => handleRemoveForense(idx)}
+                        className="px-2.5 py-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 border border-red-200 rounded-lg text-[11px] font-semibold flex items-center gap-1 self-start sm:self-end cursor-pointer"
+                        title="Quitar médico"
                       >
-                        <Plus className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Quitar</span>
                       </button>
                     </div>
-                  </div>
+                  );
+                })}
+
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={handleAddForense}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-300 rounded-lg font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Agregar otro Médico de Turno</span>
+                  </button>
+                  <span className="text-[11px] text-slate-500">
+                    La cantidad de examinados se puede cargar desde la columna Forense o el menú Forense Policial.
+                  </span>
                 </div>
               </div>
             )}

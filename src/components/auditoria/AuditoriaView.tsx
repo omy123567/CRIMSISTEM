@@ -27,6 +27,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { fetchAuditFromServer, purgeAuditOnServer } from '../../services/apiService';
 
 interface AuditoriaViewProps {
   currentUser: UsuarioSistema;
@@ -59,7 +60,16 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
   const loadAuditoria = async () => {
     setLoading(true);
     try {
-      const all = await db.auditoria.toArray();
+      const serverLogs = await fetchAuditFromServer();
+      const localLogs = await db.auditoria.toArray();
+
+      const mergedMap = new Map<string, RegistroAuditoria>();
+      for (const r of localLogs) mergedMap.set(r.id, r);
+      if (serverLogs) {
+        for (const r of serverLogs) mergedMap.set(r.id, r);
+      }
+
+      const all = Array.from(mergedMap.values());
       all.sort((a, b) => new Date(b.fechaHora).getTime() - new Date(a.fechaHora).getTime());
       setRegistros(all);
     } catch (err) {
@@ -90,16 +100,20 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
   const handlePurgeLogsOlderThan = async () => {
     if (!esSuperusuario) return;
     try {
+      const serverRes = await purgeAuditOnServer(retencionDias);
       const cutoffTime = Date.now() - retencionDias * 24 * 60 * 60 * 1000;
       const all = await db.auditoria.toArray();
       const idsToDelete = all
         .filter((r) => new Date(r.fechaHora).getTime() < cutoffTime)
         .map((r) => r.id);
-      
+
       await db.auditoria.bulkDelete(idsToDelete);
       await loadAuditoria();
       setIsConfirmPurgeOpen(false);
-      setPurgeSuccessMsg(`Se depuraron exitosamente ${idsToDelete.length} registros con más de ${retencionDias} días de antigüedad.`);
+      const countMsg = serverRes.success && typeof serverRes.removed === 'number'
+        ? serverRes.removed
+        : idsToDelete.length;
+      setPurgeSuccessMsg(`Se depuraron exitosamente ${countMsg} registros con más de ${retencionDias} días de antigüedad.`);
       setTimeout(() => setPurgeSuccessMsg(null), 4000);
     } catch (err) {
       console.error('Error purgando auditoría por retención:', err);
@@ -810,6 +824,7 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
                 <div className="font-bold text-slate-900">{selectedRegistro.apellidoYNombre}</div>
                 <div className="text-[11px] text-slate-600 font-mono">
                   Usuario: @{selectedRegistro.username} | Rol: {selectedRegistro.rol}
+                  {selectedRegistro.ipOrigen ? ` | IP: ${selectedRegistro.ipOrigen}` : ''}
                 </div>
               </div>
 
@@ -833,6 +848,13 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
                   <p className="text-slate-800 break-words whitespace-pre-wrap">
                     {selectedRegistro.detalles}
                   </p>
+                </div>
+              )}
+
+              {selectedRegistro.integrityHash && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg font-mono text-[10px] text-emerald-900 break-all">
+                  <span className="font-bold block text-emerald-950">Sello de Integridad SHA-256:</span>
+                  {selectedRegistro.integrityHash}
                 </div>
               )}
             </div>

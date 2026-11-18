@@ -1,5 +1,6 @@
 import { db } from '../db/database';
 import { UsuarioSistema, RegistroAuditoria } from '../types/police';
+import { authFetch, getAuthToken } from './securityClient';
 
 export async function registrarAuditoria(params: {
   currentUser?: UsuarioSistema | null;
@@ -28,6 +29,31 @@ export async function registrarAuditoria(params: {
     };
 
     await db.auditoria.put(registro);
+
+    if (navigator.onLine && getAuthToken()) {
+      try {
+        const res = await authFetch('/api/audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            modulo: params.modulo,
+            accion: params.accion,
+            descripcion: params.descripcion,
+            detalles: params.detalles,
+            delegacionId: params.delegacionId || user?.delegacionId,
+            delegacionNombre: params.delegacionNombre,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (data.record) {
+            await db.auditoria.put(data.record);
+          }
+        }
+      } catch {
+        // Fallback offline: permanece en Dexie local
+      }
+    }
   } catch (error) {
     console.error('Error registrando auditoría:', error);
   }

@@ -32,11 +32,14 @@ import {
   FileCheck2,
   FileSpreadsheet,
   Eye,
+  EyeOff,
+  AlertCircle,
   PlusCircle,
   Edit3,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { RolModal } from './RolModal';
+import { evaluarFortalezaPassword } from '../../services/securityClient';
 
 interface UsuariosViewProps {
   usuariosList: UsuarioSistema[];
@@ -163,6 +166,9 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   const [formPuedeRecargarOtrasDelegaciones, setFormPuedeRecargarOtrasDelegaciones] = useState(false);
   const [formPuedeConfirmarFotografias, setFormPuedeConfirmarFotografias] = useState(false);
   const [formActivo, setFormActivo] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [bannerMsg, setBannerMsg] = useState<{ text: string; isError?: boolean } | null>(null);
 
   // Filtrado de usuarios según permisos del usuario conectado
   const visibleUsuarios = useMemo(() => {
@@ -244,15 +250,26 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     }
 
     setFormActivo(true);
+    setShowPassword(false);
+    setFormError(null);
     setIsModalOpen(true);
   };
 
   const handleOpenEdit = (user: UsuarioSistema) => {
+    if (user.rol === 'superusuario' && currentUser.rol !== 'superusuario') {
+      setBannerMsg({
+        text: 'Solo un Superusuario puede editar o modificar la cuenta de otro Superusuario.',
+        isError: true,
+      });
+      return;
+    }
     setEditingUser(user);
     setFormApellidoYNombre(user.apellidoYNombre);
     setFormEmail(user.email);
     setFormUsername(user.username);
-    setFormPassword(user.password);
+    setFormPassword('');
+    setShowPassword(false);
+    setFormError(null);
     setFormDelegacionId(user.delegacionId);
     setFormRol(user.rol);
     setFormRolId(user.rolId || '');
@@ -345,9 +362,25 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
 
   const handleSaveForm = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
 
-    if (!formApellidoYNombre.trim() || !formEmail.trim() || !formUsername.trim() || !formPassword.trim()) {
-      alert('Debe completar Apellido y Nombre, Correo, Usuario y Contraseña.');
+    if (!formApellidoYNombre.trim() || !formEmail.trim() || !formUsername.trim()) {
+      setFormError('Debe completar Apellido y Nombre, Correo institucional y Nombre de Usuario.');
+      return;
+    }
+
+    const trimmedPass = formPassword.trim();
+    if (!editingUser && trimmedPass.length < 8) {
+      setFormError('Para crear un usuario debe ingresar una contraseña segura de al menos 8 caracteres.');
+      return;
+    }
+    if (editingUser && trimmedPass.length > 0 && trimmedPass.length < 8) {
+      setFormError('La nueva contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+
+    if (formRol === 'superusuario' && currentUser.rol !== 'superusuario') {
+      setFormError('No posee permisos para asignar el rol de Superusuario.');
       return;
     }
 
@@ -357,7 +390,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
         u.id !== editingUser?.id
     );
     if (usernameExist) {
-      alert(`El nombre de usuario "${formUsername}" ya se encuentra registrado.`);
+      setFormError(`El nombre de usuario "${formUsername.trim()}" ya se encuentra registrado.`);
       return;
     }
 
@@ -366,7 +399,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
       apellidoYNombre: formApellidoYNombre.trim(),
       email: formEmail.trim(),
       username: formUsername.trim(),
-      password: formPassword.trim(),
+      ...(trimmedPass ? { password: trimmedPass } : {}),
       delegacionId: formDelegacionId,
       rol: formRol,
       rolId: formRolId || undefined,
@@ -407,13 +440,17 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   const handleDeleteRolAttempt = (rol: RolSistema) => {
     const count = getUsuariosCountByRol(rol);
     if (count > 0) {
-      alert(
-        `No es posible eliminar el rol "${rol.nombre}" porque actualmente está asignado a ${count} usuario(s). Modifique o reasigne primero a los usuarios.`
-      );
+      setBannerMsg({
+        text: `No es posible eliminar el rol "${rol.nombre}" porque actualmente está asignado a ${count} usuario(s). Modifique o reasigne primero a los usuarios.`,
+        isError: true,
+      });
       return;
     }
     if (rol.esSistema) {
-      alert(`El rol "${rol.nombre}" es un rol predeterminado de sistema y no puede eliminarse.`);
+      setBannerMsg({
+        text: `El rol "${rol.nombre}" es un rol predeterminado de sistema y no puede eliminarse.`,
+        isError: true,
+      });
       return;
     }
     setDeleteConfirmRol({ isOpen: true, rol });
@@ -461,6 +498,28 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
           )}
         </div>
       </div>
+
+      {bannerMsg && (
+        <div
+          className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 ${
+            bannerMsg.isError
+              ? 'bg-red-50 text-red-800 border border-red-200'
+              : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{bannerMsg.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBannerMsg(null)}
+            className="p-1 hover:bg-black/5 rounded cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Pestañas de Navegación del Módulo */}
       <div className="flex items-center gap-1 border-b border-slate-200 px-1 bg-white rounded-t-xl pt-2">
@@ -999,6 +1058,13 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
 
             {/* Formulario */}
             <form onSubmit={handleSaveForm} className="p-5 sm:p-6 overflow-y-auto space-y-4 text-xs">
+              {formError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
               {/* Apellido y Nombre & Correo */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -1047,17 +1113,49 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Contraseña *
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">
+                      {editingUser ? 'Nueva Contraseña (opcional)' : 'Contraseña *'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="text-[11px] text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      <span>{showPassword ? 'Ocultar' : 'Mostrar'}</span>
+                    </button>
+                  </div>
                   <input
-                    type="text"
-                    required
+                    type={showPassword ? 'text' : 'password'}
+                    required={!editingUser}
+                    minLength={!editingUser || formPassword.trim().length > 0 ? 8 : undefined}
                     value={formPassword}
                     onChange={(e) => setFormPassword(e.target.value)}
-                    placeholder="Contraseña de acceso"
+                    placeholder={
+                      editingUser
+                        ? 'Dejar vacío para mantener contraseña actual'
+                        : 'Mínimo 8 caracteres'
+                    }
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono text-slate-900 text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white"
                   />
+                  {formPassword.length > 0 && (() => {
+                    const strength = evaluarFortalezaPassword(formPassword);
+                    return (
+                      <div className="mt-1.5 space-y-1">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-slate-500">Fortaleza:</span>
+                          <span className={`font-bold ${strength.colorClass}`}>{strength.label}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-300 ${strength.barColor}`}
+                            style={{ width: `${(strength.score / 4) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1091,14 +1189,18 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-800 text-xs focus:ring-2 focus:ring-blue-600"
                   >
                     {rolesList.length > 0 ? (
-                      rolesList.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.nombre} {r.esSistema ? '(Sistema)' : '(Personalizado)'}
-                        </option>
-                      ))
+                      rolesList
+                        .filter((r) => currentUser.rol === 'superusuario' || r.nombre !== 'superusuario')
+                        .map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.nombre} {r.esSistema ? '(Sistema)' : '(Personalizado)'}
+                          </option>
+                        ))
                     ) : (
                       <>
-                        <option value="superusuario">Superusuario (Acceso irrestricto global)</option>
+                        {currentUser.rol === 'superusuario' && (
+                          <option value="superusuario">Superusuario (Acceso irrestricto global)</option>
+                        )}
                         <option value="Administrador">Administrador (Gestión y reportes de delegación)</option>
                         <option value="Oficial de Guardia">Oficial de Guardia (Control de guardia y móviles)</option>
                         <option value="Carga / Editor">Carga / Editor (Registro y edición operativa)</option>

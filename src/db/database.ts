@@ -25,6 +25,7 @@ import {
   AvisoNovedad,
   CharlaPrevencion,
 } from '../types/police';
+import { crearOfflineVerifier } from '../services/securityClient';
 
 export class SisPolDatabase extends Dexie {
   personal!: Table<Personal, string>;
@@ -1050,11 +1051,23 @@ export async function seedInitialDataIfEmpty() {
     await db.delegaciones.bulkPut(DEFAULT_DELEGACIONES);
   }
 
-  // 2. Asegurar siempre existencia de TODOS los usuarios predefinidos (incluyendo cibercrimen y superadmin)
+  // 2. Asegurar existencia de usuarios base sin almacenar contraseñas en texto claro en IndexedDB
   for (const usr of DEFAULT_USUARIOS) {
     const existing = await db.usuarios.get(usr.id);
-    if (!existing || !existing.username || !existing.password) {
-      await db.usuarios.put(usr);
+    if (!existing || !existing.username) {
+      let offlineVerifier: string | undefined;
+      if (usr.password && typeof crypto !== 'undefined' && crypto.subtle) {
+        try {
+          offlineVerifier = await crearOfflineVerifier(usr.username, usr.password);
+        } catch {
+          // ignore
+        }
+      }
+      await db.usuarios.put({
+        ...usr,
+        password: '',
+        offlineVerifier,
+      });
     }
   }
 

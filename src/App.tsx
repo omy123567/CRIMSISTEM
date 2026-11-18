@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { db, seedInitialDataIfEmpty, DEFAULT_CONFIG } from './db/database';
 import {
   Personal,
@@ -59,17 +59,23 @@ import {
   syncWithServer,
   saveItemToServer,
   deleteItemFromServer,
+  logoutOnServer,
 } from './services/apiService';
-import { PanelLeftOpen } from 'lucide-react';
+import { getAuthToken, subscribeAuthExpired } from './services/securityClient';
+import { PanelLeftOpen, ShieldAlert, Clock, X } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UsuarioSistema | null>(() => {
     try {
       const stored = sessionStorage.getItem('sispol_current_user');
       if (stored) {
+        if (navigator.onLine && !getAuthToken()) {
+          sessionStorage.removeItem('sispol_current_user');
+          return null;
+        }
         const parsed = JSON.parse(stored);
         if (parsed && (parsed.username || parsed.email)) {
-          return parsed;
+          return { ...parsed, password: '' };
         }
       }
     } catch {
@@ -82,6 +88,14 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarVisible, setIsSidebarVisible] = useState<boolean>(true);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState<boolean>(false);
+  const [actionNotice, setActionNotice] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [inactivityCountdown, setInactivityCountdown] = useState<number | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+
+  const showNotice = useCallback((text: string, isError: boolean = true) => {
+    setActionNotice({ text, isError });
+    setTimeout(() => setActionNotice(null), 4500);
+  }, []);
 
   // Estados de datos
   const [config, setConfig] = useState<ConfiguracionSistema>(DEFAULT_CONFIG);
@@ -215,12 +229,13 @@ export default function App() {
       setNovedadesList(novs);
       setCharlasList(charlas);
 
-      // Si el usuario ya está logueado, sincronizar su sesión fresca
+      // Si el usuario ya está logueado, sincronizar su sesión fresca sin contraseñas en claro
       if (currentUser) {
         const freshUser = usrs.find((u) => u.id === currentUser.id);
         if (freshUser) {
-          setCurrentUser(freshUser);
-          sessionStorage.setItem('sispol_current_user', JSON.stringify(freshUser));
+          const sanitizedFresh: UsuarioSistema = { ...freshUser, password: '' };
+          setCurrentUser(sanitizedFresh);
+          sessionStorage.setItem('sispol_current_user', JSON.stringify(sanitizedFresh));
         }
       }
     } catch (error) {
@@ -347,8 +362,9 @@ export default function App() {
     if (!currentUser) return false;
     if (currentUser.rol === 'superusuario') return true;
     if (currentUser.puedeEliminar === false) {
-      alert(
-        'Acceso denegado: Su usuario no cuenta con autorización para eliminar registros del sistema. Contacte a un Administrador.'
+      showNotice(
+        'Acceso denegado: Su usuario no cuenta con autorización para eliminar registros del sistema. Contacte a un Administrador.',
+        true
       );
       return false;
     }
@@ -434,6 +450,12 @@ export default function App() {
       (c) => (c.delegacionId || 'del-laguna-blanca') === activeDelegacionId
     );
   }, [charlasList, activeDelegacionId]);
+
+  const filteredForenses = useMemo(() => {
+    return forensesList.filter(
+      (f) => !f.delegacionId || f.delegacionId === activeDelegacionId
+    );
+  }, [forensesList, activeDelegacionId]);
 
   // Intervenciones de la delegación activa (combinadas de partes de guardia e independientes)
   const filteredIntervenciones = useMemo(() => {
@@ -1119,16 +1141,20 @@ export default function App() {
 
   // --- CRUD FORENSES ---
   const handleSaveForense = async (f: ForenseTurno) => {
-    await db.forenses.put(f);
-    saveItemToServer('forenses', f);
+    const entity: ForenseTurno = {
+      ...f,
+      delegacionId: f.delegacionId || activeDelegacionId,
+    };
+    await db.forenses.put(entity);
+    saveItemToServer('forenses', entity);
     setForensesList((prev) => {
-      const idx = prev.findIndex((item) => item.id === f.id);
+      const idx = prev.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = f;
+        copy[idx] = entity;
         return copy;
       }
-      return [f, ...prev];
+      return [entity, ...prev];
     });
   };
 
@@ -1193,28 +1219,29 @@ export default function App() {
 
   // --- CRUD USUARIOS ---
   const handleSaveUsuario = async (u: UsuarioSistema) => {
-    await db.usuarios.put(u);
-    saveItemToServer('usuarios', u);
+    const saved = await saveItemToServer('usuarios', u);
+    const sanitized: UsuarioSistema = { ...(saved || u), password: '' };
+
     setUsuariosList((prev) => {
-      const idx = prev.findIndex((item) => item.id === u.id);
+      const idx = prev.findIndex((item) => item.id === sanitized.id);
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = u;
+        copy[idx] = sanitized;
         return copy;
       }
-      return [u, ...prev];
+      return [sanitized, ...prev];
     });
 
-    if (currentUser?.id === u.id) {
-      setCurrentUser(u);
-      sessionStorage.setItem('sispol_current_user', JSON.stringify(u));
+    if (currentUser?.id === sanitized.id) {
+      setCurrentUser(sanitized);
+      sessionStorage.setItem('sispol_current_user', JSON.stringify(sanitized));
     }
   };
 
   const handleDeleteUsuario = async (id: string) => {
     if (!verificarPermisoEliminar()) return;
     if (currentUser?.id === id) {
-      alert('No es posible eliminar su propio usuario activo en sesión.');
+      showNotice('No es posible eliminar su propio usuario activo en sesión.', true);
       return;
     }
     await db.usuarios.delete(id);
@@ -1252,7 +1279,7 @@ export default function App() {
     const rol = rolesList.find((r) => r.id === id);
     if (!rol) return;
     if (rol.esSistema) {
-      alert('Los roles predeterminados del sistema no pueden eliminarse.');
+      showNotice('Los roles predeterminados del sistema no pueden eliminarse.', true);
       return;
     }
     await db.roles.delete(id);
@@ -1551,40 +1578,97 @@ export default function App() {
   };
 
   // --- CAMBIO DE CONTRASEÑA ---
-  const handleSavePassword = async (userId: string, newPass: string) => {
-    const user = usuariosList.find((u) => u.id === userId);
-    if (!user) return;
+  const handleSavePassword = async (
+    userId: string,
+    _newPass: string,
+    updatedUserFromServer?: UsuarioSistema
+  ) => {
+    const existing = usuariosList.find((u) => u.id === userId);
+    if (!existing && !updatedUserFromServer) return;
 
-    const updatedUser: UsuarioSistema = {
-      ...user,
-      password: newPass,
+    const sanitizedUser: UsuarioSistema = {
+      ...(existing || {}),
+      ...(updatedUserFromServer || {}),
+      password: '',
       updatedAt: new Date().toISOString(),
-    };
-    await db.usuarios.put(updatedUser);
-    saveItemToServer('usuarios', updatedUser);
+    } as UsuarioSistema;
 
     setUsuariosList((prev) =>
-      prev.map((u) => (u.id === userId ? updatedUser : u))
+      prev.map((u) => (u.id === userId ? sanitizedUser : u))
     );
 
     if (currentUser?.id === userId) {
-      setCurrentUser(updatedUser);
-      sessionStorage.setItem('sispol_current_user', JSON.stringify(updatedUser));
+      setCurrentUser(sanitizedUser);
+      sessionStorage.setItem('sispol_current_user', JSON.stringify(sanitizedUser));
     }
   };
 
   // --- SESIÓN & LOGOUT ---
   const handleLoginSuccess = (user: UsuarioSistema) => {
-    setCurrentUser(user);
-    sessionStorage.setItem('sispol_current_user', JSON.stringify(user));
-    setActiveDelegacionId(user.delegacionId || 'del-laguna-blanca');
+    const sanitizedUser: UsuarioSistema = { ...user, password: '' };
+    setCurrentUser(sanitizedUser);
+    sessionStorage.setItem('sispol_current_user', JSON.stringify(sanitizedUser));
+    setActiveDelegacionId(sanitizedUser.delegacionId || 'del-laguna-blanca');
     setActiveTab('dashboard');
+    lastActivityRef.current = Date.now();
+    setInactivityCountdown(null);
+    // Sincronizar datos del servidor inmediatamente tras autenticación con token
+    setTimeout(() => {
+      reloadAllData();
+    }, 50);
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
+    logoutOnServer();
     sessionStorage.removeItem('sispol_current_user');
+    setInactivityCountdown(null);
     setCurrentUser(null);
-  };
+  }, []);
+
+  // Suscripción a expiración de token (401 en el servidor)
+  useEffect(() => {
+    return subscribeAuthExpired(() => {
+      sessionStorage.removeItem('sispol_current_user');
+      setInactivityCountdown(null);
+      setCurrentUser(null);
+    });
+  }, []);
+
+  // Cierre de sesión automático por inactividad (aviso a los 19 min, cierre a los 20 min)
+  useEffect(() => {
+    if (!currentUser) {
+      setInactivityCountdown(null);
+      return;
+    }
+
+    lastActivityRef.current = Date.now();
+    const WARN_AFTER_MS = 19 * 60 * 1000;
+    const LOGOUT_AFTER_MS = 20 * 60 * 1000;
+
+    const markActivity = () => {
+      if (inactivityCountdown === null) {
+        lastActivityRef.current = Date.now();
+      }
+    };
+
+    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach((ev) => window.addEventListener(ev, markActivity, { passive: true }));
+
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      if (elapsed >= LOGOUT_AFTER_MS) {
+        handleLogout();
+      } else if (elapsed >= WARN_AFTER_MS) {
+        const secsLeft = Math.max(1, Math.ceil((LOGOUT_AFTER_MS - elapsed) / 1000));
+        setInactivityCountdown(secsLeft);
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+      events.forEach((ev) => window.removeEventListener(ev, markActivity));
+    };
+  }, [currentUser, inactivityCountdown, handleLogout]);
 
   // --- CONFIGURACIÓN GENERAL (Aislada por Delegación pero Estructura de Módulos Compartida) ---
   const handleSaveConfig = async (newConfig: ConfiguracionSistema) => {
@@ -1915,10 +1999,13 @@ export default function App() {
 
           {activeTab === 'forense' && (
             <ForenseView
-              forensesList={forensesList}
+              forensesList={filteredForenses}
+              partesGuardiaList={filteredPartesGuardia}
               config={config}
+              activeDelegacionId={activeDelegacionId}
               onSaveForense={handleSaveForense}
               onDeleteForense={handleDeleteForense}
+              onSaveParte={handleSaveParte}
             />
           )}
 
@@ -2044,6 +2131,63 @@ export default function App() {
           onSavePassword={handleSavePassword}
           onClose={() => setIsPasswordModalOpen(false)}
         />
+      )}
+
+      {/* Aviso no bloqueante de seguridad / permisos */}
+      {actionNotice && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-slate-900 text-white border border-red-500/50 rounded-xl shadow-2xl p-3.5 flex items-start gap-2.5 text-xs animate-in fade-in slide-in-from-bottom-4">
+          <ShieldAlert className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <span className="flex-1 leading-relaxed">{actionNotice.text}</span>
+          <button
+            type="button"
+            onClick={() => setActionNotice(null)}
+            className="text-slate-400 hover:text-white cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Modal de Cierre de Sesión Automático por Inactividad */}
+      {inactivityCountdown !== null && (
+        <div className="fixed inset-0 z-[70] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-amber-300 p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 bg-amber-100 text-amber-700 rounded-xl shrink-0">
+                <Clock className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Sesión Inactiva por Seguridad
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Por protocolo de protección de datos policiales, su sesión se cerrará automáticamente en{' '}
+                  <strong className="text-red-700 font-mono text-sm">{inactivityCountdown}s</strong> si no registra actividad.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-3.5 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                Cerrar Sesión Ahora
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  lastActivityRef.current = Date.now();
+                  setInactivityCountdown(null);
+                }}
+                className="px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer"
+              >
+                Mantener Sesión Activa
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

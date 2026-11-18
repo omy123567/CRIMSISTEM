@@ -7,6 +7,8 @@
  * Más especificaciones según el tipo de hecho (balístico, accidentológico, robo, biológico).
  */
 
+import { authFetch } from './securityClient';
+
 export interface GenerarLaborParams {
   sintesisHecho: string;
   hecho: string;
@@ -19,7 +21,7 @@ export async function generarLaborCriminalisticaConIA(params: GenerarLaborParams
 
   // 1. Intentar llamar al backend proxy con Gemini 3.8 Flash
   try {
-    const res = await fetch('/api/gemini/generate-labor', {
+    const res = await authFetch('/api/gemini/generate-labor', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
