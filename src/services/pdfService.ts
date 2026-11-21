@@ -10,13 +10,42 @@ import {
   Personal,
   InspeccionOcular,
   AccidentologiaRegistro,
+  LicenciaPolicial,
+  PdfExportOptions,
 } from '../types/police';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from './pdfExportBus';
+import { formatFechaDisplay, getLicenciaActivaPersonal } from './licenciaService';
 
 // Colores institucionales de la Policía
 const POLICE_NAVY: [number, number, number] = [17, 38, 77]; // #11264d
 const POLICE_LIGHT_BLUE: [number, number, number] = [217, 230, 243]; // #d9e6f3
 const POLICE_BORDER: [number, number, number] = [30, 41, 59];
 const TEXT_DARK: [number, number, number] = [15, 23, 42];
+
+function drawRightSignatureBlock(doc: jsPDF, currentY: number, title: string, subtitle = 'Firma, Aclaración y Sello Oficial') {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  let y = currentY;
+  if (y > pageHeight - 40) {
+    doc.addPage();
+    y = 36;
+  }
+  const rightMargin = pageWidth - 16;
+  const lineWidth = Math.min(68, pageWidth * 0.34);
+  const leftX = rightMargin - lineWidth;
+  const centerX = leftX + lineWidth / 2;
+
+  doc.setDrawColor(50, 60, 75);
+  doc.setLineWidth(0.4);
+  doc.line(leftX, y + 12, rightMargin, y + 12);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 41, 59);
+  doc.text(title, centerX, y + 16.5, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.text(subtitle, centerX, y + 20.5, { align: 'center' });
+}
 
 // Dibuja membrete oficial policial estándar (soporta múltiples líneas personalizadas, logos y lemas)
 export function drawPoliceHeader(
@@ -147,7 +176,7 @@ export function drawPoliceFooter(doc: jsPDF, config: ConfiguracionSistema) {
 
 export interface OpcionesPdfParte {
   orientacion?: 'portrait' | 'landscape';
-  tamano?: 'a4' | 'legal' | 'letter';
+  tamano?: 'a4' | 'oficio' | 'legal' | 'letter';
   secciones?: {
     encabezado?: boolean;
     funcionesPersonal?: boolean;
@@ -161,26 +190,20 @@ export interface OpcionesPdfParte {
   };
   incluirFirmaJefe?: boolean;
   previewOnly?: boolean;
+  licenciasPoliciales?: LicenciaPolicial[];
+  personalList?: Personal[];
 }
 
-/**
- * 1. PARTE DE NOVEDADES DE GUARDIA OFICIAL
- * Exactamente fiel a los modelos de las imágenes enviadas por el usuario
- */
-export function generarPdfParteGuardia(
+function buildParteGuardiaPdfDoc(
   parte: ParteNovedadesGuardia,
   config: ConfiguracionSistema,
-  optionsOrPreview?: boolean | OpcionesPdfParte
-): string {
-  const opts: OpcionesPdfParte =
-    typeof optionsOrPreview === 'boolean'
-      ? { previewOnly: optionsOrPreview }
-      : optionsOrPreview || {};
-
-  const orient: 'p' | 'l' = opts.orientacion === 'landscape' ? 'l' : 'p';
-  const paper: string = opts.tamano || 'a4';
-  const previewOnly = Boolean(opts.previewOnly);
+  opts: OpcionesPdfParte
+): jsPDF {
+  const orient = resolveJsPdfOrientation(opts.orientacion || 'portrait');
+  const paper = resolveJsPdfFormat(opts.tamano || 'a4');
   const sec = opts.secciones;
+  const licenciasPol = opts.licenciasPoliciales || [];
+  const persCatalog = opts.personalList || [];
 
   const doc = new jsPDF(orient, 'mm', paper);
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -203,16 +226,58 @@ export function generarPdfParteGuardia(
     autoTable(doc, {
       startY: currentY,
       head: [[{ content: tituloPeriodo, colSpan: 2, styles: { halign: 'center', fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 } }]],
-      body: parte.funcionesPersonal.map((f) => [
-        { content: f.funcionSecundaria ? `${f.funcion} / ${f.funcionSecundaria}` : f.funcion, styles: { fontStyle: 'bold', cellWidth: Math.min(85, pageWidth * 0.4), textColor: TEXT_DARK } },
-        { content: f.personalNombre || '---', styles: { textColor: TEXT_DARK } },
-      ]),
+      body: parte.funcionesPersonal.map((f) => {
+        const cond = f.personalNombre
+          ? getLicenciaActivaPersonal(f.personalNombre, parte.fechaInicio, licenciasPol, persCatalog)
+          : null;
+        const persTxt = f.personalNombre
+          ? cond
+            ? `${f.personalNombre} [DE LICENCIA: ${cond.tipoLicencia}${cond.fechaReanudacion ? ` - Reanuda ${formatFechaDisplay(cond.fechaReanudacion)} 08:00 hs` : ''}]`
+            : f.personalNombre
+          : '---';
+        return [
+          { content: f.funcionSecundaria ? `${f.funcion} / ${f.funcionSecundaria}` : f.funcion, styles: { fontStyle: 'bold', cellWidth: Math.min(85, pageWidth * 0.4), textColor: TEXT_DARK } },
+          { content: persTxt, styles: { textColor: cond ? [180, 83, 9] : TEXT_DARK, fontStyle: cond ? 'bold' : 'normal' } },
+        ];
+      }),
       theme: 'grid',
       styles: { fontSize: 8, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.2 },
       margin: { left: 14, right: 14 },
     });
 
     currentY = (doc as any).lastAutoTable.finalY + 1.5;
+
+    // Personal con licencia policial vigente en la fecha del parte
+    if (persCatalog.length > 0 && (licenciasPol.length > 0 || persCatalog.some((p) => p.estado === 'Licencia Anual' || p.estado === 'Licencia Médica'))) {
+      const enLicenciaRows: any[] = [];
+      for (const p of persCatalog) {
+        const cond = getLicenciaActivaPersonal(p.id, parte.fechaInicio, licenciasPol, persCatalog);
+        if (cond) {
+          enLicenciaRows.push([
+            { content: `${p.jerarquia} ${p.apellidoYNombre} (DNI ${p.dni})`, styles: { fontStyle: 'bold', textColor: [146, 64, 14] } },
+            {
+              content: `Licencia ${cond.tipoLicencia}${
+                cond.fechaSalida && cond.fechaReanudacion
+                  ? ` • Salida: ${formatFechaDisplay(cond.fechaSalida)} • Reanuda: ${formatFechaDisplay(cond.fechaReanudacion)} (${cond.horaReanudacion || '08:00'} hs.)`
+                  : ''
+              }`,
+              styles: { textColor: [120, 53, 15] },
+            },
+          ]);
+        }
+      }
+      if (enLicenciaRows.length > 0) {
+        autoTable(doc, {
+          startY: currentY,
+          head: [[{ content: `PERSONAL CON LICENCIA POLICIAL VIGENTE (${formatFechaDisplay(parte.fechaInicio)})`, colSpan: 2, styles: { halign: 'center', fillColor: [254, 243, 199], textColor: [120, 53, 15], fontStyle: 'bold', fontSize: 8 } }]],
+          body: enLicenciaRows,
+          theme: 'grid',
+          styles: { fontSize: 7.5, cellPadding: 1.5, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+          margin: { left: 14, right: 14 },
+        });
+        currentY = (doc as any).lastAutoTable.finalY + 1.5;
+      }
+    }
   }
 
   // Cuadro: FORENSE DE TURNO Y RELEVOS POLICIALES + TOTAL DE INTERVENCIONES
@@ -576,13 +641,49 @@ export function generarPdfParteGuardia(
   }
 
   drawPoliceFooter(doc, config);
+  return doc;
+}
+
+/**
+ * 1. PARTE DE NOVEDADES DE GUARDIA OFICIAL
+ */
+export function generarPdfParteGuardia(
+  parte: ParteNovedadesGuardia,
+  config: ConfiguracionSistema,
+  optionsOrPreview?: boolean | OpcionesPdfParte
+): string {
+  const opts: OpcionesPdfParte =
+    typeof optionsOrPreview === 'boolean'
+      ? { previewOnly: optionsOrPreview }
+      : optionsOrPreview || {};
 
   const filename = `Parte_Guardia_${parte.grupoGuardia.replace(/\s+/g, '_')}_${parte.fechaInicio}.pdf`;
-  if (!previewOnly) {
-    doc.save(filename);
+
+  if (opts.previewOnly) {
+    const doc = buildParteGuardiaPdfDoc(parte, config, opts);
+    return doc.output('bloburl').toString();
   }
 
-  return doc.output('bloburl').toString();
+  // Si ya viene con opciones elegidas desde ModalOpcionesImpresion, descargar directo; caso contrario abrir visor/configurador
+  if (opts.orientacion || opts.tamano || opts.secciones) {
+    const doc = buildParteGuardiaPdfDoc(parte, config, opts);
+    doc.save(filename);
+    return doc.output('bloburl').toString();
+  }
+
+  requestPdfExport({
+    title: `Parte de Novedades de Guardia - ${parte.grupoGuardia}`,
+    fileName: filename,
+    defaultOrientation: 'portrait',
+    defaultPaperSize: 'a4',
+    buildDoc: ({ orientation, paperSize }) =>
+      buildParteGuardiaPdfDoc(parte, config, {
+        ...opts,
+        orientacion: orientation,
+        tamano: paperSize,
+      }),
+  });
+  return '';
 }
 
 /**
@@ -590,15 +691,17 @@ export function generarPdfParteGuardia(
  */
 export function generarPdfLibroExpedientes(
   expedientes: ExpedienteJudicial[],
-  config: ConfiguracionSistema
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
 ) {
-  const doc = new jsPDF('l', 'mm', 'a4'); // Paisaje para mayor amplitud
-  const currentY = drawPoliceHeader(
-    doc,
-    config,
-    'LIBRO DE REGISTRO GENERAL DE EXPEDIENTES JUDICIALES Y OFICIOS',
-    10
-  );
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    const currentY = drawPoliceHeader(
+      doc,
+      config,
+      'LIBRO DE REGISTRO GENERAL DE EXPEDIENTES JUDICIALES Y OFICIOS',
+      10
+    );
 
   const tableData = expedientes.map((exp, idx) => {
     // Si es Resguardo de Evidencia, especificar cantidad de personas
@@ -646,23 +749,25 @@ export function generarPdfLibroExpedientes(
     margin: { left: 10, right: 10 },
   });
 
-  // Firma oficial exclusiva del Jefe (A la derecha)
-  const finalY = (doc as any).lastAutoTable.finalY + 14;
-  if (finalY < 185) {
-    doc.setDrawColor(50, 60, 75);
-    doc.setLineWidth(0.4);
-    doc.line(220, finalY + 10, 285, finalY + 10);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text('JEFE DE DIVISIÓN / UNIDAD', 252.5, finalY + 15, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.text('Firma, Aclaración y Sello Oficial', 252.5, finalY + 19, { align: 'center' });
-  }
+    // Firma oficial exclusiva del Jefe (A la derecha)
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    drawRightSignatureBlock(doc, finalY, 'JEFE DE DIVISIÓN / UNIDAD');
+    drawPoliceFooter(doc, config);
+    return doc;
+  };
 
-  drawPoliceFooter(doc, config);
-  doc.save(`Libro_Expedientes_${new Date().toISOString().slice(0, 10)}.pdf`);
+  const fileName = `Libro_Expedientes_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: 'Libro de Registro de Expedientes Judiciales',
+    fileName,
+    defaultOrientation: 'landscape',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
 }
 
 /**
@@ -684,15 +789,18 @@ export function generarPdfFichaTecnicaVehicular(
   movil: MovilPolicial,
   todasReparaciones: ReparacionMecanica[],
   opciones: OpcionesFichaVehicular,
-  config: ConfiguracionSistema
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
 ) {
-  const doc = new jsPDF('p', 'mm', 'a4');
-  let currentY = drawPoliceHeader(
-    doc,
-    config,
-    'FICHA TÉCNICA VEHICULAR',
-    10
-  );
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      'FICHA TÉCNICA VEHICULAR',
+      10
+    );
 
   // Filtrado de reparaciones según el período
   let reparacionesFiltradas = todasReparaciones.filter((r) => r.movilId === movil.id);
@@ -876,8 +984,8 @@ export function generarPdfFichaTecnicaVehicular(
     });
     currentY = (doc as any).lastAutoTable.finalY + 1.5;
 
-    // Barra gráfica de progreso de service idéntica a la imagen
-    const barWidth = 182;
+    // Barra gráfica de progreso de service responsive
+    const barWidth = Math.max(80, pageWidth - 28);
     const barHeight = 2.4;
     const progressPercent = Math.min(
       1,
@@ -1055,25 +1163,25 @@ export function generarPdfFichaTecnicaVehicular(
 
   // Firma oficial exclusiva del Jefe (A la derecha)
   if (opciones.incluirFirma) {
-    if (currentY > 240) {
-      doc.addPage();
-      currentY = 40;
-    }
-    doc.setDrawColor(71, 85, 105);
-    doc.setLineWidth(0.4);
-    doc.line(125, currentY + 14, 185, currentY + 14);
-
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text('JEFE DE DIVISIÓN / UNIDAD', 155, currentY + 18, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.text('Firma, Aclaración y Sello Oficial', 155, currentY + 22, { align: 'center' });
+    drawRightSignatureBlock(doc, currentY, 'JEFE DE DIVISIÓN / UNIDAD');
   }
 
   drawPoliceFooter(doc, config);
-  doc.save(`Ficha_Tecnica_Movil_${movil.nroMovilInterno}_${movil.dominioPatente}.pdf`);
+  return doc;
+  };
+
+  const fileName = `Ficha_Tecnica_Movil_${movil.nroMovilInterno}_${movil.dominioPatente}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: `Ficha Técnica Vehicular - Interno ${movil.nroMovilInterno}`,
+    fileName,
+    defaultOrientation: 'portrait',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
 }
 
 /**
@@ -1082,15 +1190,17 @@ export function generarPdfFichaTecnicaVehicular(
 export function generarPdfPlanillaRecargos(
   recargos: RecargoOperativo[],
   personalMap: Map<string, Personal>,
-  config: ConfiguracionSistema
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
 ) {
-  const doc = new jsPDF('l', 'mm', 'a4');
-  const currentY = drawPoliceHeader(
-    doc,
-    config,
-    'PLANILLA OFICIAL DE LIQUIDACIÓN Y CUMPLIMIENTO DE RECARGOS DE SERVICIO',
-    10
-  );
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    const currentY = drawPoliceHeader(
+      doc,
+      config,
+      'PLANILLA OFICIAL DE LIQUIDACIÓN Y CUMPLIMIENTO DE RECARGOS DE SERVICIO',
+      10
+    );
 
   const tableRows: any[] = [];
   let index = 1;
@@ -1136,22 +1246,24 @@ export function generarPdfPlanillaRecargos(
     margin: { left: 10, right: 10 },
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 14;
-  if (finalY < 185) {
-    doc.setDrawColor(50, 60, 75);
-    doc.setLineWidth(0.4);
-    doc.line(220, finalY + 10, 285, finalY + 10);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text('JEFE DE DIVISIÓN / UNIDAD', 252.5, finalY + 15, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.text('Firma, Aclaración y Sello Oficial', 252.5, finalY + 19, { align: 'center' });
-  }
-
+  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  drawRightSignatureBlock(doc, finalY, 'JEFE DE DIVISIÓN / UNIDAD');
   drawPoliceFooter(doc, config);
-  doc.save(`Planilla_Recargos_${new Date().toISOString().slice(0, 10)}.pdf`);
+  return doc;
+  };
+
+  const fileName = `Planilla_Recargos_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: 'Planilla Oficial de Recargos de Servicio',
+    fileName,
+    defaultOrientation: 'landscape',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
 }
 
 /**
@@ -1159,15 +1271,17 @@ export function generarPdfPlanillaRecargos(
  */
 export function generarPdfLegajoPersonal(
   personal: Personal,
-  config: ConfiguracionSistema
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
 ) {
-  const doc = new jsPDF('p', 'mm', 'a4');
-  let currentY = drawPoliceHeader(
-    doc,
-    config,
-    `LEGAJO POLICIAL INDIVIDUAL - ${personal.jerarquia.toUpperCase()} ${personal.apellidoYNombre.toUpperCase()}`,
-    12
-  );
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      `LEGAJO POLICIAL INDIVIDUAL - ${personal.jerarquia.toUpperCase()} ${personal.apellidoYNombre.toUpperCase()}`,
+      12
+    );
 
   autoTable(doc, {
     startY: currentY,
@@ -1270,28 +1384,30 @@ export function generarPdfLegajoPersonal(
   });
 
   // Firma oficial exclusiva de la persona que se registra (A la derecha)
-  let finalY = (doc as any).lastAutoTable.finalY + 14;
-  if (finalY > 230) {
-    doc.addPage();
-    finalY = 40;
-  }
-  doc.setDrawColor(50, 60, 75);
-  doc.setLineWidth(0.4);
-  doc.line(115, finalY + 16, 190, finalY + 16);
-
-  doc.setFontSize(8.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(17, 38, 77);
-  doc.text(`${personal.jerarquia.toUpperCase()} ${personal.apellidoYNombre.toUpperCase()}`, 152.5, finalY + 21, { align: 'center' });
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(71, 85, 105);
-  doc.text(`D.N.I. N° ${personal.dni} - Plaza/Legajo N° ${personal.plaza || 'S/D'}`, 152.5, finalY + 25, { align: 'center' });
-  doc.setFont('helvetica', 'italic');
-  doc.text('Firma y Aclaración de la Persona / Efectivo Registrado', 152.5, finalY + 29, { align: 'center' });
+  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  drawRightSignatureBlock(
+    doc,
+    finalY,
+    `${personal.jerarquia.toUpperCase()} ${personal.apellidoYNombre.toUpperCase()}`,
+    `D.N.I. N° ${personal.dni} - Firma del Efectivo`
+  );
 
   drawPoliceFooter(doc, config);
-  doc.save(`Legajo_${personal.dni}_${personal.apellidoYNombre.replace(/\s+/g, '_')}.pdf`);
+  return doc;
+  };
+
+  const fileName = `Legajo_${personal.dni}_${personal.apellidoYNombre.replace(/\s+/g, '_')}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: `Legajo Policial - ${personal.jerarquia} ${personal.apellidoYNombre}`,
+    fileName,
+    defaultOrientation: 'portrait',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
 }
 
 /**
@@ -1311,15 +1427,17 @@ export function generarPdfReporteEjecutivo(
     tareasDistribucion: { name: string; count: number }[];
     dependenciasDistribucion: { name: string; count: number }[];
   },
-  config: ConfiguracionSistema
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
 ) {
-  const doc = new jsPDF('p', 'mm', 'a4');
-  let currentY = drawPoliceHeader(
-    doc,
-    config,
-    `REPORTE OFICIAL RÁPIDO DE GESTIÓN POLICIAL - ${stats.periodoNombre.toUpperCase()}`,
-    12
-  );
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      `REPORTE OFICIAL RÁPIDO DE GESTIÓN POLICIAL - ${stats.periodoNombre.toUpperCase()}`,
+      12
+    );
 
   autoTable(doc, {
     startY: currentY,
@@ -1361,25 +1479,24 @@ export function generarPdfReporteEjecutivo(
     margin: { left: 14, right: 14 },
   });
 
-  // Firma oficial exclusiva del Jefe (A la derecha)
-  let finalY = (doc as any).lastAutoTable.finalY + 12;
-  if (finalY > 235) {
-    doc.addPage();
-    finalY = 40;
-  }
-  doc.setDrawColor(50, 60, 75);
-  doc.setLineWidth(0.4);
-  doc.line(125, finalY + 14, 185, finalY + 14);
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 41, 59);
-  doc.text('JEFE DE DIVISIÓN / UNIDAD', 155, finalY + 18, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.text('Firma, Aclaración y Sello Oficial', 155, finalY + 22, { align: 'center' });
-
+  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  drawRightSignatureBlock(doc, finalY, 'JEFE DE DIVISIÓN / UNIDAD');
   drawPoliceFooter(doc, config);
-  doc.save(`Reporte_Gestion_${stats.periodoNombre.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  return doc;
+  };
+
+  const fileName = `Reporte_Gestion_${stats.periodoNombre.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: `Reporte Ejecutivo de Gestión - ${stats.periodoNombre}`,
+    fileName,
+    defaultOrientation: 'portrait',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
 }
 
 /**
@@ -1387,15 +1504,17 @@ export function generarPdfReporteEjecutivo(
  */
 export function generarPdfInspeccionOcular(
   io: any,
-  config: ConfiguracionSistema
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
 ) {
-  const doc = new jsPDF('p', 'mm', 'a4');
-  let currentY = drawPoliceHeader(
-    doc,
-    config,
-    `ACTA OFICIAL DE INSPECCIÓN OCULAR - ${io.nroIO}`,
-    12
-  );
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      `ACTA OFICIAL DE INSPECCIÓN OCULAR - ${io.nroIO}`,
+      12
+    );
 
   autoTable(doc, {
     startY: currentY,
@@ -1466,25 +1585,23 @@ export function generarPdfInspeccionOcular(
     currentY += 12;
   }
 
-  // Firma oficial exclusiva del Jefe (A la derecha)
-  if (currentY > 230) {
-    doc.addPage();
-    currentY = 40;
-  }
-  doc.setDrawColor(50, 60, 75);
-  doc.setLineWidth(0.4);
-  doc.line(125, currentY + 15, 185, currentY + 15);
-
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 41, 59);
-  doc.text('JEFE DE DIVISIÓN / UNIDAD', 155, currentY + 20, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.text('Firma, Aclaración y Sello Oficial', 155, currentY + 24, { align: 'center' });
-
+  drawRightSignatureBlock(doc, currentY, 'JEFE DE DIVISIÓN / UNIDAD');
   drawPoliceFooter(doc, config);
-  doc.save(`Inspeccion_Ocular_${io.nroIO.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+  return doc;
+  };
+
+  const fileName = `Inspeccion_Ocular_${io.nroIO.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: `Acta Oficial de Inspección Ocular - ${io.nroIO}`,
+    fileName,
+    defaultOrientation: 'portrait',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
 }
 
 /**
@@ -1492,15 +1609,17 @@ export function generarPdfInspeccionOcular(
  */
 export function generarPdfReporteInspeccionesOcularesPorTipo(
   inspecciones: InspeccionOcular[],
-  config: ConfiguracionSistema
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
 ) {
-  const doc = new jsPDF('p', 'mm', 'a4');
-  let currentY = drawPoliceHeader(
-    doc,
-    config,
-    'REPORTE OFICIAL DE INSPECCIONES OCULARES PERICIALES POR TIPO',
-    12
-  );
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      'REPORTE OFICIAL DE INSPECCIONES OCULARES PERICIALES POR TIPO',
+      12
+    );
 
   // Estadísticas agrupadas por Tipo
   const porTipo: Record<string, { count: number; fotos: number }> = {};
@@ -1592,39 +1711,42 @@ export function generarPdfReporteInspeccionesOcularesPorTipo(
     margin: { left: 10, right: 10 },
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 12;
-  if (finalY > 235) {
-    doc.addPage();
-  }
-  const firmaY = finalY > 235 ? 40 : finalY;
-  doc.setDrawColor(50, 60, 75);
-  doc.setLineWidth(0.4);
-  doc.line(125, firmaY + 15, 185, firmaY + 15);
-
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 41, 59);
-  doc.text('JEFE DE DIVISIÓN / UNIDAD', 155, firmaY + 20, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.text('Firma, Aclaración y Sello Oficial', 155, firmaY + 24, { align: 'center' });
-
+  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  drawRightSignatureBlock(doc, finalY, 'JEFE DE DIVISIÓN / UNIDAD');
   drawPoliceFooter(doc, config);
-  doc.save(`Reporte_Inspecciones_Oculares_Por_Tipo_${new Date().toISOString().slice(0, 10)}.pdf`);
+  return doc;
+  };
+
+  const fileName = `Reporte_Inspecciones_Oculares_Por_Tipo_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: 'Reporte de Inspecciones Oculares por Tipo',
+    fileName,
+    defaultOrientation: 'portrait',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
 }
 
 /**
  * 9. FORMULARIO OFICIAL EN BLANCO PARA REGISTRO DE PERSONAL A MANO
- * Diseñado con renglones de llenado manual y firma del nuevo personal en el LADO IZQUIERDO.
  */
-export function generarPdfFormularioRegistroMano(config: ConfiguracionSistema) {
-  const doc = new jsPDF('p', 'mm', 'a4');
-  let currentY = drawPoliceHeader(
-    doc,
-    config,
-    'FORMULARIO OFICIAL DE DECLARACIÓN JURADA E INSCRIPCIÓN DE PERSONAL',
-    12
-  );
+export function generarPdfFormularioRegistroMano(
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
+) {
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      'FORMULARIO OFICIAL DE DECLARACIÓN JURADA E INSCRIPCIÓN DE PERSONAL',
+      12
+    );
 
   // Cuadro informativo superior
   autoTable(doc, {
@@ -1790,44 +1912,64 @@ export function generarPdfFormularioRegistroMano(config: ConfiguracionSistema) {
     'DECLARO BAJO JURAMENTO que todos los datos contenidos en el presente formulario son verídicos, exactos y completos. Asimismo, me comprometo formalmente a notificar de inmediato cualquier cambio de domicilio, contacto, habilitación o equipamiento oficial a la División Personal y Superioridad dentro del plazo reglamentario.',
     14,
     currentY,
-    { maxWidth: 182, align: 'justify' }
+    { maxWidth: pageWidth - 28, align: 'justify' }
   );
 
   currentY += 12;
 
-  // FIRMA DEL NUEVO PERSONAL UBICADA ESTRICTAMENTE EN EL LADO IZQUIERDO
-  // A la derecha: Espacio para recepción oficial
+  const pageHeight = doc.internal.pageSize.getHeight();
+  if (currentY > pageHeight - 40) {
+    doc.addPage();
+    currentY = 30;
+  }
+
   doc.setDrawColor(50, 60, 75);
   doc.setLineWidth(0.4);
 
   // Línea Izquierda: FIRMA DEL NUEVO PERSONAL
-  doc.line(16, currentY + 12, 88, currentY + 12);
+  const leftLineEnd = Math.min(88, pageWidth * 0.43);
+  const leftCenter = (16 + leftLineEnd) / 2;
+  doc.line(16, currentY + 12, leftLineEnd, currentY + 12);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(17, 38, 77);
-  doc.text('FIRMA DEL NUEVO PERSONAL', 52, currentY + 16, { align: 'center' });
+  doc.text('FIRMA DEL NUEVO PERSONAL', leftCenter, currentY + 16, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(71, 85, 105);
-  doc.text('Aclaración: ____________________________________', 52, currentY + 20, { align: 'center' });
-  doc.text('D.N.I. N°: _______________________________________', 52, currentY + 24, { align: 'center' });
-  doc.setFont('helvetica', 'italic');
-  doc.text('(Firma del Efectivo que se Registra - Lado Izquierdo)', 52, currentY + 28, { align: 'center' });
+  doc.text('Aclaración: ____________________________________', leftCenter, currentY + 20, { align: 'center' });
+  doc.text('D.N.I. N°: _______________________________________', leftCenter, currentY + 24, { align: 'center' });
 
   // Línea Derecha: RECEPCIÓN OFICIAL
-  doc.line(122, currentY + 12, 194, currentY + 12);
+  const rightLineEnd = pageWidth - 16;
+  const rightLineStart = Math.max(pageWidth * 0.57, rightLineEnd - 72);
+  const rightCenter = (rightLineStart + rightLineEnd) / 2;
+  doc.line(rightLineStart, currentY + 12, rightLineEnd, currentY + 12);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 41, 59);
-  doc.text('RECEPCIONADO DIVISIÓN PERSONAL / GUARDIA', 158, currentY + 16, { align: 'center' });
+  doc.text('RECEPCIONADO DIVISIÓN PERSONAL / GUARDIA', rightCenter, currentY + 16, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(71, 85, 105);
-  doc.text('Firma, Aclaración y Sello de la Autoridad Receptora', 158, currentY + 20, { align: 'center' });
-  doc.text('Fecha de Ingreso al Sistema: ______ / ______ / 2026', 158, currentY + 24, { align: 'center' });
+  doc.text('Firma, Aclaración y Sello Oficial', rightCenter, currentY + 20, { align: 'center' });
 
   drawPoliceFooter(doc, config);
-  doc.save(`Formulario_Registro_Personal_Llenado_Manual_${new Date().toISOString().slice(0, 10)}.pdf`);
+  return doc;
+  };
+
+  const fileName = `Formulario_Registro_Personal_Llenado_Manual_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: 'Formulario Oficial de Inscripción de Personal',
+    fileName,
+    defaultOrientation: 'portrait',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
 }
 
 /**
@@ -1835,15 +1977,17 @@ export function generarPdfFormularioRegistroMano(config: ConfiguracionSistema) {
  */
 export function generarPdfReporteAccidentologia(
   registros: AccidentologiaRegistro[],
-  config: ConfiguracionSistema
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
 ) {
-  const doc = new jsPDF('l', 'mm', 'a4'); // Horizontal para tabla integral
-  let currentY = drawPoliceHeader(
-    doc,
-    config,
-    'INFORME ESTADÍSTICO Y RELEVAMIENTO DE ACCIDENTOLOGÍA VIAL (PERSONAL POLICIAL INVOLUCRADO)',
-    10
-  );
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      'INFORME ESTADÍSTICO Y RELEVAMIENTO DE ACCIDENTOLOGÍA VIAL (PERSONAL POLICIAL INVOLUCRADO)',
+      10
+    );
 
   const filas = registros.map((r, idx) => [
     idx + 1,
@@ -1886,39 +2030,275 @@ export function generarPdfReporteAccidentologia(
     theme: 'grid',
     styles: { fontSize: 7, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.2 },
     headStyles: { fillColor: POLICE_LIGHT_BLUE, textColor: POLICE_NAVY, fontStyle: 'bold' },
-    columnStyles: {
-      0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 16, fontStyle: 'bold', textColor: POLICE_NAVY, halign: 'center' },
-      2: { cellWidth: 22 },
-      3: { cellWidth: 42 },
-      4: { cellWidth: 50 },
-      5: { cellWidth: 25 },
-      6: { cellWidth: 48 },
-      7: { cellWidth: 32 },
-      8: { cellWidth: 34 },
-    },
     margin: { left: 10, right: 10 },
   });
 
-  let finalY = (doc as any).lastAutoTable.finalY + 10;
-  if (finalY > 175) {
-    doc.addPage();
-    finalY = 30;
-  }
-
-  // Firma oficial exclusiva del Jefe a la DERECHA
-  doc.setDrawColor(50, 60, 75);
-  doc.setLineWidth(0.4);
-  doc.line(200, finalY + 12, 275, finalY + 12);
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 41, 59);
-  doc.text('JEFE DE DIVISIÓN / UNIDAD', 237.5, finalY + 16, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.text('Firma, Aclaración y Sello Oficial', 237.5, finalY + 20, { align: 'center' });
-
+  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  drawRightSignatureBlock(doc, finalY, 'JEFE DE DIVISIÓN / UNIDAD');
   drawPoliceFooter(doc, config);
-  doc.save(`Reporte_Accidentologia_Policial_${new Date().toISOString().slice(0, 10)}.pdf`);
+  return doc;
+  };
+
+  const fileName = `Reporte_Accidentologia_Policial_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: 'Informe Estadístico de Accidentología Vial Policial',
+    fileName,
+    defaultOrientation: 'landscape',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
+}
+
+/**
+ * 11. CONSTANCIA INDIVIDUAL DE LICENCIA POLICIAL (RÉGIMEN DE LICENCIAS POLICIALES)
+ */
+export function generarPdfConstanciaLicencia(
+  licencia: LicenciaPolicial,
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
+) {
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      `CONSTANCIA OFICIAL DE LICENCIA POLICIAL - TIPO ${licencia.tipoLicencia.toUpperCase()}`,
+      12
+    );
+
+    const imputacionTexto =
+      licencia.imputacionAnios && licencia.imputacionAnios.length > 0
+        ? licencia.imputacionAnios.map((i) => `Período ${i.anio}: ${i.dias} día(s)`).join('  |  ')
+        : 'No imputa saldo anual';
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [[{ content: '1. DATOS DEL EFECTIVO (HEREDADOS DE PERSONAL Y LEGAJO)', colSpan: 4, styles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' } }]],
+      body: [
+        [
+          { content: 'JERARQUÍA:', styles: { fontStyle: 'bold' } },
+          { content: licencia.jerarquia, styles: { fontStyle: 'bold', textColor: POLICE_NAVY } },
+          { content: 'APELLIDO Y NOMBRE:', styles: { fontStyle: 'bold' } },
+          { content: licencia.apellidoYNombre, styles: { fontStyle: 'bold' } },
+        ],
+        [
+          { content: 'D.N.I. N°:', styles: { fontStyle: 'bold' } },
+          { content: licencia.dni },
+          { content: 'FECHA DE INGRESO / ANTIGÜEDAD:', styles: { fontStyle: 'bold' } },
+          { content: `${formatFechaDisplay(licencia.fechaIngreso)} (${licencia.antiguedadAnios} años)` },
+        ],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 8.5, cellPadding: 2.2, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+      margin: { left: 14, right: 14 },
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 4;
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [[{ content: '2. DETALLE DE LICENCIA, CÓMPUTO DE DÍAS HÁBILES E IMPUTACIÓN', colSpan: 4, styles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' } }]],
+      body: [
+        [
+          { content: 'TIPO DE LICENCIA:', styles: { fontStyle: 'bold' } },
+          { content: licencia.tipoLicencia, styles: { fontStyle: 'bold' } },
+          { content: 'DISPOSICIÓN / EXPTE.:', styles: { fontStyle: 'bold' } },
+          { content: licencia.disposicionNro || 'S/D' },
+        ],
+        [
+          { content: 'FECHA DE SALIDA:', styles: { fontStyle: 'bold' } },
+          { content: formatFechaDisplay(licencia.fechaSalida), styles: { fontStyle: 'bold' } },
+          { content: 'DÍAS HÁBILES LICENCIA:', styles: { fontStyle: 'bold' } },
+          { content: `${licencia.diasHabilesSolicitados} días hábiles administrativos` },
+        ],
+        [
+          { content: 'TRASLADO TERRESTRE (ART. 11):', styles: { fontStyle: 'bold' } },
+          {
+            content: licencia.diasViajeArt11 > 0
+              ? `SÍ (+${licencia.diasViajeArt11} días por ${licencia.distanciaKm || 0} km)`
+              : 'No solicitado / < 300 km (0 días)',
+          },
+          { content: 'ÚLTIMO DÍA DE LICENCIA:', styles: { fontStyle: 'bold' } },
+          { content: formatFechaDisplay(licencia.fechaFinLicencia) },
+        ],
+        [
+          { content: 'FECHA Y HORA DE REANUDACIÓN:', styles: { fontStyle: 'bold', textColor: POLICE_NAVY } },
+          {
+            content: `${formatFechaDisplay(licencia.fechaReanudacion)} a las ${licencia.horaReanudacion || '08:00'} hs.`,
+            colSpan: 3,
+            styles: { fontStyle: 'bold', textColor: [22, 101, 52] },
+          },
+        ],
+        [
+          { content: 'IMPUTACIÓN MULTI-AÑO:', styles: { fontStyle: 'bold' } },
+          { content: imputacionTexto, colSpan: 3 },
+        ],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 8.5, cellPadding: 2.2, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+      margin: { left: 14, right: 14 },
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 4;
+
+    if (licencia.fueInterrumpida) {
+      autoTable(doc, {
+        startY: currentY,
+        head: [[{ content: '3. INTERRUPCIÓN DE LICENCIA POR RAZONES DE SERVICIO (ART. 15)', colSpan: 4, styles: { fillColor: [185, 28, 28], textColor: [255, 255, 255], fontStyle: 'bold' } }]],
+        body: [
+          [
+            { content: 'ESTADO:', styles: { fontStyle: 'bold' } },
+            { content: 'INTERRUMPIDA', styles: { fontStyle: 'bold', textColor: [185, 28, 28] } },
+            { content: 'FECHA DE INTERRUPCIÓN:', styles: { fontStyle: 'bold' } },
+            { content: formatFechaDisplay(licencia.fechaInterrupcion) },
+          ],
+          [
+            { content: 'DÍAS GOZADOS / RESTITUIDOS:', styles: { fontStyle: 'bold' } },
+            {
+              content: `Gozados: ${licencia.diasEfectivamenteGozados ?? 0} d.  |  Restituidos: ${licencia.diasRestituidos ?? 0} d.`,
+              colSpan: 3,
+            },
+          ],
+          [
+            { content: 'MOTIVO (ART. 15):', styles: { fontStyle: 'bold' } },
+            { content: licencia.motivoInterrupcion || 'Razones de servicio debidamente fundadas.', colSpan: 3 },
+          ],
+        ],
+        theme: 'grid',
+        styles: { fontSize: 8.5, cellPadding: 2.2, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+        margin: { left: 14, right: 14 },
+      });
+      currentY = (doc as any).lastAutoTable.finalY + 4;
+    }
+
+    if (licencia.observaciones) {
+      autoTable(doc, {
+        startY: currentY,
+        head: [[{ content: 'OBSERVACIONES', styles: { fillColor: POLICE_LIGHT_BLUE, textColor: POLICE_NAVY, fontStyle: 'bold' } }]],
+        body: [[licencia.observaciones]],
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 2.2, lineColor: POLICE_BORDER, lineWidth: 0.2 },
+        margin: { left: 14, right: 14 },
+      });
+      currentY = (doc as any).lastAutoTable.finalY + 8;
+    } else {
+      currentY += 8;
+    }
+
+    drawRightSignatureBlock(doc, currentY, 'JEFE DE DIVISIÓN / DEPENDENCIA');
+    drawPoliceFooter(doc, config);
+    return doc;
+  };
+
+  const fileName = `Constancia_Licencia_${licencia.dni}_${licencia.fechaSalida}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: `Constancia de Licencia - ${licencia.jerarquia} ${licencia.apellidoYNombre}`,
+    fileName,
+    defaultOrientation: 'portrait',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
+}
+
+/**
+ * 12. REPORTE GENERAL DE LICENCIAS POLICIALES Y SALDOS POR PERSONAL
+ */
+export function generarPdfReporteLicencias(
+  licencias: LicenciaPolicial[],
+  resumenSaldos: Array<{
+    jerarquia: string;
+    apellidoYNombre: string;
+    dni: string;
+    antiguedadAnios: number;
+    escalaArt7: number;
+    totalDisponibles: number;
+    totalUsados: number;
+    aniosVencidos: string;
+  }>,
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
+) {
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      'REPORTE GENERAL DE RÉGIMEN DE LICENCIAS POLICIALES Y SALDOS DISPONIBLES',
+      10
+    );
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [
+        [{ content: `NÓMINA DE LICENCIAS REGISTRADAS (${licencias.length})`, colSpan: 8, styles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' } }],
+        ['N°', 'Jerarquía / Apellido y Nombre', 'DNI', 'Tipo', 'Salida', 'Días + Art.11', 'Reanudación (08:00 hs)', 'Imputación / Estado'],
+      ],
+      body: licencias.length > 0
+        ? licencias.map((l, idx) => [
+            idx + 1,
+            `${l.jerarquia}\n${l.apellidoYNombre}`,
+            l.dni,
+            l.tipoLicencia,
+            formatFechaDisplay(l.fechaSalida),
+            `${l.diasHabilesSolicitados} d.${l.diasViajeArt11 > 0 ? ` (+${l.diasViajeArt11} Art.11)` : ''}`,
+            `${formatFechaDisplay(l.fechaReanudacion)} ${l.horaReanudacion || '08:00'}`,
+            `${(l.imputacionAnios || []).map((i) => `${i.anio}:${i.dias}d`).join(', ') || '-'}${l.fueInterrumpida ? '\n[INTERRUMPIDA ART.15]' : ''}`,
+          ])
+        : [['---', 'Sin licencias registradas', '', '', '', '', '', '']],
+      theme: 'grid',
+      styles: { fontSize: 7.3, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.15 },
+      headStyles: { fillColor: POLICE_LIGHT_BLUE, textColor: POLICE_NAVY, fontStyle: 'bold' },
+      margin: { left: 10, right: 10 },
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 6;
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [
+        [{ content: 'BALANCE DE DÍAS DISPONIBLES POR EFECTIVO (ESCALA ART. 7)', colSpan: 7, styles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' } }],
+        ['Jerarquía', 'Apellido y Nombre', 'DNI', 'Antigüedad', 'Escala Art. 7', 'Usados / Disponibles', 'Años Vencidos'],
+      ],
+      body: resumenSaldos.map((s) => [
+        s.jerarquia,
+        s.apellidoYNombre,
+        s.dni,
+        `${s.antiguedadAnios} años`,
+        `${s.escalaArt7} días`,
+        `Usados: ${s.totalUsados} d. | Disp: ${s.totalDisponibles} d.`,
+        s.aniosVencidos || 'Ninguno',
+      ]),
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.15 },
+      headStyles: { fillColor: POLICE_LIGHT_BLUE, textColor: POLICE_NAVY, fontStyle: 'bold' },
+      margin: { left: 10, right: 10 },
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    drawRightSignatureBlock(doc, finalY, 'JEFE DE DIVISIÓN / PERSONAL');
+    drawPoliceFooter(doc, config);
+    return doc;
+  };
+
+  const fileName = `Reporte_Licencias_Policiales_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: 'Reporte General de Licencias Policiales',
+    fileName,
+    defaultOrientation: 'landscape',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
 }
 

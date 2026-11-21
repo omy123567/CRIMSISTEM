@@ -36,9 +36,11 @@ import {
   AlertCircle,
   PlusCircle,
   Edit3,
+  Smartphone,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { RolModal } from './RolModal';
+import { AdminChangePasswordModal, AdminUser2faModal } from './AdminUserSecurityModals';
 import { evaluarFortalezaPassword } from '../../services/securityClient';
 
 interface UsuariosViewProps {
@@ -50,11 +52,14 @@ interface UsuariosViewProps {
   onDeleteUsuario: (id: string) => Promise<void> | void;
   onSaveRol?: (rol: RolSistema) => Promise<void> | void;
   onDeleteRol?: (id: string) => Promise<void> | void;
+  onAdminReset2fa?: (userId: string) => Promise<void> | void;
+  onUserUpdated?: (user: UsuarioSistema) => void;
 }
 
 export const MODULOS_DISPONIBLES = [
   { id: 'dashboard', label: 'Dashboard Ejecutivo', desc: 'KPIs y Estadísticas' },
   { id: 'personal', label: 'Personal Policial', desc: 'Legajos, Armas y Chalecos' },
+  { id: 'licencias', label: 'Licencia Policial', desc: 'Régimen Art. 7, 11, 15 & Feriados' },
   { id: 'grupos', label: 'Grupos de Guardia', desc: 'Secciones y Nóminas' },
   { id: 'expedientes', label: 'Expedientes Judiciales', desc: 'Oficios y Tareas' },
   { id: 'falta-oficio', label: 'Casos Falta de Oficio', desc: 'Urgencias preliminares' },
@@ -109,7 +114,29 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   onDeleteUsuario,
   onSaveRol,
   onDeleteRol,
+  onAdminReset2fa,
+  onUserUpdated,
 }) => {
+  const canChangeOtherPasswords =
+    currentUser.rol === 'superusuario' ||
+    Boolean(
+      currentUser.puedeCambiarPasswordOtros ||
+        currentUser.accionesPersonalizadas?.puedeCambiarPasswordOtros
+    );
+  const canManageOther2fa =
+    currentUser.rol === 'superusuario' ||
+    Boolean(
+      currentUser.puedeGestionar2faOtros ||
+        currentUser.accionesPersonalizadas?.puedeGestionar2faOtros
+    );
+  const canFullUserCrud =
+    currentUser.rol === 'superusuario' ||
+    currentUser.rol === 'Administrador' ||
+    Boolean(currentUser.accionesPersonalizadas?.puedeGestionarUsuarios) ||
+    (Array.isArray(currentUser.modulosPermitidos) &&
+      currentUser.modulosPermitidos.includes('usuarios') &&
+      !currentUser.esSoloLectura);
+
   // Pestaña activa
   const [activeSubTab, setActiveSubTab] = useState<'usuarios' | 'roles'>('usuarios');
 
@@ -124,7 +151,13 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   // Modales Usuario
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UsuarioSistema | null>(null);
+  const [passwordTargetUser, setPasswordTargetUser] = useState<UsuarioSistema | null>(null);
+  const [twoFactorTargetUser, setTwoFactorTargetUser] = useState<UsuarioSistema | null>(null);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<{
+    isOpen: boolean;
+    user: UsuarioSistema | null;
+  }>({ isOpen: false, user: null });
+  const [reset2faConfirmUser, setReset2faConfirmUser] = useState<{
     isOpen: boolean;
     user: UsuarioSistema | null;
   }>({ isOpen: false, user: null });
@@ -165,6 +198,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   const [formPuedeResetearContadores, setFormPuedeResetearContadores] = useState(false);
   const [formPuedeRecargarOtrasDelegaciones, setFormPuedeRecargarOtrasDelegaciones] = useState(false);
   const [formPuedeConfirmarFotografias, setFormPuedeConfirmarFotografias] = useState(false);
+  const [formPuedeCambiarPasswordOtros, setFormPuedeCambiarPasswordOtros] = useState(false);
+  const [formPuedeGestionar2faOtros, setFormPuedeGestionar2faOtros] = useState(false);
   const [formActivo, setFormActivo] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -247,6 +282,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
       setFormPuedeResetearContadores(false);
       setFormPuedeRecargarOtrasDelegaciones(false);
       setFormPuedeConfirmarFotografias(false);
+      setFormPuedeCambiarPasswordOtros(false);
+      setFormPuedeGestionar2faOtros(false);
     }
 
     setFormActivo(true);
@@ -285,6 +322,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     setFormPuedeResetearContadores(Boolean(user.puedeResetearContadores));
     setFormPuedeRecargarOtrasDelegaciones(Boolean(user.puedeRecargarOtrasDelegaciones));
     setFormPuedeConfirmarFotografias(Boolean(user.puedeConfirmarFotografias || user.accionesPersonalizadas?.puedeConfirmarFotografias));
+    setFormPuedeCambiarPasswordOtros(Boolean(user.puedeCambiarPasswordOtros || user.accionesPersonalizadas?.puedeCambiarPasswordOtros));
+    setFormPuedeGestionar2faOtros(Boolean(user.puedeGestionar2faOtros || user.accionesPersonalizadas?.puedeGestionar2faOtros));
     setFormActivo(user.activo);
     setIsModalOpen(true);
   };
@@ -307,6 +346,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
       setFormPuedeRecargarOtrasDelegaciones(Boolean(rol.acciones.puedeRecargarOtrasDelegaciones));
       setFormPuedeVerOtras(Boolean(rol.acciones.puedeVerOtrasDelegaciones));
       setFormPuedeConfirmarFotografias(Boolean(rol.acciones.puedeConfirmarFotografias));
+      setFormPuedeCambiarPasswordOtros(Boolean(rol.acciones.puedeCambiarPasswordOtros));
+      setFormPuedeGestionar2faOtros(Boolean(rol.acciones.puedeGestionar2faOtros));
     }
   };
 
@@ -415,6 +456,14 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
       puedeResetearContadores: formPuedeResetearContadores,
       puedeRecargarOtrasDelegaciones: formPuedeRecargarOtrasDelegaciones,
       puedeConfirmarFotografias: formPuedeConfirmarFotografias,
+      puedeCambiarPasswordOtros: formRol === 'superusuario' ? true : formPuedeCambiarPasswordOtros,
+      puedeGestionar2faOtros: formRol === 'superusuario' ? true : formPuedeGestionar2faOtros,
+      accionesPersonalizadas: {
+        ...(editingUser?.accionesPersonalizadas || {}),
+        puedeConfirmarFotografias: formPuedeConfirmarFotografias,
+        puedeCambiarPasswordOtros: formRol === 'superusuario' ? true : formPuedeCambiarPasswordOtros,
+        puedeGestionar2faOtros: formRol === 'superusuario' ? true : formPuedeGestionar2faOtros,
+      },
       activo: formActivo,
       createdAt: editingUser?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -476,7 +525,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          {activeSubTab === 'usuarios' ? (
+          {canFullUserCrud && activeSubTab === 'usuarios' && (
             <button
               onClick={handleOpenCreate}
               className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm transition-colors cursor-pointer"
@@ -484,7 +533,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
               <UserPlus className="w-4 h-4" />
               <span>+ Nuevo Usuario</span>
             </button>
-          ) : (
+          )}
+          {canFullUserCrud && activeSubTab === 'roles' && (
             <button
               onClick={() => {
                 setEditingRol(null);
@@ -538,20 +588,22 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
           </span>
         </button>
 
-        <button
-          onClick={() => setActiveSubTab('roles')}
-          className={`flex items-center gap-2 px-4 py-2.5 font-bold text-xs border-b-2 cursor-pointer transition-all ${
-            activeSubTab === 'roles'
-              ? 'border-blue-900 text-blue-950 bg-blue-50/50'
-              : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <ShieldCheck className="w-4 h-4 text-purple-700" />
-          <span>Roles y Permisos por Acciones</span>
-          <span className="bg-purple-100 text-purple-800 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-            {rolesList.length}
-          </span>
-        </button>
+        {canFullUserCrud && (
+          <button
+            onClick={() => setActiveSubTab('roles')}
+            className={`flex items-center gap-2 px-4 py-2.5 font-bold text-xs border-b-2 cursor-pointer transition-all ${
+              activeSubTab === 'roles'
+                ? 'border-blue-900 text-blue-950 bg-blue-50/50'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 text-purple-700" />
+            <span>Roles y Permisos por Acciones</span>
+            <span className="bg-purple-100 text-purple-800 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+              {rolesList.length}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* VISTA 1: USUARIOS DEL SISTEMA */}
@@ -769,38 +821,89 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
 
                           {/* Estado */}
                           <td className="px-4 py-3 text-center">
-                            {user.activo ? (
-                              <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                Activo
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200 text-[10px]">
-                                <XCircle className="w-3 h-3 text-rose-600" />
-                                Inactivo
-                              </span>
-                            )}
+                            <div className="flex flex-col items-center gap-1">
+                              {user.activo ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  Activo
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200 text-[10px]">
+                                  <XCircle className="w-3 h-3 text-rose-600" />
+                                  Inactivo
+                                </span>
+                              )}
+                              {user.totpEnabled && (
+                                <span
+                                  className="inline-flex items-center gap-1 text-blue-800 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 text-[9px]"
+                                  title={`Google Authenticator activo${
+                                    user.trustedDevices && user.trustedDevices.length > 0
+                                      ? ` • ${user.trustedDevices.length} dispositivo(s) de confianza`
+                                      : ''
+                                  }`}
+                                >
+                                  <Smartphone className="w-2.5 h-2.5 text-blue-700" />
+                                  2FA Activo
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           {/* Acciones */}
                           <td className="px-4 py-3 text-center">
                             <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                onClick={() => handleOpenEdit(user)}
-                                className="p-1.5 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-700 rounded cursor-pointer transition-colors"
-                                title="Editar Usuario y Permisos"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
+                              {canFullUserCrud && (
+                                <button
+                                  onClick={() => handleOpenEdit(user)}
+                                  className="p-1.5 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-700 rounded cursor-pointer transition-colors"
+                                  title="Editar Usuario y Permisos"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
 
-                              <button
-                                disabled={isCurrentUser}
-                                onClick={() => setDeleteConfirmUser({ isOpen: true, user })}
-                                className="p-1.5 bg-slate-100 hover:bg-red-100 text-slate-700 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed rounded cursor-pointer transition-colors"
-                                title={isCurrentUser ? 'No puedes eliminarte a ti mismo' : 'Eliminar Usuario'}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {canChangeOtherPasswords &&
+                                (currentUser.rol === 'superusuario' || user.rol !== 'superusuario') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPasswordTargetUser(user)}
+                                    className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded cursor-pointer transition-colors"
+                                    title="Cambiar Contraseña de este Usuario"
+                                  >
+                                    <KeyRound className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+
+                              {canManageOther2fa &&
+                                (currentUser.rol === 'superusuario' || user.rol !== 'superusuario') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setTwoFactorTargetUser(user)}
+                                    className={`p-1.5 rounded border cursor-pointer transition-colors ${
+                                      user.totpEnabled
+                                        ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                                        : 'bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-800 border-slate-200'
+                                    }`}
+                                    title={
+                                      user.totpEnabled
+                                        ? 'Gestionar / Desactivar Google Authenticator (2FA)'
+                                        : 'Activar Google Authenticator (2FA) para este usuario'
+                                    }
+                                  >
+                                    <Smartphone className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+
+                              {canFullUserCrud && (
+                                <button
+                                  disabled={isCurrentUser}
+                                  onClick={() => setDeleteConfirmUser({ isOpen: true, user })}
+                                  className="p-1.5 bg-slate-100 hover:bg-red-100 text-slate-700 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed rounded cursor-pointer transition-colors"
+                                  title={isCurrentUser ? 'No puedes eliminarte a ti mismo' : 'Eliminar Usuario'}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -886,7 +989,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                       <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 mb-1.5">
                         <span className="flex items-center gap-1">
                           <ShieldCheck className="w-3.5 h-3.5 text-blue-700" />
-                          <span>Acciones Granulares ({totalAccionesActivas}/12):</span>
+                          <span>Acciones Granulares ({totalAccionesActivas}/15):</span>
                         </span>
                       </div>
 
@@ -954,6 +1057,16 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                         <span className={`px-1.5 py-0.5 rounded border flex items-center gap-1 col-span-2 ${rol.acciones.puedeConfirmarFotografias ? 'bg-amber-50 text-amber-800 border-amber-200 font-semibold' : 'bg-slate-50 text-slate-400 border-slate-200 line-through'}`}>
                           {rol.acciones.puedeConfirmarFotografias ? <Check className="w-3 h-3 text-amber-600" /> : <X className="w-3 h-3" />}
                           <span>Confirmar Fotos I.O.</span>
+                        </span>
+
+                        <span className={`px-1.5 py-0.5 rounded border flex items-center gap-1 ${rol.acciones.puedeCambiarPasswordOtros ? 'bg-amber-50 text-amber-800 border-amber-200 font-semibold' : 'bg-slate-50 text-slate-400 border-slate-200 line-through'}`}>
+                          {rol.acciones.puedeCambiarPasswordOtros ? <Check className="w-3 h-3 text-amber-600" /> : <X className="w-3 h-3" />}
+                          <span>Cambiar Pass Otros</span>
+                        </span>
+
+                        <span className={`px-1.5 py-0.5 rounded border flex items-center gap-1 ${rol.acciones.puedeGestionar2faOtros ? 'bg-emerald-50 text-emerald-800 border-emerald-200 font-semibold' : 'bg-slate-50 text-slate-400 border-slate-200 line-through'}`}>
+                          {rol.acciones.puedeGestionar2faOtros ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3" />}
+                          <span>Gestionar 2FA Otros</span>
                         </span>
                       </div>
                     </div>
@@ -1117,45 +1230,55 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                     <label className="block font-semibold text-slate-700">
                       {editingUser ? 'Nueva Contraseña (opcional)' : 'Contraseña *'}
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      className="text-[11px] text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                      <span>{showPassword ? 'Ocultar' : 'Mostrar'}</span>
-                    </button>
+                    {(!editingUser || canChangeOtherPasswords || editingUser.id === currentUser.id) && (
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="text-[11px] text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <span>{showPassword ? 'Ocultar' : 'Mostrar'}</span>
+                      </button>
+                    )}
                   </div>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required={!editingUser}
-                    minLength={!editingUser || formPassword.trim().length > 0 ? 8 : undefined}
-                    value={formPassword}
-                    onChange={(e) => setFormPassword(e.target.value)}
-                    placeholder={
-                      editingUser
-                        ? 'Dejar vacío para mantener contraseña actual'
-                        : 'Mínimo 8 caracteres'
-                    }
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono text-slate-900 text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white"
-                  />
-                  {formPassword.length > 0 && (() => {
-                    const strength = evaluarFortalezaPassword(formPassword);
-                    return (
-                      <div className="mt-1.5 space-y-1">
-                        <div className="flex items-center justify-between text-[10px]">
-                          <span className="text-slate-500">Fortaleza:</span>
-                          <span className={`font-bold ${strength.colorClass}`}>{strength.label}</span>
-                        </div>
-                        <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all duration-300 ${strength.barColor}`}
-                            style={{ width: `${(strength.score / 4) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {editingUser && !canChangeOtherPasswords && editingUser.id !== currentUser.id ? (
+                    <div className="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-[11px] text-slate-500">
+                      Sin permiso para cambiar contraseña de otros usuarios
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required={!editingUser}
+                        minLength={!editingUser || formPassword.trim().length > 0 ? 8 : undefined}
+                        value={formPassword}
+                        onChange={(e) => setFormPassword(e.target.value)}
+                        placeholder={
+                          editingUser
+                            ? 'Dejar vacío para mantener contraseña actual'
+                            : 'Mínimo 8 caracteres'
+                        }
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono text-slate-900 text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white"
+                      />
+                      {formPassword.length > 0 && (() => {
+                        const strength = evaluarFortalezaPassword(formPassword);
+                        return (
+                          <div className="mt-1.5 space-y-1">
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="text-slate-500">Fortaleza:</span>
+                              <span className={`font-bold ${strength.colorClass}`}>{strength.label}</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-300 ${strength.barColor}`}
+                                style={{ width: `${(strength.score / 4) * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1504,6 +1627,60 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                 </label>
               </div>
 
+              {/* Permiso Especial: Cambiar Contraseñas de Otros Usuarios */}
+              <div className="p-3.5 bg-amber-50/60 border border-amber-200 rounded-xl space-y-1.5 shadow-2xs">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formRol === 'superusuario' ? true : formPuedeCambiarPasswordOtros}
+                    disabled={formRol === 'superusuario'}
+                    onChange={(e) => setFormPuedeCambiarPasswordOtros(e.target.checked)}
+                    className="w-4 h-4 text-amber-700 rounded border-slate-300 focus:ring-amber-500 mt-0.5"
+                  />
+                  <div>
+                    <span className="font-bold text-amber-950 block text-xs flex items-center gap-1.5">
+                      <KeyRound className="w-3.5 h-3.5 text-amber-700" />
+                      <span>¿Permitir cambiar contraseñas de otros usuarios?</span>
+                      {formRol === 'superusuario' && (
+                        <span className="text-[10px] text-purple-700 font-bold bg-purple-100 px-1.5 py-0.2 rounded border border-purple-200">
+                          Automático (Superusuario)
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[11px] text-amber-900 block mt-0.5 leading-relaxed">
+                      Habilita al usuario a restablecer o cambiar la contraseña de acceso de cuentas pertenecientes a sus delegaciones autorizadas (nunca de un Superusuario).
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              {/* Permiso Especial: Activar o Desactivar 2FA de Otros Usuarios */}
+              <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1.5 shadow-2xs">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formRol === 'superusuario' ? true : formPuedeGestionar2faOtros}
+                    disabled={formRol === 'superusuario'}
+                    onChange={(e) => setFormPuedeGestionar2faOtros(e.target.checked)}
+                    className="w-4 h-4 text-emerald-700 rounded border-slate-300 focus:ring-emerald-500 mt-0.5"
+                  />
+                  <div>
+                    <span className="font-bold text-emerald-950 block text-xs flex items-center gap-1.5">
+                      <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>¿Permitir activar o desactivar Google Authenticator (2FA) de otros usuarios?</span>
+                      {formRol === 'superusuario' && (
+                        <span className="text-[10px] text-purple-700 font-bold bg-purple-100 px-1.5 py-0.2 rounded border border-purple-200">
+                          Automático (Superusuario)
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[11px] text-emerald-900 block mt-0.5 leading-relaxed">
+                      Autoriza a vincular (generar QR y códigos de respaldo) o desactivar la autenticación en 2 pasos de otros usuarios dentro de sus delegaciones autorizadas.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
               {/* Módulos Permitidos */}
               <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between">
@@ -1616,6 +1793,50 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
         }}
         onClose={() => setDeleteConfirmRol({ isOpen: false, rol: null })}
       />
+
+      {/* MODAL CONFIRMAR RESTABLECIMIENTO 2FA */}
+      <ConfirmModal
+        isOpen={reset2faConfirmUser.isOpen}
+        title="Restablecer Google Authenticator (2FA)"
+        message={`¿Confirma desactivar Google Authenticator (2FA) y revocar todos los dispositivos de confianza de @${reset2faConfirmUser.user?.username || ''} (${reset2faConfirmUser.user?.apellidoYNombre || ''})? Úselo solo si el usuario extravió su teléfono y no tiene códigos de respaldo.`}
+        confirmLabel="Restablecer 2FA"
+        isDestructive={true}
+        onConfirm={() => {
+          if (reset2faConfirmUser.user && onAdminReset2fa) {
+            onAdminReset2fa(reset2faConfirmUser.user.id);
+          }
+        }}
+        onClose={() => setReset2faConfirmUser({ isOpen: false, user: null })}
+      />
+
+      {/* MODAL CAMBIAR CONTRASEÑA DE OTRO USUARIO */}
+      {passwordTargetUser && (
+        <AdminChangePasswordModal
+          targetUser={passwordTargetUser}
+          onUserUpdated={(updated) => {
+            if (onUserUpdated) onUserUpdated(updated);
+            setBannerMsg({
+              text: `Contraseña actualizada correctamente para @${updated.username}.`,
+              isError: false,
+            });
+          }}
+          onClose={() => setPasswordTargetUser(null)}
+        />
+      )}
+
+      {/* MODAL ACTIVAR / DESACTIVAR 2FA DE OTRO USUARIO */}
+      {twoFactorTargetUser && (
+        <AdminUser2faModal
+          targetUser={
+            usuariosList.find((u) => u.id === twoFactorTargetUser.id) || twoFactorTargetUser
+          }
+          onUserUpdated={(updated) => {
+            if (onUserUpdated) onUserUpdated(updated);
+            setTwoFactorTargetUser(updated);
+          }}
+          onClose={() => setTwoFactorTargetUser(null)}
+        />
+      )}
     </div>
   );
 };

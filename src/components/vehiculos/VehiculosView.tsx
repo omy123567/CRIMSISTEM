@@ -22,6 +22,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 export interface VehiculoSiniestroConsolidado {
   id: string;
@@ -231,63 +232,71 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
 
   // Exportar a PDF
   const handleExportPdf = () => {
-    const doc = new jsPDF('l', 'mm', 'a4');
-    const startY = drawPoliceHeader(
-      doc,
-      config,
-      'REGISTRO CENTRALIZADO DE VEHÍCULOS / RODADOS EN SINIESTROS VIALES',
-      10
-    );
+    requestPdfExport({
+      title: 'Registro Centralizado de Vehículos en Siniestros',
+      fileName: `SISPOL_Registro_Vehiculos_${new Date().toISOString().slice(0, 10)}.pdf`,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: ({ orientation, paperSize }) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+        const startY = drawPoliceHeader(
+          doc,
+          config,
+          'REGISTRO CENTRALIZADO DE VEHÍCULOS / RODADOS EN SINIESTROS VIALES',
+          10
+        );
 
-    if (modoOrganizacion === 'agrupado') {
-      const rows = filteredAgrupados.map((v, i) => [
-        i + 1,
-        v.dominio,
-        v.tipo,
-        v.propietarioHabitual,
-        `${v.totalSiniestros} siniestro(s)`,
-        v.siniestros.map((s) => `${s.inspeccionFecha}: ${s.intervencionHecho} (${s.zonaContacto} - ${s.lesiones})`).join('\n'),
-      ]);
+        if (modoOrganizacion === 'agrupado') {
+          const rows = filteredAgrupados.map((v, i) => [
+            i + 1,
+            v.dominio,
+            v.tipo,
+            v.propietarioHabitual,
+            `${v.totalSiniestros} siniestro(s)`,
+            v.siniestros.map((s) => `${s.inspeccionFecha}: ${s.intervencionHecho} (${s.zonaContacto} - ${s.lesiones})`).join('\n'),
+          ]);
 
-      autoTable(doc, {
-        startY: startY + 5,
-        head: [['#', 'Dominio/Patente', 'Tipo de Rodado', 'Titular / Conductor', 'Total Siniestros', 'Historial de Intervenciones']],
-        body: rows,
-        styles: { fontSize: 7.5, cellPadding: 2 },
-        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
-        columnStyles: {
-          0: { cellWidth: 8 },
-          1: { cellWidth: 30, fontStyle: 'bold' },
-          2: { cellWidth: 35 },
-          3: { cellWidth: 45 },
-          4: { cellWidth: 25, fontStyle: 'bold' },
-          5: { cellWidth: 120 },
-        },
-      });
-    } else {
-      const rows = filteredListDetallada.map((v, i) => [
-        i + 1,
-        v.dominio,
-        v.identificador,
-        v.tipo,
-        v.propietarioOConductor,
-        v.circulacion,
-        v.zonaContacto,
-        v.lesiones,
-        v.inspeccionFecha,
-      ]);
+          autoTable(doc, {
+            startY: startY + 5,
+            head: [['#', 'Dominio/Patente', 'Tipo de Rodado', 'Titular / Conductor', 'Total Siniestros', 'Historial de Intervenciones']],
+            body: rows,
+            styles: { fontSize: 7.5, cellPadding: 2 },
+            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+            columnStyles: {
+              0: { cellWidth: 8 },
+              1: { cellWidth: 26, fontStyle: 'bold' },
+              2: { cellWidth: 28 },
+              3: { cellWidth: 38 },
+              4: { cellWidth: 24, fontStyle: 'bold' },
+              5: { cellWidth: 'auto' },
+            },
+          });
+        } else {
+          const rows = filteredListDetallada.map((v, i) => [
+            i + 1,
+            v.dominio,
+            v.identificador,
+            v.tipo,
+            v.propietarioOConductor,
+            v.circulacion,
+            v.zonaContacto,
+            v.lesiones,
+            v.inspeccionFecha,
+          ]);
 
-      autoTable(doc, {
-        startY: startY + 5,
-        head: [['#', 'Dominio', 'Identificador', 'Tipo', 'Propietario / Conductor', 'Circulación', 'Zona Contacto', 'Lesiones', 'Fecha']],
-        body: rows,
-        styles: { fontSize: 7.5, cellPadding: 2 },
-        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
-      });
-    }
+          autoTable(doc, {
+            startY: startY + 5,
+            head: [['#', 'Dominio', 'Identificador', 'Tipo', 'Propietario / Conductor', 'Circulación', 'Zona Contacto', 'Lesiones', 'Fecha']],
+            body: rows,
+            styles: { fontSize: 7.5, cellPadding: 2 },
+            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+          });
+        }
 
-    drawPoliceFooter(doc, config);
-    doc.save(`SISPOL_Registro_Vehiculos_${new Date().toISOString().slice(0, 10)}.pdf`);
+        drawPoliceFooter(doc, config);
+        return doc;
+      },
+    });
   };
 
   return (

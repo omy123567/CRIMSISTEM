@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Personal, ConfiguracionSistema } from '../../types/police';
-import { X, Shield, AlertTriangle, Upload, Eye, Trash2, CheckCircle2, Printer, ArrowRightLeft, Building2, FileText } from 'lucide-react';
+import { X, Shield, AlertTriangle, Upload, Eye, Trash2, CheckCircle2, Printer, ArrowRightLeft, Building2, FileText, Calendar } from 'lucide-react';
 import { generarPdfLegajoPersonal } from '../../services/pdfService';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
+import { calcularAniosAntiguedad, getDiasEscalaArt7, formatFechaDisplay } from '../../services/licenciaService';
 
 interface PersonnelModalProps {
   personal?: Personal | null;
@@ -32,6 +33,7 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
       jerarquia: config.jerarquias[7] || 'Oficial Subinspector',
       plaza: '',
       fechaNacimiento: '',
+      fechaIngreso: '',
       estadoCivil: 'Soltero/a',
       domicilio: '',
       email: '',
@@ -65,10 +67,14 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
   });
 
   const [activeTab, setActiveTab] = useState<'general' | 'licencia' | 'equipamiento' | 'adjuntos'>('general');
+  const [formError, setFormError] = useState<string | null>(null);
   const [previewDocState, setPreviewDocState] = useState<{
     isOpen: boolean;
     index: number;
   }>({ isOpen: false, index: 0 });
+
+  const aniosAntiguedad = calcularAniosAntiguedad(formData.fechaIngreso);
+  const diasEscalaArt7 = getDiasEscalaArt7(aniosAntiguedad);
 
   // Manejo de carga de archivos de imagen para legajo
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -107,9 +113,10 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.apellidoYNombre.trim() || !formData.dni.trim()) {
-      alert('Por favor complete Apellido y Nombre y DNI');
+      setFormError('Por favor complete Apellido y Nombre y DNI.');
       return;
     }
+    setFormError(null);
     onSave({
       ...formData,
       updatedAt: new Date().toISOString(),
@@ -321,6 +328,50 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
                     placeholder="Ej. 3704-123456"
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 items-end">
+                <div>
+                  <label className="block font-semibold text-blue-950 mb-1 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-blue-700" />
+                    <span>Fecha de Ingreso a la Institución</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.fechaIngreso || ''}
+                    onChange={(e) => setFormData({ ...formData, fechaIngreso: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-blue-300 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-600 mb-1">
+                    Antigüedad Computada (solo años)
+                  </div>
+                  <div className="px-3 py-2 rounded-lg bg-white border border-blue-200 font-bold text-blue-950 flex items-center justify-between">
+                    <span>
+                      {formData.fechaIngreso
+                        ? `${aniosAntiguedad} ${aniosAntiguedad === 1 ? 'año' : 'años'}`
+                        : 'Sin fecha cargada'}
+                    </span>
+                    {formData.fechaIngreso && (
+                      <span className="text-[10px] font-medium text-slate-500">
+                        Ing.: {formatFechaDisplay(formData.fechaIngreso)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-600 mb-1">
+                    Licencia Anual (Escala Art. 7)
+                  </div>
+                  <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 font-bold text-emerald-900">
+                    {formData.fechaIngreso
+                      ? `${diasEscalaArt7} días hábiles / año`
+                      : 'Pendiente de cálculo'}
+                  </div>
                 </div>
               </div>
 
@@ -746,6 +797,13 @@ export const PersonnelModal: React.FC<PersonnelModalProps> = ({
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {formError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{formError}</span>
             </div>
           )}
 

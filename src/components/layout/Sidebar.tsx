@@ -27,6 +27,7 @@ import {
   Folder,
   FolderOpen,
   BookOpen,
+  CalendarCheck,
 } from 'lucide-react';
 import { UsuarioSistema, ConfiguracionSistema, ModuloEstructuraConfig, TonalidadModulo } from '../../types/police';
 import { AdministrarModulosModal } from './AdministrarModulosModal';
@@ -35,6 +36,7 @@ import { getTonalidadStyle } from '../../utils/moduleColors';
 export type ActiveTab =
   | 'dashboard'
   | 'personal'
+  | 'licencias'
   | 'grupos'
   | 'expedientes'
   | 'falta-oficio'
@@ -101,6 +103,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       desc: 'Nómina, Armas y Chalecos',
       badge: badgeCounts.armasRetenidas ? `${badgeCounts.armasRetenidas} ret.` : undefined,
       badgeColor: 'bg-amber-600/30 text-amber-300 border-amber-600/50',
+    },
+    {
+      id: 'licencias',
+      label: 'Licencia Policial',
+      icon: CalendarCheck,
+      desc: 'Régimen Art. 7, 11, 15 & Feriados',
     },
     {
       id: 'grupos',
@@ -249,6 +257,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return currentUser.rol === 'superusuario';
     }
     if (currentUser.rol === 'superusuario') return true;
+    if (
+      id === 'usuarios' &&
+      (currentUser.puedeCambiarPasswordOtros ||
+        currentUser.puedeGestionar2faOtros ||
+        currentUser.accionesPersonalizadas?.puedeCambiarPasswordOtros ||
+        currentUser.accionesPersonalizadas?.puedeGestionar2faOtros)
+    ) {
+      return true;
+    }
     if (currentUser.modulosPermitidos && currentUser.modulosPermitidos.length > 0) {
       return currentUser.modulosPermitidos.includes(id);
     }

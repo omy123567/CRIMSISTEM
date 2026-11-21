@@ -34,6 +34,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 export type OrigenCausaPolicial =
   | 'intervencion-lc'
@@ -294,85 +295,93 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
     };
   }, [todosLosCasos]);
 
-  // Exportar Libro / Registro Oficial a PDF
+  // Exportar Libro / Registro Oficial a PDF con selección de papel y vista previa
   const handleExportLibroPdf = () => {
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'mm',
-      format: 'a4',
+    const fileName = `Registro_Causas_Personal_Policial_${new Date().toISOString().slice(0, 10)}.pdf`;
+    requestPdfExport({
+      title: 'Registro Oficial de Causas con Personal Policial Involucrado',
+      fileName,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: (opts) => {
+        const doc = new jsPDF({
+          orientation: resolveJsPdfOrientation(opts.orientation),
+          unit: 'mm',
+          format: resolveJsPdfFormat(opts.paperSize),
+        });
+
+        const startHeaderY = drawPoliceHeader(
+          doc,
+          config,
+          `REGISTRO OFICIAL DE HECHOS Y CAUSAS CON PERSONAL POLICIAL INVOLUCRADO`,
+          10
+        );
+
+        const headers = [
+          [
+            'N°',
+            'FECHA',
+            'ORIGEN / REF.',
+            'PLAZA',
+            'JERARQUÍA Y NOMBRE',
+            'ROL / CONDICIÓN',
+            'HECHO / CARÁTULA',
+            'DEP. REVISTA',
+            'DEP. SOLICITANTE / JUZGADO',
+          ],
+        ];
+
+        const bodyData = filteredCasos.map((item, idx) => [
+          (idx + 1).toString(),
+          item.hora ? `${item.fecha}\n${item.hora} hs` : item.fecha,
+          `${item.origenLabel}\n${item.codigoRef}`,
+          item.personalPolicial.plaza || 's/p',
+          `${item.personalPolicial.jerarquia}\n${item.personalPolicial.apellidoYNombre}${
+            item.personalPolicial.dni ? `\nDNI: ${item.personalPolicial.dni}` : ''
+          }`,
+          item.personalPolicial.rol || 'Involucrado',
+          item.caratulaOHecho,
+          item.personalPolicial.dependenciaRevista || 'No consignada',
+          `${item.dependenciaInterviniente}${
+            item.juzgadoOFiscalia ? `\nJuzg: ${item.juzgadoOFiscalia}` : ''
+          }`,
+        ]);
+
+        autoTable(doc, {
+          startY: Math.max(startHeaderY + 4, 46),
+          head: headers,
+          body: bodyData,
+          theme: 'grid',
+          styles: {
+            fontSize: 7.5,
+            cellPadding: 2,
+            valign: 'middle',
+          },
+          headStyles: {
+            fillColor: [15, 23, 42],
+            textColor: [255, 255, 255],
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          columnStyles: {
+            0: { cellWidth: 10, halign: 'center' },
+            1: { cellWidth: 20, halign: 'center' },
+            2: { cellWidth: 32 },
+            3: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+            4: { cellWidth: 42, fontStyle: 'bold' },
+            5: { cellWidth: 28, halign: 'center' },
+            6: { cellWidth: 50 },
+            7: { cellWidth: 32 },
+            8: { cellWidth: 'auto' },
+          },
+          didDrawPage: () => {
+            drawPoliceFooter(doc, config);
+          },
+        });
+
+        return doc;
+      },
     });
-
-    const nombreDep = config.dependencia || 'DIVISIÓN CRIMINALÍSTICA Y ACCIDENTOLOGÍA VIAL';
-    drawPoliceHeader(
-      doc,
-      config,
-      `REGISTRO OFICIAL DE HECHOS Y CAUSAS CON PERSONAL POLICIAL INVOLUCRADO`,
-      10
-    );
-
-    const headers = [
-      [
-        'N°',
-        'FECHA',
-        'ORIGEN / REF.',
-        'PLAZA',
-        'JERARQUÍA Y NOMBRE',
-        'ROL / CONDICIÓN',
-        'HECHO / CARÁTULA',
-        'DEP. REVISTA',
-        'DEP. SOLICITANTE / JUZGADO',
-      ],
-    ];
-
-    const bodyData = filteredCasos.map((item, idx) => [
-      (idx + 1).toString(),
-      item.hora ? `${item.fecha}\n${item.hora} hs` : item.fecha,
-      `${item.origenLabel}\n${item.codigoRef}`,
-      item.personalPolicial.plaza || 's/p',
-      `${item.personalPolicial.jerarquia}\n${item.personalPolicial.apellidoYNombre}${
-        item.personalPolicial.dni ? `\nDNI: ${item.personalPolicial.dni}` : ''
-      }`,
-      item.personalPolicial.rol || 'Involucrado',
-      item.caratulaOHecho,
-      item.personalPolicial.dependenciaRevista || 'No consignada',
-      `${item.dependenciaInterviniente}${
-        item.juzgadoOFiscalia ? `\nJuzg: ${item.juzgadoOFiscalia}` : ''
-      }`,
-    ]);
-
-    autoTable(doc, {
-      startY: 50,
-      head: headers,
-      body: bodyData,
-      theme: 'grid',
-      styles: {
-        fontSize: 7.5,
-        cellPadding: 2,
-        valign: 'middle',
-      },
-      headStyles: {
-        fillColor: [15, 23, 42], // Slate 900
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-        halign: 'center',
-      },
-      columnStyles: {
-        0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 20, halign: 'center' },
-        2: { cellWidth: 32 },
-        3: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
-        4: { cellWidth: 42, fontStyle: 'bold' },
-        5: { cellWidth: 28, halign: 'center' },
-        6: { cellWidth: 50 },
-        7: { cellWidth: 32 },
-        8: { cellWidth: 40 },
-      },
-      didDrawPage: () => {
-        drawPoliceFooter(doc, config);
-      },
-    });
-
-    doc.save(`Registro_Causas_Personal_Policial_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   // Helper para badge de origen

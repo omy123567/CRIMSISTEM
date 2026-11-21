@@ -37,6 +37,9 @@ export const ALLOWED_COLLECTIONS: readonly (keyof SispolDatabase)[] = [
   'auditoria',
   'novedadesDelegaciones',
   'charlasPrevencion',
+  'licenciasPoliciales',
+  'saldosLicencias',
+  'feriados',
 ];
 
 let cachedSecret: string | null = null;
@@ -153,6 +156,8 @@ export function ensureHashedPasswordsOnDb(
   return modified;
 }
 
+export const TRUSTED_DEVICE_MAX_IDLE_MS = 7 * 24 * 60 * 60 * 1000; // 7 días (1 semana sin iniciar sesión)
+
 /**
  * Limpia campos sensibles antes de enviar cualquier objeto de usuario al cliente
  */
@@ -161,7 +166,33 @@ export function sanitizeUserForClient<T extends Record<string, any>>(user: T): T
   const copy: any = { ...user };
   delete copy.passwordHash;
   delete copy.offlineVerifier;
+  delete copy.totpSecret;
+  delete copy.totpPendingSecret;
+  delete copy.totpBackupCodesHashes;
   copy.password = '';
+  copy.totpEnabled = Boolean(copy.totpEnabled);
+
+  if (Array.isArray(copy.trustedDevices)) {
+    const now = Date.now();
+    copy.trustedDevices = copy.trustedDevices
+      .filter((d: any) => {
+        if (!d || !d.lastUsedAt) return false;
+        const lastMs = new Date(d.lastUsedAt).getTime();
+        return Number.isFinite(lastMs) && now - lastMs <= TRUSTED_DEVICE_MAX_IDLE_MS;
+      })
+      .map((d: any) => ({
+        id: d.id,
+        label: d.label,
+        userAgent: d.userAgent,
+        ipOrigen: d.ipOrigen,
+        createdAt: d.createdAt,
+        lastUsedAt: d.lastUsedAt,
+        expiresAt: new Date(new Date(d.lastUsedAt).getTime() + TRUSTED_DEVICE_MAX_IDLE_MS).toISOString(),
+      }));
+  } else {
+    copy.trustedDevices = [];
+  }
+
   return copy;
 }
 
@@ -169,6 +200,7 @@ export interface TokenPayload {
   uid: string;
   username: string;
   rol: string;
+  purpose?: 'session' | '2fa_pending';
   iat: number;
   exp: number;
 }
@@ -186,15 +218,7 @@ function base64UrlDecode(input: string): string {
   return Buffer.from(padded, 'base64').toString('utf8');
 }
 
-export function signSessionToken(user: any): string {
-  const now = Math.floor(Date.now() / 1000);
-  const payload: TokenPayload = {
-    uid: String(user.id),
-    username: String(user.username),
-    rol: String(user.rol || 'Operador'),
-    iat: now,
-    exp: now + SESSION_TTL_SECONDS,
-  };
+function signTokenWithPayload(payload: TokenPayload): string {
   const headerB64 = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'SISPOL' }));
   const payloadB64 = base64UrlEncode(JSON.stringify(payload));
   const data = `${headerB64}.${payloadB64}`;
@@ -202,7 +226,7 @@ export function signSessionToken(user: any): string {
   return `${data}.${base64UrlEncode(sig)}`;
 }
 
-export function verifySessionToken(token: string): TokenPayload | null {
+function verifyRawToken(token: string): TokenPayload | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
@@ -225,6 +249,43 @@ export function verifySessionToken(token: string): TokenPayload | null {
   } catch {
     return null;
   }
+}
+
+export function signSessionToken(user: any): string {
+  const now = Math.floor(Date.now() / 1000);
+  return signTokenWithPayload({
+    uid: String(user.id),
+    username: String(user.username),
+    rol: String(user.rol || 'Operador'),
+    purpose: 'session',
+    iat: now,
+    exp: now + SESSION_TTL_SECONDS,
+  });
+}
+
+export function verifySessionToken(token: string): TokenPayload | null {
+  const payload = verifyRawToken(token);
+  if (!payload) return null;
+  if (payload.purpose && payload.purpose !== 'session') return null;
+  return payload;
+}
+
+export function signPending2faToken(user: any): string {
+  const now = Math.floor(Date.now() / 1000);
+  return signTokenWithPayload({
+    uid: String(user.id),
+    username: String(user.username),
+    rol: String(user.rol || 'Operador'),
+    purpose: '2fa_pending',
+    iat: now,
+    exp: now + 5 * 60, // 5 minutos para completar el segundo factor
+  });
+}
+
+export function verifyPending2faToken(token: string): TokenPayload | null {
+  const payload = verifyRawToken(token);
+  if (!payload || payload.purpose !== '2fa_pending') return null;
+  return payload;
 }
 
 export function extractTokenFromRequest(req: Request): string | null {
@@ -368,6 +429,8 @@ const DELEGATION_SCOPED_COLLECTIONS = new Set<string>([
   'folios',
   'seriesNumerario',
   'charlasPrevencion',
+  'licenciasPoliciales',
+  'saldosLicencias',
 ]);
 
 export function filterDatabaseForUser(db: SispolDatabase, user: any): Partial<SispolDatabase> {
@@ -389,6 +452,7 @@ export function filterDatabaseForUser(db: SispolDatabase, user: any): Partial<Si
     roles: db.roles || [],
     usuarios: sanitizedUsuarios,
     auditoria: superUsr ? (db.auditoria || []) : [],
+    feriados: db.feriados || [],
   };
 
   // Configuracion: mantener global-config / delegaciones permitidas + propagar estructuraModulos
@@ -448,6 +512,72 @@ export function canManageUsers(user: any): boolean {
   if (user.rol === 'Administrador') return true;
   if (user.accionesPersonalizadas?.puedeGestionarUsuarios) return true;
   return Array.isArray(user.modulosPermitidos) && user.modulosPermitidos.includes('usuarios') && !user.esSoloLectura;
+}
+
+export function canChangeOtherUsersPassword(
+  actor: any,
+  targetUser?: any
+): { allowed: boolean; reason?: string } {
+  if (!actor || !actor.activo) {
+    return { allowed: false, reason: 'Usuario no autenticado o inactivo.' };
+  }
+  if (isSuperusuario(actor)) return { allowed: true };
+
+  const hasPerm = Boolean(
+    actor.puedeCambiarPasswordOtros || actor.accionesPersonalizadas?.puedeCambiarPasswordOtros
+  );
+  if (!hasPerm) {
+    return {
+      allowed: false,
+      reason: 'No posee el permiso específico para cambiar contraseñas de otros usuarios.',
+    };
+  }
+  if (targetUser && isSuperusuario(targetUser) && targetUser.id !== actor.id) {
+    return {
+      allowed: false,
+      reason: 'Solo un Superusuario puede cambiar la contraseña de otro Superusuario.',
+    };
+  }
+  if (targetUser && !canAccessDelegation(actor, targetUser.delegacionId)) {
+    return {
+      allowed: false,
+      reason: 'No puede cambiar contraseñas de usuarios de delegaciones no autorizadas.',
+    };
+  }
+  return { allowed: true };
+}
+
+export function canManageOtherUsers2fa(
+  actor: any,
+  targetUser?: any
+): { allowed: boolean; reason?: string } {
+  if (!actor || !actor.activo) {
+    return { allowed: false, reason: 'Usuario no autenticado o inactivo.' };
+  }
+  if (isSuperusuario(actor)) return { allowed: true };
+
+  const hasPerm = Boolean(
+    actor.puedeGestionar2faOtros || actor.accionesPersonalizadas?.puedeGestionar2faOtros
+  );
+  if (!hasPerm) {
+    return {
+      allowed: false,
+      reason: 'No posee el permiso específico para activar o desactivar 2FA de otros usuarios.',
+    };
+  }
+  if (targetUser && isSuperusuario(targetUser) && targetUser.id !== actor.id) {
+    return {
+      allowed: false,
+      reason: 'Solo un Superusuario puede gestionar el 2FA de otro Superusuario.',
+    };
+  }
+  if (targetUser && !canAccessDelegation(actor, targetUser.delegacionId)) {
+    return {
+      allowed: false,
+      reason: 'No puede gestionar 2FA de usuarios de delegaciones no autorizadas.',
+    };
+  }
+  return { allowed: true };
 }
 
 export function canWriteCollection(
@@ -730,3 +860,236 @@ export function appendServerAudit(
   }
   return record;
 }
+
+// --- AUTENTICACIÓN EN 2 PASOS (TOTP RFC 6238 - GOOGLE AUTHENTICATOR) ---
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Encode(buf: Buffer): string {
+  let bits = 0;
+  let value = 0;
+  let output = '';
+  for (let i = 0; i < buf.length; i++) {
+    value = (value << 8) | buf[i];
+    bits += 8;
+    while (bits >= 5) {
+      output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) {
+    output += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+  }
+  return output;
+}
+
+function base32Decode(str: string): Buffer {
+  const cleaned = str.toUpperCase().replace(/[^A-Z2-7]/g, '');
+  let bits = 0;
+  let value = 0;
+  const bytes: number[] = [];
+  for (let i = 0; i < cleaned.length; i++) {
+    const idx = BASE32_ALPHABET.indexOf(cleaned[i]);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+export function generateTotpSecret(): string {
+  return base32Encode(crypto.randomBytes(20));
+}
+
+export function buildOtpAuthUri(username: string, secretBase32: string): string {
+  const issuer = 'CRIMINI-SISTEM (Sis.Pol.)';
+  const account = encodeURIComponent(username);
+  return `otpauth://totp/${encodeURIComponent(issuer)}:${account}?secret=${secretBase32}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+}
+
+function computeTotpAtCounter(secretBase32: string, counter: number): string {
+  const key = base32Decode(secretBase32);
+  const msg = Buffer.alloc(8);
+  const high = Math.floor(counter / 0x100000000);
+  const low = counter >>> 0;
+  msg.writeUInt32BE(high, 0);
+  msg.writeUInt32BE(low, 4);
+
+  const hmac = crypto.createHmac('sha1', key).update(msg).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const binary =
+    ((hmac[offset] & 0x7f) << 24) |
+    ((hmac[offset + 1] & 0xff) << 16) |
+    ((hmac[offset + 2] & 0xff) << 8) |
+    (hmac[offset + 3] & 0xff);
+  const otp = binary % 1000000;
+  return String(otp).padStart(6, '0');
+}
+
+export function verifyTotpCode(secretBase32: string | undefined, code: string, windowSteps: number = 1): boolean {
+  if (!secretBase32 || !code) return false;
+  const cleanCode = code.replace(/\s|-/g, '');
+  if (!/^\d{6}$/.test(cleanCode)) return false;
+
+  const currentCounter = Math.floor(Date.now() / 1000 / 30);
+  const candidateBuf = Buffer.from(cleanCode, 'utf8');
+
+  for (let delta = -windowSteps; delta <= windowSteps; delta++) {
+    const expected = computeTotpAtCounter(secretBase32, currentCounter + delta);
+    const expectedBuf = Buffer.from(expected, 'utf8');
+    if (expectedBuf.length === candidateBuf.length && crypto.timingSafeEqual(expectedBuf, candidateBuf)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function generateBackupCodes(count: number = 8): { plainCodes: string[]; hashes: string[] } {
+  const plainCodes: string[] = [];
+  const hashes: string[] = [];
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  for (let i = 0; i < count; i++) {
+    let raw = '';
+    const bytes = crypto.randomBytes(8);
+    for (let j = 0; j < 8; j++) {
+      raw += chars[bytes[j] % chars.length];
+    }
+    const formatted = `${raw.slice(0, 4)}-${raw.slice(4, 8)}`;
+    plainCodes.push(formatted);
+    hashes.push(sha256Hex(raw));
+  }
+  return { plainCodes, hashes };
+}
+
+export function verifyAndConsumeBackupCode(user: any, inputCode: string): boolean {
+  if (!user || !Array.isArray(user.totpBackupCodesHashes) || user.totpBackupCodesHashes.length === 0) {
+    return false;
+  }
+  const normalized = inputCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (normalized.length !== 8) return false;
+  const candidateHash = sha256Hex(normalized);
+  const idx = user.totpBackupCodesHashes.findIndex((h: string) => {
+    if (typeof h !== 'string' || h.length !== candidateHash.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(h), Buffer.from(candidateHash));
+  });
+  if (idx >= 0) {
+    user.totpBackupCodesHashes.splice(idx, 1);
+    return true;
+  }
+  return false;
+}
+
+// --- DISPOSITIVOS DE CONFIANZA (Válidos mientras inicie sesión al menos cada 7 días) ---
+export function detectDeviceLabel(req: Request): string {
+  const ua = String(req.headers['user-agent'] || '');
+  let browser = 'Navegador Web';
+  if (/Edg\//i.test(ua)) browser = 'Microsoft Edge';
+  else if (/OPR\//i.test(ua) || /Opera/i.test(ua)) browser = 'Opera';
+  else if (/Chrome\//i.test(ua)) browser = 'Google Chrome';
+  else if (/Firefox\//i.test(ua)) browser = 'Mozilla Firefox';
+  else if (/Safari\//i.test(ua)) browser = 'Safari';
+
+  let os = 'Equipo';
+  if (/Windows NT/i.test(ua)) os = 'Windows';
+  else if (/Android/i.test(ua)) os = 'Android';
+  else if (/iPhone|iPad/i.test(ua)) os = 'iOS';
+  else if (/Mac OS X/i.test(ua)) os = 'macOS';
+  else if (/Linux/i.test(ua)) os = 'Linux';
+
+  return `${browser} en ${os}`;
+}
+
+export function pruneAndMatchTrustedDevice(
+  user: any,
+  candidateTokens: string[],
+  ipOrigen: string
+): { matchedDevice: any | null; expiredMatched: boolean; prunedCount: number } {
+  if (!user || !Array.isArray(user.trustedDevices)) {
+    return { matchedDevice: null, expiredMatched: false, prunedCount: 0 };
+  }
+
+  const now = Date.now();
+  const cleanTokens = candidateTokens.filter((t) => typeof t === 'string' && t.trim().length >= 16);
+  const candidateHashes = cleanTokens.map((t) => sha256Hex(t.trim()));
+
+  let expiredMatched = false;
+  let matchedDevice: any | null = null;
+  const keptDevices: any[] = [];
+
+  for (const dev of user.trustedDevices) {
+    if (!dev || typeof dev !== 'object' || !dev.tokenHash || !dev.lastUsedAt) continue;
+    const lastMs = new Date(dev.lastUsedAt).getTime();
+    const isExpired = !Number.isFinite(lastMs) || now - lastMs > TRUSTED_DEVICE_MAX_IDLE_MS;
+
+    const matchesToken = candidateHashes.some((ch) => {
+      if (ch.length !== String(dev.tokenHash).length) return false;
+      return crypto.timingSafeEqual(Buffer.from(ch), Buffer.from(String(dev.tokenHash)));
+    });
+
+    if (isExpired) {
+      if (matchesToken) expiredMatched = true;
+      continue;
+    }
+
+    if (matchesToken && !matchedDevice) {
+      dev.lastUsedAt = new Date(now).toISOString();
+      dev.ipOrigen = ipOrigen;
+      matchedDevice = dev;
+    }
+    keptDevices.push(dev);
+  }
+
+  const prunedCount = user.trustedDevices.length - keptDevices.length;
+  user.trustedDevices = keptDevices;
+  return { matchedDevice, expiredMatched, prunedCount };
+}
+
+export function registerTrustedDeviceOnUser(
+  user: any,
+  req: Request,
+  customLabel?: string
+): { rawToken: string; device: any } {
+  if (!Array.isArray(user.trustedDevices)) {
+    user.trustedDevices = [];
+  }
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const nowIso = new Date().toISOString();
+  const label =
+    typeof customLabel === 'string' && customLabel.trim().length > 0
+      ? customLabel.trim().slice(0, 60)
+      : detectDeviceLabel(req);
+
+  const deviceRecord = {
+    id: `dev-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`,
+    label,
+    tokenHash: sha256Hex(rawToken),
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 140),
+    ipOrigen: getClientIp(req),
+    createdAt: nowIso,
+    lastUsedAt: nowIso,
+  };
+
+  // Limitar a máximo 10 dispositivos de confianza activos por cuenta (mantener los más recientes)
+  user.trustedDevices.unshift(deviceRecord);
+  if (user.trustedDevices.length > 10) {
+    user.trustedDevices = user.trustedDevices.slice(0, 10);
+  }
+
+  return {
+    rawToken,
+    device: {
+      id: deviceRecord.id,
+      label: deviceRecord.label,
+      userAgent: deviceRecord.userAgent,
+      ipOrigen: deviceRecord.ipOrigen,
+      createdAt: deviceRecord.createdAt,
+      lastUsedAt: deviceRecord.lastUsedAt,
+      expiresAt: new Date(Date.now() + TRUSTED_DEVICE_MAX_IDLE_MS).toISOString(),
+    },
+  };
+}
+

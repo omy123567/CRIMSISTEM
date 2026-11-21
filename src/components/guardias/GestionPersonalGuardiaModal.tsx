@@ -5,13 +5,16 @@ import {
   Personal,
   GrupoPersonal,
   ConfiguracionSistema,
+  LicenciaPolicial,
 } from '../../types/police';
-import { X, Users, Plus, Trash2, CheckCircle2, Sparkles, Shield, UserCheck } from 'lucide-react';
+import { getLicenciaActivaPersonal, formatFechaDisplay } from '../../services/licenciaService';
+import { X, Users, Plus, Trash2, CheckCircle2, Sparkles, Shield, UserCheck, Calendar } from 'lucide-react';
 
 interface GestionPersonalGuardiaModalProps {
   parte: ParteNovedadesGuardia;
   personalList: Personal[];
   gruposList?: GrupoPersonal[];
+  licenciasPoliciales?: LicenciaPolicial[];
   config?: ConfiguracionSistema;
   onSave: (updatedParte: ParteNovedadesGuardia) => void;
   onClose: () => void;
@@ -21,6 +24,7 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
   parte,
   personalList,
   gruposList = [],
+  licenciasPoliciales = [],
   config,
   onSave,
   onClose,
@@ -249,6 +253,46 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
             </div>
           )}
 
+          {/* Personal en condición de Licencia Policial en la fecha del parte */}
+          {(() => {
+            const enLicencia = personalList
+              .map((p) => {
+                const cond = getLicenciaActivaPersonal(
+                  p.id,
+                  parte.fechaInicio,
+                  licenciasPoliciales,
+                  personalList
+                );
+                return cond ? { p, cond } : null;
+              })
+              .filter((x): x is NonNullable<typeof x> => x !== null);
+            if (enLicencia.length === 0) return null;
+            return (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-amber-950 space-y-1">
+                <div className="font-bold text-xs flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-amber-700" />
+                  <span>
+                    Personal actualmente con Licencia Policial ({formatFechaDisplay(parte.fechaInicio)}):
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {enLicencia.map(({ p, cond }) => (
+                    <span
+                      key={p.id}
+                      className="bg-white border border-amber-300 px-2 py-0.5 rounded text-[11px] font-semibold"
+                    >
+                      {p.jerarquia} {p.apellidoYNombre} —{' '}
+                      <strong className="text-amber-800">{cond.tipoLicencia}</strong>
+                      {cond.fechaReanudacion
+                        ? ` (Reanuda ${formatFechaDisplay(cond.fechaReanudacion)} 08:00 hs)`
+                        : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Lista de personal con 1 o 2 funciones */}
           <div className="border border-slate-300 rounded-xl p-4 bg-slate-50/70 shadow-xs space-y-3">
             <div className="flex items-center justify-between border-b border-slate-200 pb-2">
@@ -272,10 +316,21 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
 
             {/* Filas */}
             <div className="space-y-2.5">
-              {funciones.map((f) => (
+              {funciones.map((f) => {
+                const condRow = f.personalNombre
+                  ? getLicenciaActivaPersonal(
+                      f.personalNombre,
+                      parte.fechaInicio,
+                      licenciasPoliciales,
+                      personalList
+                    )
+                  : null;
+                return (
                 <div
                   key={f.id}
-                  className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 bg-white border border-slate-200 rounded-xl shadow-2xs items-center"
+                  className={`grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 border rounded-xl shadow-2xs items-center ${
+                    condRow ? 'bg-amber-50/70 border-amber-300' : 'bg-white border-slate-200'
+                  }`}
                 >
                   {/* Efectivo */}
                   <div className={habilitarFuncionAdicional ? 'sm:col-span-4' : 'sm:col-span-5'}>
@@ -290,6 +345,12 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                       placeholder="Jerarquía y Nombre del efectivo"
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-semibold text-slate-900 text-xs focus:ring-2 focus:ring-blue-600"
                     />
+                    {condRow && (
+                      <span className="mt-1 inline-block text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded">
+                        En Licencia: {condRow.tipoLicencia}
+                        {condRow.fechaReanudacion ? ` • Reanuda ${formatFechaDisplay(condRow.fechaReanudacion)} 08:00` : ''}
+                      </span>
+                    )}
                     <datalist id={`pers-list-${f.id}`}>
                       {personalList.map((p) => (
                         <option
@@ -356,7 +417,8 @@ export const GestionPersonalGuardiaModal: React.FC<GestionPersonalGuardiaModalPr
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Input para agregar nueva asignación */}

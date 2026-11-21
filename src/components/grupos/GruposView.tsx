@@ -19,6 +19,7 @@ import { GrupoModal } from './GrupoModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { ConfirmModal } from '../common/ConfirmModal';
 
 interface GruposViewProps {
@@ -77,55 +78,68 @@ export const GruposView: React.FC<GruposViewProps> = ({
 
   // Exportar PDF de nómina de grupos
   const handleExportPdf = () => {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    let currentY = drawPoliceHeader(
-      doc,
-      config,
-      'NÓMINA DE GRUPOS Y SECCIONES DE GUARDIA',
-      12
-    );
+    requestPdfExport({
+      title: 'Nómina de Grupos y Secciones de Guardia',
+      fileName: `Grupos_Guardias_${new Date().toISOString().slice(0, 10)}.pdf`,
+      defaultOrientation: 'portrait',
+      defaultPaperSize: 'a4',
+      buildDoc: ({ orientation, paperSize }) => {
+        const doc = new jsPDF({
+          orientation: resolveJsPdfOrientation(orientation),
+          unit: 'mm',
+          format: resolveJsPdfFormat(paperSize),
+        });
+        const pageHeight = doc.internal.pageSize.getHeight();
+        let currentY = drawPoliceHeader(
+          doc,
+          config,
+          'NÓMINA DE GRUPOS Y SECCIONES DE GUARDIA',
+          12
+        );
 
-    filteredGrupos.forEach((g) => {
-      const members = g.personalIds
-        .map((id) => personalList.find((p) => p.id === id))
-        .filter(Boolean) as Personal[];
+        filteredGrupos.forEach((g) => {
+          const members = g.personalIds
+            .map((id) => personalList.find((p) => p.id === id))
+            .filter(Boolean) as Personal[];
 
-      const rows = members.map((m, idx) => [
-        (idx + 1).toString(),
-        m.jerarquia,
-        m.apellidoYNombre,
-        m.dni,
-        m.plaza || 'S/D',
-        m.telefono || 'S/D',
-      ]);
+          const rows = members.map((m, idx) => [
+            (idx + 1).toString(),
+            m.jerarquia,
+            m.apellidoYNombre,
+            m.dni,
+            m.plaza || 'S/D',
+            m.telefono || 'S/D',
+          ]);
 
-      autoTable(doc, {
-        startY: currentY + 3,
-        head: [
-          [
-            {
-              content: `${g.nombre.toUpperCase()} - Jefe: ${g.jefeGrupo || 'Sin designar'} (${members.length} Efectivos)`,
-              colSpan: 6,
-              styles: { halign: 'left', fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold' },
-            },
-          ],
-          ['#', 'Jerarquía', 'Apellido y Nombres', 'D.N.I.', 'Plaza', 'Teléfono'],
-        ],
-        body: rows.length > 0 ? rows : [['-', '-', 'Sin personal asignado en este grupo', '-', '-', '-']],
-        theme: 'grid',
-        styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: [51, 65, 85], textColor: 255 },
-      });
+          autoTable(doc, {
+            startY: currentY + 3,
+            head: [
+              [
+                {
+                  content: `${g.nombre.toUpperCase()} - Jefe: ${g.jefeGrupo || 'Sin designar'} (${members.length} Efectivos)`,
+                  colSpan: 6,
+                  styles: { halign: 'left', fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold' },
+                },
+              ],
+              ['#', 'Jerarquía', 'Apellido y Nombres', 'D.N.I.', 'Plaza', 'Teléfono'],
+            ],
+            body: rows.length > 0 ? rows : [['-', '-', 'Sin personal asignado en este grupo', '-', '-', '-']],
+            theme: 'grid',
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [51, 65, 85], textColor: 255 },
+          });
 
-      currentY = (doc as any).lastAutoTable.finalY + 4;
-      if (currentY > 260) {
-        doc.addPage();
-        currentY = 20;
-      }
+          currentY = (doc as any).lastAutoTable.finalY + 4;
+          if (currentY > pageHeight - 35) {
+            doc.addPage();
+            currentY = 20;
+          }
+        });
+
+        drawPoliceFooter(doc, config);
+        return doc;
+      },
     });
-
-    drawPoliceFooter(doc, config);
-    doc.save(`Grupos_Guardias_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   return (

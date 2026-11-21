@@ -7,7 +7,9 @@ import {
   ConfiguracionSistema,
   IntervencionParte,
   UsuarioSistema,
+  LicenciaPolicial,
 } from '../../types/police';
+import { getLicenciaActivaPersonal, formatFechaDisplay } from '../../services/licenciaService';
 import {
   Search,
   Filter,
@@ -49,6 +51,7 @@ interface GuardiasTableViewProps {
   personalList?: Personal[];
   movilesList?: MovilPolicial[];
   gruposList?: GrupoPersonal[];
+  licenciasPoliciales?: LicenciaPolicial[];
   config: ConfiguracionSistema;
   currentUser?: UsuarioSistema;
   onSelectGuardia: (parte: ParteNovedadesGuardia) => void;
@@ -66,6 +69,7 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
   personalList = [],
   movilesList = [],
   gruposList = [],
+  licenciasPoliciales = [],
   config,
   currentUser,
   onSelectGuardia,
@@ -209,12 +213,23 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                 }
                 setPersonalModalParte(p);
               }}
-              className="inline-flex items-center gap-1 font-mono font-bold text-slate-800 hover:text-blue-900 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors text-[11px]"
-              title="Gestionar Personal y Funciones de esta guardia (Editar, Eliminar, Agregar)"
+              className="inline-flex flex-col items-center gap-0.5 font-mono font-bold text-slate-800 hover:text-blue-900 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors text-[11px]"
+              title={
+                counts.enLicenciaCount > 0
+                  ? `Gestionar Personal (${counts.enLicenciaCount} efectivo/s de licencia el ${formatFechaDisplay(p.fechaInicio)})`
+                  : 'Gestionar Personal y Funciones de esta guardia (Editar, Eliminar, Agregar)'
+              }
             >
-              <Search className="w-3 h-3 text-slate-400" />
-              <Users className="w-3.5 h-3.5 text-blue-800" />
-              <span>{counts.personalCount}</span>
+              <span className="inline-flex items-center gap-1">
+                <Search className="w-3 h-3 text-slate-400" />
+                <Users className="w-3.5 h-3.5 text-blue-800" />
+                <span>{counts.personalCount}</span>
+              </span>
+              {counts.enLicenciaCount > 0 && (
+                <span className="text-[9px] font-sans font-bold text-amber-900 bg-amber-100 border border-amber-300 px-1 rounded leading-tight">
+                  {counts.enLicenciaCount} c/ licencia
+                </span>
+              )}
             </button>
           ),
         };
@@ -482,10 +497,15 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
         ? cleanShortDocName(forenseMedicos[0])
         : `${forenseMedicos.length} forenses`;
 
+    const enLicenciaCount = personalList.filter((pers) =>
+      Boolean(getLicenciaActivaPersonal(pers.id, p.fechaInicio, licenciasPoliciales, personalList))
+    ).length;
+
     return {
       personalCount:
         p.funcionesPersonal.filter((f) => f.personalNombre.trim().length > 0).length ||
         p.funcionesPersonal.length,
+      enLicenciaCount,
       movilesCount: p.movilesAfectados.length,
       lc,
       forenseCount: totalExaminadosForense,
@@ -849,7 +869,7 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => generarPdfParteGuardia(p, config)}
+                            onClick={() => generarPdfParteGuardia(p, config, { licenciasPoliciales, personalList })}
                             className="px-2 py-1 text-slate-700 hover:text-blue-950 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded font-semibold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
                             title="Descargar documento PDF oficial firmado"
                           >
@@ -969,6 +989,7 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
           parte={personalModalParte}
           personalList={personalList}
           gruposList={gruposList}
+          licenciasPoliciales={licenciasPoliciales}
           config={config}
           onSave={(updated) => {
             if (onSaveParte) onSaveParte(updated);
@@ -1059,6 +1080,8 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
               <ParteVisualPreview
                 parte={previewParte}
                 config={config}
+                personalList={personalList}
+                licenciasPoliciales={licenciasPoliciales}
                 onClose={() => setPreviewParte(null)}
               />
             </div>

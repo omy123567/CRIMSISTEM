@@ -25,6 +25,9 @@ import {
   EstadoOperativoVehiculo,
   PrioridadNovedad,
   CharlaPrevencion,
+  LicenciaPolicial,
+  SaldoLicenciaAnio,
+  FeriadoDiaNoLaborable,
 } from './types/police';
 
 import { Navbar } from './components/layout/Navbar';
@@ -52,17 +55,51 @@ import { NumerarioView } from './components/numerario/NumerarioView';
 import { ConfigView } from './components/config/ConfigView';
 import { UsuariosView } from './components/usuarios/UsuariosView';
 import { AuditoriaView } from './components/auditoria/AuditoriaView';
+import { LicenciasPolicialesView } from './components/licencias/LicenciasPolicialesView';
+import { PdfPreviewModal } from './components/common/PdfPreviewModal';
 import { LoginView } from './components/auth/LoginView';
 import { CambiarPasswordModal } from './components/auth/CambiarPasswordModal';
+import { TwoFactorModal } from './components/auth/TwoFactorModal';
 import { registrarAuditoria } from './services/auditService';
+import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from './services/licenciaService';
 import {
   syncWithServer,
   saveItemToServer,
   deleteItemFromServer,
   logoutOnServer,
+  adminResetUser2faOnServer,
 } from './services/apiService';
 import { getAuthToken, subscribeAuthExpired } from './services/securityClient';
-import { PanelLeftOpen, ShieldAlert, Clock, X } from 'lucide-react';
+import { PanelLeftOpen, ShieldAlert, CheckCircle2, Clock, X } from 'lucide-react';
+
+const ensureConfigLicencias = (conf: ConfiguracionSistema): ConfiguracionSistema => {
+  let updated = conf;
+  if (!conf.tiposLicenciaCatalogo || conf.tiposLicenciaCatalogo.length === 0) {
+    updated = { ...updated, tiposLicenciaCatalogo: DEFAULT_TIPOS_LICENCIA };
+  }
+  if (
+    updated.estructuraModulos &&
+    updated.estructuraModulos.length > 0 &&
+    !updated.estructuraModulos.some((m) => m.id === 'licencias')
+  ) {
+    updated = {
+      ...updated,
+      estructuraModulos: [
+        ...updated.estructuraModulos,
+        {
+          id: 'licencias',
+          label: 'Licencia Policial',
+          desc: 'Régimen, Saldos, Feriados y Reportes',
+          visible: true,
+          orden: updated.estructuraModulos.length,
+          padreId: null,
+          colorTonalidad: 'esmeralda',
+        },
+      ],
+    };
+  }
+  return updated;
+};
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UsuarioSistema | null>(() => {
@@ -88,6 +125,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarVisible, setIsSidebarVisible] = useState<boolean>(true);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState<boolean>(false);
+  const [isTwoFactorModalOpen, setIsTwoFactorModalOpen] = useState<boolean>(false);
   const [actionNotice, setActionNotice] = useState<{ text: string; isError?: boolean } | null>(null);
   const [inactivityCountdown, setInactivityCountdown] = useState<number | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
@@ -120,6 +158,9 @@ export default function App() {
   const [rolesList, setRolesList] = useState<RolSistema[]>([]);
   const [novedadesList, setNovedadesList] = useState<AvisoNovedad[]>([]);
   const [charlasList, setCharlasList] = useState<CharlaPrevencion[]>([]);
+  const [licenciasPolicialesList, setLicenciasPolicialesList] = useState<LicenciaPolicial[]>([]);
+  const [saldosLicenciasList, setSaldosLicenciasList] = useState<SaldoLicenciaAnio[]>([]);
+  const [feriadosList, setFeriadosList] = useState<FeriadoDiaNoLaborable[]>([]);
 
   // Delegación activa en visualización
   const [activeDelegacionId, setActiveDelegacionId] = useState<string>(() => {
@@ -148,17 +189,19 @@ export default function App() {
             (latestStructConf.estructuraModulosUpdatedAt || '') >
               (activeConf.estructuraModulosUpdatedAt || ''))
         ) {
-          setConfig({
-            ...activeConf,
-            estructuraModulos: latestStructConf.estructuraModulos,
-            estructuraModulosUpdatedAt: latestStructConf.estructuraModulosUpdatedAt,
-          });
+          setConfig(
+            ensureConfigLicencias({
+              ...activeConf,
+              estructuraModulos: latestStructConf.estructuraModulos,
+              estructuraModulosUpdatedAt: latestStructConf.estructuraModulosUpdatedAt,
+            })
+          );
         } else {
-          setConfig(activeConf);
+          setConfig(ensureConfigLicencias(activeConf));
         }
       } else {
         await db.configuracion.put(DEFAULT_CONFIG);
-        setConfig(DEFAULT_CONFIG);
+        setConfig(ensureConfigLicencias(DEFAULT_CONFIG));
       }
 
       const [
@@ -183,6 +226,9 @@ export default function App() {
         roles,
         novs,
         charlas,
+        licsPol,
+        saldosLic,
+        fers,
       ] = await Promise.all([
         db.personal.toArray(),
         db.grupos.toArray(),
@@ -205,6 +251,9 @@ export default function App() {
         db.roles.toArray(),
         db.novedadesDelegaciones.toArray(),
         db.charlasPrevencion.toArray(),
+        db.licenciasPoliciales.toArray(),
+        db.saldosLicencias.toArray(),
+        db.feriados.toArray(),
       ]);
 
       setPersonalList(pers);
@@ -228,6 +277,9 @@ export default function App() {
       setRolesList(roles);
       setNovedadesList(novs);
       setCharlasList(charlas);
+      setLicenciasPolicialesList(licsPol);
+      setSaldosLicenciasList(saldosLic);
+      setFeriadosList(fers && fers.length > 0 ? fers : DEFAULT_FERIADOS_ARGENTINA);
 
       // Si el usuario ya está logueado, sincronizar su sesión fresca sin contraseñas en claro
       if (currentUser) {
@@ -310,7 +362,7 @@ export default function App() {
               estructuraModulosUpdatedAt: latestStructConf!.estructuraModulosUpdatedAt,
             }
           : confEspecifica;
-        setConfig(resolvedConf);
+        setConfig(ensureConfigLicencias(resolvedConf));
       } else if (targetDel) {
         const configNueva: ConfiguracionSistema = {
           ...DEFAULT_CONFIG,
@@ -347,7 +399,7 @@ export default function App() {
         };
         await db.configuracion.put(configNueva);
         if (isMounted) {
-          setConfig(configNueva);
+          setConfig(ensureConfigLicencias(configNueva));
         }
       }
     };
@@ -456,6 +508,18 @@ export default function App() {
       (f) => !f.delegacionId || f.delegacionId === activeDelegacionId
     );
   }, [forensesList, activeDelegacionId]);
+
+  const filteredLicenciasPoliciales = useMemo(() => {
+    return licenciasPolicialesList.filter(
+      (l) => !l.delegacionId || l.delegacionId === activeDelegacionId
+    );
+  }, [licenciasPolicialesList, activeDelegacionId]);
+
+  const filteredSaldosLicencias = useMemo(() => {
+    return saldosLicenciasList.filter(
+      (s) => !s.delegacionId || s.delegacionId === activeDelegacionId
+    );
+  }, [saldosLicenciasList, activeDelegacionId]);
 
   // Intervenciones de la delegación activa (combinadas de partes de guardia e independientes)
   const filteredIntervenciones = useMemo(() => {
@@ -1577,6 +1641,111 @@ export default function App() {
     });
   };
 
+  // --- CRUD LICENCIAS POLICIALES, SALDOS Y FERIADOS ---
+  const handleSaveLicencia = async (lic: LicenciaPolicial) => {
+    const isNew = !licenciasPolicialesList.some((l) => l.id === lic.id);
+    const ownerPersonal = personalList.find((p) => p.id === lic.personalId);
+    const entity: LicenciaPolicial = {
+      ...lic,
+      delegacionId: ownerPersonal?.delegacionId || lic.delegacionId || activeDelegacionId,
+    };
+    await db.licenciasPoliciales.put(entity);
+    saveItemToServer('licenciasPoliciales', entity);
+    setLicenciasPolicialesList((prev) => {
+      const idx = prev.findIndex((item) => item.id === entity.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = entity;
+        return copy;
+      }
+      return [entity, ...prev];
+    });
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Licencia Policial',
+      accion: isNew ? 'CREAR' : 'MODIFICAR',
+      descripcion: `${isNew ? 'Registró' : 'Actualizó'} licencia ${entity.tipoLicencia} (${entity.diasHabilesSolicitados} días hábiles${entity.fueInterrumpida ? ', INTERRUMPIDA Art. 15' : ''}) para ${entity.jerarquia} ${entity.apellidoYNombre} (Salida: ${entity.fechaSalida}, Reanudación: ${entity.fechaReanudacion} 08:00 hs)`,
+      delegacionId: entity.delegacionId,
+    });
+  };
+
+  const handleDeleteLicencia = async (id: string) => {
+    if (!verificarPermisoEliminar()) return;
+    const target = licenciasPolicialesList.find((l) => l.id === id);
+    await db.licenciasPoliciales.delete(id);
+    deleteItemFromServer('licenciasPoliciales', id);
+    setLicenciasPolicialesList((prev) => prev.filter((l) => l.id !== id));
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Licencia Policial',
+      accion: 'ELIMINAR',
+      descripcion: `Eliminó licencia ${target?.tipoLicencia || ''} de ${target?.jerarquia || ''} ${target?.apellidoYNombre || id} (${target?.fechaSalida || ''})`,
+      delegacionId: target?.delegacionId || activeDelegacionId,
+    });
+  };
+
+  const handleSaveSaldoLicencia = async (saldo: SaldoLicenciaAnio) => {
+    const ownerPersonal = personalList.find((p) => p.id === saldo.personalId);
+    const entity: SaldoLicenciaAnio = {
+      ...saldo,
+      delegacionId: ownerPersonal?.delegacionId || saldo.delegacionId || activeDelegacionId,
+    };
+    await db.saldosLicencias.put(entity);
+    saveItemToServer('saldosLicencias', entity);
+    setSaldosLicenciasList((prev) => {
+      const idx = prev.findIndex((item) => item.id === entity.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = entity;
+        return copy;
+      }
+      return [...prev, entity];
+    });
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Licencia Policial',
+      accion: 'MODIFICAR',
+      descripcion: `Actualizó saldo de licencia período ${entity.anio} (Personal ID ${entity.personalId}): ${entity.diasCorrespondientes} corresp., ${entity.diasUsados} usados, vencido=${entity.vencido ? 'SÍ' : 'NO'}`,
+      delegacionId: entity.delegacionId,
+    });
+  };
+
+  const handleSaveFeriado = async (feriado: FeriadoDiaNoLaborable) => {
+    await db.feriados.put(feriado);
+    saveItemToServer('feriados', feriado);
+    setFeriadosList((prev) => {
+      const idx = prev.findIndex((f) => f.id === feriado.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = feriado;
+        return copy;
+      }
+      return [...prev, feriado].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    });
+  };
+
+  const handleSaveFeriadosBulk = async (nuevos: FeriadoDiaNoLaborable[]) => {
+    if (!nuevos || nuevos.length === 0) return;
+    await db.feriados.bulkPut(nuevos);
+    await Promise.all(nuevos.map((f) => saveItemToServer('feriados', f)));
+    setFeriadosList((prev) => {
+      const map = new Map<string, FeriadoDiaNoLaborable>();
+      for (const f of prev) map.set(f.id, f);
+      for (const f of nuevos) map.set(f.id, f);
+      return Array.from(map.values()).sort((a, b) => a.fecha.localeCompare(b.fecha));
+    });
+  };
+
+  const handleDeleteFeriado = async (id: string) => {
+    if (!verificarPermisoEliminar()) return;
+    await db.feriados.delete(id);
+    deleteItemFromServer('feriados', id);
+    setFeriadosList((prev) => prev.filter((f) => f.id !== id));
+  };
+
   // --- CAMBIO DE CONTRASEÑA ---
   const handleSavePassword = async (
     userId: string,
@@ -1601,6 +1770,30 @@ export default function App() {
       setCurrentUser(sanitizedUser);
       sessionStorage.setItem('sispol_current_user', JSON.stringify(sanitizedUser));
     }
+  };
+
+  const handleUserSecurityUpdated = (updatedUser: UsuarioSistema) => {
+    const sanitizedUser: UsuarioSistema = { ...updatedUser, password: '' };
+    setUsuariosList((prev) =>
+      prev.map((u) => (u.id === sanitizedUser.id ? sanitizedUser : u))
+    );
+    if (currentUser?.id === sanitizedUser.id) {
+      setCurrentUser(sanitizedUser);
+      sessionStorage.setItem('sispol_current_user', JSON.stringify(sanitizedUser));
+    }
+  };
+
+  const handleAdminReset2fa = async (userId: string) => {
+    const res = await adminResetUser2faOnServer(userId);
+    if (!res.success || !res.user) {
+      showNotice(res.error || 'No se pudo restablecer el 2FA del usuario.', true);
+      return;
+    }
+    handleUserSecurityUpdated(res.user);
+    showNotice(
+      `Se restableció Google Authenticator (2FA) y dispositivos de confianza para @${res.user.username}.`,
+      false
+    );
   };
 
   // --- SESIÓN & LOGOUT ---
@@ -1787,6 +1980,7 @@ export default function App() {
         onNavigateToCharlas={() => setActiveTab('charlas-prevencion')}
         onSelectDelegacion={(newDelId) => setActiveDelegacionId(newDelId)}
         onOpenCambiarPassword={() => setIsPasswordModalOpen(true)}
+        onOpenTwoFactor={() => setIsTwoFactorModalOpen(true)}
         onLogout={handleLogout}
         onOpenBackups={() => setActiveTab('config')}
         isSidebarVisible={isSidebarVisible}
@@ -1917,6 +2111,7 @@ export default function App() {
             <RecargosView
               recargosList={filteredRecargos}
               personalList={personalList}
+              licenciasPoliciales={filteredLicenciasPoliciales}
               config={config}
               currentUser={currentUser || undefined}
               delegacionesList={delegacionesList}
@@ -1932,6 +2127,7 @@ export default function App() {
               personalList={filteredPersonal}
               movilesList={filteredMoviles}
               gruposList={filteredGrupos}
+              licenciasPoliciales={filteredLicenciasPoliciales}
               config={config}
               currentUser={currentUser || undefined}
               onSaveParte={handleSaveParte}
@@ -2073,6 +2269,8 @@ export default function App() {
               onDeleteUsuario={handleDeleteUsuario}
               onSaveRol={handleSaveRol}
               onDeleteRol={handleDeleteRol}
+              onAdminReset2fa={handleAdminReset2fa}
+              onUserUpdated={handleUserSecurityUpdated}
             />
           )}
 
@@ -2110,6 +2308,26 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'licencias' && (
+            <LicenciasPolicialesView
+              personalList={personalList}
+              licencias={licenciasPolicialesList}
+              saldosLicencias={saldosLicenciasList}
+              feriados={feriadosList}
+              delegacionesList={delegacionesList}
+              activeDelegacionId={activeDelegacionId}
+              config={config}
+              currentUser={currentUser || undefined}
+              onSaveLicencia={handleSaveLicencia}
+              onDeleteLicencia={handleDeleteLicencia}
+              onSaveSaldoLicencia={handleSaveSaldoLicencia}
+              onSaveFeriado={handleSaveFeriado}
+              onSaveFeriadosBulk={handleSaveFeriadosBulk}
+              onDeleteFeriado={handleDeleteFeriado}
+              onSaveConfig={handleSaveConfig}
+            />
+          )}
+
           {activeTab === 'config' && (
             <ConfigView
               config={config}
@@ -2133,10 +2351,27 @@ export default function App() {
         />
       )}
 
+      {/* Modal para configurar Google Authenticator (2FA) y Dispositivos de Confianza */}
+      {isTwoFactorModalOpen && currentUser && (
+        <TwoFactorModal
+          currentUser={currentUser}
+          onUserUpdated={handleUserSecurityUpdated}
+          onClose={() => setIsTwoFactorModalOpen(false)}
+        />
+      )}
+
       {/* Aviso no bloqueante de seguridad / permisos */}
       {actionNotice && (
-        <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-slate-900 text-white border border-red-500/50 rounded-xl shadow-2xl p-3.5 flex items-start gap-2.5 text-xs animate-in fade-in slide-in-from-bottom-4">
-          <ShieldAlert className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+        <div
+          className={`fixed bottom-4 right-4 z-50 max-w-sm bg-slate-900 text-white border rounded-xl shadow-2xl p-3.5 flex items-start gap-2.5 text-xs animate-in fade-in slide-in-from-bottom-4 ${
+            actionNotice.isError ? 'border-red-500/50' : 'border-emerald-500/50'
+          }`}
+        >
+          {actionNotice.isError ? (
+            <ShieldAlert className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          )}
           <span className="flex-1 leading-relaxed">{actionNotice.text}</span>
           <button
             type="button"
@@ -2189,6 +2424,8 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* Visor Universal de Previsualización, Orientación y Tamaño de Papel PDF */}
+      <PdfPreviewModal />
     </div>
   );
 }

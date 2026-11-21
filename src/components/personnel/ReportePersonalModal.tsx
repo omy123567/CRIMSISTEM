@@ -4,6 +4,8 @@ import { X, FileText, Download, Filter, CheckCircle2, Calendar, Shield, Users, L
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import { PdfPaperSize } from '../../types/police';
 
 interface ReportePersonalModalProps {
   isOpen: boolean;
@@ -37,7 +39,7 @@ export const ReportePersonalModal: React.FC<ReportePersonalModalProps> = ({
 
   // Formato de papel
   const [orientacion, setOrientacion] = useState<'p' | 'l'>('l');
-  const [tamanoPapel, setTamanoPapel] = useState<'a4' | 'legal' | 'letter'>('a4');
+  const [tamanoPapel, setTamanoPapel] = useState<PdfPaperSize>('a4');
 
   const puedeVerOtras = Boolean(
     currentUser?.rol === 'superusuario' || currentUser?.puedeVerOtrasDelegaciones
@@ -142,60 +144,67 @@ export const ReportePersonalModal: React.FC<ReportePersonalModalProps> = ({
   ]);
 
   const handleDescargarPdf = () => {
-    const doc = new jsPDF(orientacion, 'mm', tamanoPapel);
+    const fileName = `Reporte_Personal_${new Date().toISOString().slice(0, 10)}.pdf`;
+    requestPdfExport({
+      title: 'Reporte Oficial de Personal Policial',
+      fileName,
+      defaultOrientation: orientacion === 'p' ? 'portrait' : 'landscape',
+      defaultPaperSize: tamanoPapel,
+      buildDoc: ({ orientation, paperSize }) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+        const titulo = `REPORTE OFICIAL DE PERSONAL POLICIAL Y ESTADO DE REVISTA`;
+        const currentY = drawPoliceHeader(doc, config, titulo, 10);
 
-    const titulo = `REPORTE OFICIAL DE PERSONAL POLICIAL Y ESTADO DE REVISTA`;
-    const currentY = drawPoliceHeader(doc, config, titulo, 10);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(80, 80, 80);
+        const filtrosTxt = `Filtros: Sexo: ${filtroSexo.toUpperCase()} | Arma: ${filtroArma.toUpperCase()} | Jerarquía: ${filtroJerarquia} | Sección: ${filtroSeccion} | Período: ${rangoTipo.toUpperCase()} | Total registros: ${filteredList.length}`;
+        doc.text(filtrosTxt, 10, currentY + 3);
 
-    // Subtítulo con filtros aplicados
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(80, 80, 80);
-    const filtrosTxt = `Filtros: Sexo: ${filtroSexo.toUpperCase()} | Arma: ${filtroArma.toUpperCase()} | Jerarquía: ${filtroJerarquia} | Sección: ${filtroSeccion} | Período: ${rangoTipo.toUpperCase()} | Total registros: ${filteredList.length}`;
-    doc.text(filtrosTxt, 10, currentY + 3);
+        const rows = filteredList.map((p, i) => [
+          i + 1,
+          p.jerarquia,
+          p.apellidoYNombre,
+          p.dni,
+          p.cedulaProvincial || '---',
+          p.plaza || 's/p',
+          p.seccionGrupo || 'General',
+          p.sexo || '---',
+          p.estado || 'Activo',
+          p.armamento?.serieNro
+            ? `${p.armamento.marca || ''} ${p.armamento.serieNro}${p.armamento.secuestradoORetenido ? ' (RET.)' : ''}`
+            : 'Sin arma',
+          p.chaleco?.serieNro ? `${p.chaleco.serieNro} (T:${p.chaleco.talla || '-'})` : 'Sin chaleco',
+          p.telefono || '---',
+        ]);
 
-    const rows = filteredList.map((p, i) => [
-      i + 1,
-      p.jerarquia,
-      p.apellidoYNombre,
-      p.dni,
-      p.cedulaProvincial || '---',
-      p.plaza || 's/p',
-      p.seccionGrupo || 'General',
-      p.sexo || '---',
-      p.estado || 'Activo',
-      p.armamento?.serieNro
-        ? `${p.armamento.marca || ''} ${p.armamento.serieNro}${p.armamento.secuestradoORetenido ? ' (RET.)' : ''}`
-        : 'Sin arma',
-      p.chaleco?.serieNro ? `${p.chaleco.serieNro} (T:${p.chaleco.talla || '-'})` : 'Sin chaleco',
-      p.telefono || '---',
-    ]);
+        autoTable(doc, {
+          startY: currentY + 6,
+          head: [[
+            'N°',
+            'Jerarquía',
+            'Apellido y Nombre',
+            'DNI',
+            'Cédula Prov.',
+            'Plaza',
+            'Sección',
+            'Sexo',
+            'Estado',
+            'Armamento',
+            'Chaleco',
+            'Teléfono',
+          ]],
+          body: rows,
+          theme: 'grid',
+          headStyles: { fillColor: [17, 38, 77], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+          styles: { fontSize: 7, cellPadding: 1.6, lineColor: [200, 210, 225], lineWidth: 0.1 },
+          margin: { left: 10, right: 10 },
+        });
 
-    autoTable(doc, {
-      startY: currentY + 6,
-      head: [[
-        'N°',
-        'Jerarquía',
-        'Apellido y Nombre',
-        'DNI',
-        'Cédula Prov.',
-        'Plaza',
-        'Sección',
-        'Sexo',
-        'Estado',
-        'Armamento',
-        'Chaleco',
-        'Teléfono',
-      ]],
-      body: rows,
-      theme: 'grid',
-      headStyles: { fillColor: [17, 38, 77], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
-      styles: { fontSize: 7, cellPadding: 1.6, lineColor: [200, 210, 225], lineWidth: 0.1 },
-      margin: { left: 10, right: 10 },
+        drawPoliceFooter(doc, config);
+        return doc;
+      },
     });
-
-    drawPoliceFooter(doc, config);
-    doc.save(`Reporte_Personal_${new Date().toISOString().slice(0, 10)}.pdf`);
     onClose();
   };
 
@@ -389,9 +398,10 @@ export const ReportePersonalModal: React.FC<ReportePersonalModalProps> = ({
                 onChange={(e) => setTamanoPapel(e.target.value as any)}
                 className="w-full px-2 py-1 bg-white border border-slate-300 rounded"
               >
-                <option value="a4">A4 (Estándar)</option>
-                <option value="legal">Oficio / Legal</option>
-                <option value="letter">Carta</option>
+                <option value="a4">A4 (210 × 297 mm)</option>
+                <option value="oficio">Oficio (216 × 330 mm)</option>
+                <option value="legal">Legal (216 × 356 mm)</option>
+                <option value="letter">Carta (216 × 279 mm)</option>
               </select>
             </div>
           </div>

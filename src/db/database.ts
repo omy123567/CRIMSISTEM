@@ -24,8 +24,12 @@ import {
   AccionesRol,
   AvisoNovedad,
   CharlaPrevencion,
+  LicenciaPolicial,
+  SaldoLicenciaAnio,
+  FeriadoDiaNoLaborable,
 } from '../types/police';
 import { crearOfflineVerifier } from '../services/securityClient';
+import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from '../services/licenciaService';
 
 export class SisPolDatabase extends Dexie {
   personal!: Table<Personal, string>;
@@ -51,6 +55,9 @@ export class SisPolDatabase extends Dexie {
   roles!: Table<RolSistema, string>;
   novedadesDelegaciones!: Table<AvisoNovedad, string>;
   charlasPrevencion!: Table<CharlaPrevencion, string>;
+  licenciasPoliciales!: Table<LicenciaPolicial, string>;
+  saldosLicencias!: Table<SaldoLicenciaAnio, string>;
+  feriados!: Table<FeriadoDiaNoLaborable, string>;
 
   constructor() {
     super('SisPolDB');
@@ -99,6 +106,11 @@ export class SisPolDatabase extends Dexie {
     });
     this.version(11).stores({
       charlasPrevencion: 'id, fecha, hora, localidad, delegacionId, disertantePersonalId, estado',
+    });
+    this.version(12).stores({
+      licenciasPoliciales: 'id, personalId, tipoLicenciaId, fechaSalida, fechaReanudacion, fueInterrumpida, delegacionId',
+      saldosLicencias: 'id, personalId, anio, vencido, delegacionId',
+      feriados: 'id, fecha, tipo, anio',
     });
   }
 }
@@ -320,26 +332,28 @@ export const DEFAULT_CONFIG: ConfiguracionSistema = {
   recordatorioRtoDias: 30,
   intervaloServiceKm: 10000,
   recordatorioServiceKm: 500,
+  tiposLicenciaCatalogo: DEFAULT_TIPOS_LICENCIA,
   estructuraModulos: [
     { id: 'dashboard', label: 'Dashboard Ejecutivo', desc: 'KPIs y Estadísticas', orden: 1, padreId: null, visible: true },
     { id: 'personal', label: 'Personal y Legajos', desc: 'Nómina, Armas y Chalecos', orden: 2, padreId: null, visible: true },
-    { id: 'grupos', label: 'Grupos', desc: 'Secciones de Guardia & Nómina', orden: 3, padreId: null, visible: true },
-    { id: 'expedientes', label: 'Expedientes Judiciales', desc: 'Oficios, Tareas y PPI', orden: 4, padreId: null, visible: true },
-    { id: 'falta-oficio', label: 'Casos Falta de Oficio', desc: 'Urgencias preliminares', orden: 5, padreId: null, visible: true },
-    { id: 'moviles', label: 'Parque Automotor', desc: 'Móviles y Reparaciones', orden: 6, padreId: null, visible: true },
-    { id: 'recargos', label: 'Recargos Operativos', desc: 'Servicios extraordinarios', orden: 7, padreId: null, visible: true },
-    { id: 'guardias', label: 'Parte de Novedades', desc: 'Guardia & Criminalística', orden: 8, padreId: null, visible: true },
-    { id: 'inspecciones', label: 'Inspecciones Oculares', desc: 'Intervenciones Criminalísticas', orden: 9, padreId: null, visible: true },
-    { id: 'intervenciones', label: 'Intervenciones', desc: 'LC & Siniestros Viales', orden: 10, padreId: null, visible: true },
-    { id: 'causas-policiales', label: 'Causas c/ Pers. Policial', desc: 'Hechos con Efectivos Policiales', orden: 11, padreId: null, visible: true },
-    { id: 'personas', label: 'Personas', desc: 'Involucrados & Testigos', orden: 12, padreId: null, visible: true },
-    { id: 'vehiculos', label: 'Vehículos', desc: 'Rodados en Siniestros Viales', orden: 13, padreId: null, visible: true },
-    { id: 'forense', label: 'Forense Policial', desc: 'Médico y Examinados', orden: 14, padreId: null, visible: true },
-    { id: 'licenciados', label: 'Licenciado', desc: 'Personal Profesional', orden: 15, padreId: null, visible: true },
-    { id: 'informes-tecnicos', label: 'Informes Técnicos', desc: 'Oficios, Dictámenes & Elevación', orden: 16, padreId: null, visible: true },
-    { id: 'numerario', label: 'Control de Folios', desc: 'Numerario y Asignación de Folios', orden: 17, padreId: null, visible: true },
-    { id: 'usuarios', label: 'Gestión de Usuarios', desc: 'Roles, Permisos & Cuentas', orden: 18, padreId: null, visible: true },
-    { id: 'config', label: 'Configuración & Membrete', desc: 'Ajustes, Membrete & Backups', orden: 19, padreId: null, visible: true },
+    { id: 'licencias', label: 'Licencia Policial', desc: 'Régimen, Saldos Art. 7 y Feriados', orden: 3, padreId: null, visible: true },
+    { id: 'grupos', label: 'Grupos', desc: 'Secciones de Guardia & Nómina', orden: 4, padreId: null, visible: true },
+    { id: 'expedientes', label: 'Expedientes Judiciales', desc: 'Oficios, Tareas y PPI', orden: 5, padreId: null, visible: true },
+    { id: 'falta-oficio', label: 'Casos Falta de Oficio', desc: 'Urgencias preliminares', orden: 6, padreId: null, visible: true },
+    { id: 'moviles', label: 'Parque Automotor', desc: 'Móviles y Reparaciones', orden: 7, padreId: null, visible: true },
+    { id: 'recargos', label: 'Recargos Operativos', desc: 'Servicios extraordinarios', orden: 8, padreId: null, visible: true },
+    { id: 'guardias', label: 'Parte de Novedades', desc: 'Guardia & Criminalística', orden: 9, padreId: null, visible: true },
+    { id: 'inspecciones', label: 'Inspecciones Oculares', desc: 'Intervenciones Criminalísticas', orden: 10, padreId: null, visible: true },
+    { id: 'intervenciones', label: 'Intervenciones', desc: 'LC & Siniestros Viales', orden: 11, padreId: null, visible: true },
+    { id: 'causas-policiales', label: 'Causas c/ Pers. Policial', desc: 'Hechos con Efectivos Policiales', orden: 12, padreId: null, visible: true },
+    { id: 'personas', label: 'Personas', desc: 'Involucrados & Testigos', orden: 13, padreId: null, visible: true },
+    { id: 'vehiculos', label: 'Vehículos', desc: 'Rodados en Siniestros Viales', orden: 14, padreId: null, visible: true },
+    { id: 'forense', label: 'Forense Policial', desc: 'Médico y Examinados', orden: 15, padreId: null, visible: true },
+    { id: 'licenciados', label: 'Licenciado', desc: 'Personal Profesional', orden: 16, padreId: null, visible: true },
+    { id: 'informes-tecnicos', label: 'Informes Técnicos', desc: 'Oficios, Dictámenes & Elevación', orden: 17, padreId: null, visible: true },
+    { id: 'numerario', label: 'Control de Folios', desc: 'Numerario y Asignación de Folios', orden: 18, padreId: null, visible: true },
+    { id: 'usuarios', label: 'Gestión de Usuarios', desc: 'Roles, Permisos & Cuentas', orden: 19, padreId: null, visible: true },
+    { id: 'config', label: 'Configuración & Membrete', desc: 'Ajustes, Membrete & Backups', orden: 20, padreId: null, visible: true },
   ],
 };
 
@@ -498,7 +512,7 @@ export const DEFAULT_ROLES: RolSistema[] = [
     color: 'purple',
     esSistema: true,
     modulosPermitidos: [
-      'dashboard', 'personal', 'grupos', 'expedientes', 'falta-oficio',
+      'dashboard', 'personal', 'licencias', 'grupos', 'expedientes', 'falta-oficio',
       'moviles', 'recargos', 'guardias', 'inspecciones', 'intervenciones',
       'causas-policiales', 'accidentologia', 'personas', 'vehiculos',
       'forense', 'licenciados', 'informes-tecnicos', 'numerario',
@@ -518,6 +532,8 @@ export const DEFAULT_ROLES: RolSistema[] = [
       puedeRecargarOtrasDelegaciones: true,
       puedeGestionarUsuarios: true,
       puedeConfirmarFotografias: true,
+      puedeCambiarPasswordOtros: true,
+      puedeGestionar2faOtros: true,
     },
     activo: true,
     createdAt: new Date().toISOString(),
@@ -529,7 +545,7 @@ export const DEFAULT_ROLES: RolSistema[] = [
     color: 'blue',
     esSistema: true,
     modulosPermitidos: [
-      'dashboard', 'personal', 'grupos', 'expedientes', 'falta-oficio',
+      'dashboard', 'personal', 'licencias', 'grupos', 'expedientes', 'falta-oficio',
       'moviles', 'recargos', 'guardias', 'inspecciones', 'intervenciones',
       'causas-policiales', 'accidentologia', 'personas', 'vehiculos',
       'forense', 'licenciados', 'informes-tecnicos', 'numerario',
@@ -549,6 +565,8 @@ export const DEFAULT_ROLES: RolSistema[] = [
       puedeRecargarOtrasDelegaciones: true,
       puedeGestionarUsuarios: true,
       puedeConfirmarFotografias: true,
+      puedeCambiarPasswordOtros: false,
+      puedeGestionar2faOtros: false,
     },
     activo: true,
     createdAt: new Date().toISOString(),
@@ -771,6 +789,7 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
     modulosPermitidos: [
       'dashboard',
       'personal',
+      'licencias',
       'grupos',
       'expedientes',
       'falta-oficio',
@@ -818,6 +837,7 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
     modulosPermitidos: [
       'dashboard',
       'personal',
+      'licencias',
       'grupos',
       'expedientes',
       'falta-oficio',
@@ -858,6 +878,7 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
     modulosPermitidos: [
       'dashboard',
       'personal',
+      'licencias',
       'grupos',
       'expedientes',
       'falta-oficio',
@@ -1100,6 +1121,11 @@ export async function seedInitialDataIfEmpty() {
     await db.seriesNumerario.bulkPut(DEFAULT_SERIES_NUMERARIO);
   }
 
+  const countFeriados = await db.feriados.count();
+  if (countFeriados === 0) {
+    await db.feriados.bulkPut(DEFAULT_FERIADOS_ARGENTINA);
+  }
+
   return;
 }
 
@@ -1123,5 +1149,7 @@ export async function wipeAllOperationalData() {
     db.informesTecnicos.clear(),
     db.novedadesDelegaciones.clear(),
     db.charlasPrevencion.clear(),
+    db.licenciasPoliciales.clear(),
+    db.saldosLicencias.clear(),
   ]);
 }

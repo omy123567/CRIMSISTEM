@@ -22,6 +22,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 interface LicenciadosViewProps {
   personalList: Personal[];
@@ -161,77 +162,86 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
     setPersonalToUnlicense(null);
   };
 
-  // Exportar Nómina Oficial a PDF
+  // Exportar Nómina Oficial a PDF con selección de papel y vista previa
   const handleExportPdf = () => {
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'mm',
-      format: 'a4',
+    const fileName = `Nomina_Personal_Licenciado_${new Date().toISOString().split('T')[0]}.pdf`;
+    requestPdfExport({
+      title: 'Nómina Institucional de Personal Policial Licenciado',
+      fileName,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: (opts) => {
+        const doc = new jsPDF({
+          orientation: resolveJsPdfOrientation(opts.orientation),
+          unit: 'mm',
+          format: resolveJsPdfFormat(opts.paperSize),
+        });
+
+        const startHeaderY = drawPoliceHeader(
+          doc,
+          config,
+          'NÓMINA INSTITUCIONAL DE PERSONAL POLICIAL LICENCIADO Y PERITOS UNIVERSITARIOS',
+          10
+        );
+
+        const headers = [
+          [
+            'N°',
+            'JERARQUÍA',
+            'APELLIDO Y NOMBRE',
+            'LICENCIATURA / ESPECIALIDAD',
+            'MATRÍCULA PROFESIONAL',
+            'PLAZA N°',
+            'D.N.I.',
+            'SECCIÓN / REVISTA',
+          ],
+        ];
+
+        const bodyData = filteredLicenciados.map((lic, idx) => [
+          (idx + 1).toString(),
+          lic.jerarquia,
+          lic.apellidoYNombre.toUpperCase(),
+          lic.especialidadLicenciatura || 'Licenciado',
+          lic.matriculaProfesional || 'En trámite',
+          lic.plaza || 's/p',
+          lic.dni,
+          lic.seccionGrupo || 'Policía Científica',
+        ]);
+
+        autoTable(doc, {
+          startY: Math.max(startHeaderY + 4, 46),
+          head: headers,
+          body: bodyData,
+          theme: 'grid',
+          styles: {
+            fontSize: 8.5,
+            cellPadding: 2.5,
+            valign: 'middle',
+          },
+          headStyles: {
+            fillColor: [17, 38, 77],
+            textColor: 255,
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          columnStyles: {
+            0: { cellWidth: 10, halign: 'center' },
+            1: { cellWidth: 32 },
+            2: { cellWidth: 55, fontStyle: 'bold' },
+            3: { cellWidth: 55 },
+            4: { cellWidth: 35, fontStyle: 'bold', halign: 'center' },
+            5: { cellWidth: 20, halign: 'center' },
+            6: { cellWidth: 25, halign: 'center' },
+            7: { cellWidth: 'auto' },
+          },
+          didDrawPage: () => {
+            drawPoliceFooter(doc, config);
+          },
+        });
+
+        return doc;
+      },
     });
-
-    drawPoliceHeader(
-      doc,
-      config,
-      'NÓMINA INSTITUCIONAL DE PERSONAL POLICIAL LICENCIADO Y PERITOS UNIVERSITARIOS',
-      10
-    );
-
-    const headers = [
-      [
-        'N°',
-        'JERARQUÍA',
-        'APELLIDO Y NOMBRE',
-        'LICENCIATURA / ESPECIALIDAD',
-        'MATRÍCULA PROFESIONAL',
-        'PLAZA N°',
-        'D.N.I.',
-        'SECCIÓN / REVISTA',
-      ],
-    ];
-
-    const bodyData = filteredLicenciados.map((lic, idx) => [
-      (idx + 1).toString(),
-      lic.jerarquia,
-      lic.apellidoYNombre.toUpperCase(),
-      lic.especialidadLicenciatura || 'Licenciado',
-      lic.matriculaProfesional || 'En trámite',
-      lic.plaza || 's/p',
-      lic.dni,
-      lic.seccionGrupo || 'Policía Científica',
-    ]);
-
-    autoTable(doc, {
-      startY: 48,
-      head: headers,
-      body: bodyData,
-      theme: 'grid',
-      styles: {
-        fontSize: 8.5,
-        cellPadding: 2.5,
-        valign: 'middle',
-      },
-      headStyles: {
-        fillColor: [17, 38, 77], // Police Navy
-        textColor: 255,
-        fontStyle: 'bold',
-        halign: 'center',
-      },
-      columnStyles: {
-        0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 32 },
-        2: { cellWidth: 55, fontStyle: 'bold' },
-        3: { cellWidth: 55 },
-        4: { cellWidth: 35, fontStyle: 'bold', halign: 'center' },
-        5: { cellWidth: 20, halign: 'center' },
-        6: { cellWidth: 25, halign: 'center' },
-        7: { cellWidth: 35 },
-      },
-      didDrawPage: () => {
-        drawPoliceFooter(doc, config);
-      },
-    });
-
-    doc.save(`Nomina_Personal_Licenciado_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   return (

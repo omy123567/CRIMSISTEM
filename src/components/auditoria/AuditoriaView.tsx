@@ -26,6 +26,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { fetchAuditFromServer, purgeAuditOnServer } from '../../services/apiService';
 
@@ -219,75 +220,84 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
   };
 
   const handleExportPdf = () => {
-    const doc = new jsPDF('l', 'mm', 'a4');
-    const currentY = drawPoliceHeader(
-      doc,
-      config,
-      'REGISTRO OFICIAL DE AUDITORÍA Y TRAZABILIDAD DE ACCIONES DEL SISTEMA',
-      10
-    );
+    const fileName = `Auditoria_SISPOL_${new Date().toISOString().slice(0, 10)}.pdf`;
+    requestPdfExport({
+      title: 'Registro Oficial de Auditoría y Trazabilidad',
+      fileName,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: (opts) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(opts.orientation), 'mm', resolveJsPdfFormat(opts.paperSize));
+        const currentY = drawPoliceHeader(
+          doc,
+          config,
+          'REGISTRO OFICIAL DE AUDITORÍA Y TRAZABILIDAD DE ACCIONES DEL SISTEMA',
+          10
+        );
 
-    const rows = filteredRegistros.map((r, i) => {
-      const fecha = new Date(r.fechaHora).toLocaleString('es-AR', {
-        dateStyle: 'short',
-        timeStyle: 'medium',
-      });
-      const delNombre = delegacionesMap.get(r.delegacionId) || r.delegacionNombre || r.delegacionId || 'Central';
+        const rows = filteredRegistros.map((r, i) => {
+          const fecha = new Date(r.fechaHora).toLocaleString('es-AR', {
+            dateStyle: 'short',
+            timeStyle: 'medium',
+          });
+          const delNombre = delegacionesMap.get(r.delegacionId) || r.delegacionNombre || r.delegacionId || 'Central';
 
-      return [
-        i + 1,
-        fecha,
-        `${r.apellidoYNombre}\n(@${r.username}) [${r.rol}]`,
-        delNombre,
-        r.modulo,
-        r.accion,
-        `${r.descripcion}${r.detalles ? `\nDetalles: ${r.detalles}` : ''}`,
-      ];
+          return [
+            i + 1,
+            fecha,
+            `${r.apellidoYNombre}\n(@${r.username}) [${r.rol}]`,
+            delNombre,
+            r.modulo,
+            r.accion,
+            `${r.descripcion}${r.detalles ? `\nDetalles: ${r.detalles}` : ''}`,
+          ];
+        });
+
+        autoTable(doc, {
+          startY: currentY + 4,
+          head: [
+            [
+              'N°',
+              'Fecha y Hora',
+              'Usuario y Rol',
+              'Delegación',
+              'Módulo',
+              'Acción',
+              'Descripción del Evento',
+            ],
+          ],
+          body: rows,
+          theme: 'grid',
+          headStyles: {
+            fillColor: [15, 23, 42],
+            textColor: 255,
+            fontSize: 8,
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          styles: {
+            fontSize: 7.5,
+            cellPadding: 2,
+            textColor: [30, 41, 59],
+            overflow: 'linebreak',
+          },
+          columnStyles: {
+            0: { cellWidth: 10, halign: 'center' },
+            1: { cellWidth: 30, halign: 'center' },
+            2: { cellWidth: 45 },
+            3: { cellWidth: 35 },
+            4: { cellWidth: 25, halign: 'center' },
+            5: { cellWidth: 25, halign: 'center' },
+            6: { cellWidth: 'auto' },
+          },
+          didDrawPage: () => {
+            drawPoliceFooter(doc, config);
+          },
+        });
+
+        return doc;
+      },
     });
-
-    autoTable(doc, {
-      startY: currentY + 4,
-      head: [
-        [
-          'N°',
-          'Fecha y Hora',
-          'Usuario y Rol',
-          'Delegación',
-          'Módulo',
-          'Acción',
-          'Descripción del Evento',
-        ],
-      ],
-      body: rows,
-      theme: 'grid',
-      headStyles: {
-        fillColor: [15, 23, 42],
-        textColor: 255,
-        fontSize: 8,
-        fontStyle: 'bold',
-        halign: 'center',
-      },
-      styles: {
-        fontSize: 7.5,
-        cellPadding: 2,
-        textColor: [30, 41, 59],
-        overflow: 'linebreak',
-      },
-      columnStyles: {
-        0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 30, halign: 'center' },
-        2: { cellWidth: 45 },
-        3: { cellWidth: 35 },
-        4: { cellWidth: 25, halign: 'center' },
-        5: { cellWidth: 25, halign: 'center' },
-        6: { cellWidth: 'auto' },
-      },
-      didDrawPage: () => {
-        drawPoliceFooter(doc, config);
-      },
-    });
-
-    doc.save(`Auditoria_SISPOL_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const getAccionBadge = (accion: string) => {

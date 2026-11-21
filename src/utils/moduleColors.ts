@@ -166,6 +166,7 @@ export function getDefaultTonalidadForModule(moduleId: string): TonalidadModulo 
     case 'expedientes':
       return 'azul';
     case 'personal':
+    case 'licencias':
     case 'grupos':
     case 'forense':
     case 'licenciados':

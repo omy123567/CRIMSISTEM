@@ -38,6 +38,7 @@ import { FilePreviewModal } from '../common/FilePreviewModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 interface InformesTecnicosViewProps {
   informesList: InformeTecnico[];
@@ -256,211 +257,214 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
   });
 
   const handleExportListPdf = (opciones?: OpcionesImpresion) => {
-    const orientacion = opciones?.orientacion === 'portrait' ? 'p' : 'l';
-    let formato: any = 'a4';
-    if (opciones?.tamano === 'legal') formato = [216, 356];
-    else if (opciones?.tamano === 'letter') formato = 'letter';
+    const fileName = `Informes_Tecnicos_${new Date().toISOString().split('T')[0]}.pdf`;
+    requestPdfExport({
+      title: 'Libro de Informes Técnicos Periciales y Elevaciones',
+      fileName,
+      defaultOrientation: opciones?.orientacion || 'landscape',
+      defaultPaperSize: opciones?.tamano || 'a4',
+      buildDoc: (opts) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(opts.orientation), 'mm', resolveJsPdfFormat(opts.paperSize));
+        const finalY = drawPoliceHeader(
+          doc,
+          config,
+          'LIBRO DE INFORMES TÉCNICOS PERICIALES Y ELEVACIONES'
+        );
 
-    const doc = new jsPDF(orientacion, 'mm', formato);
-    const finalY = drawPoliceHeader(
-      doc,
-      config,
-      'LIBRO DE INFORMES TÉCNICOS PERICIALES Y ELEVACIONES'
-    );
+        const rows = filteredList.map((inf, i) => [
+          String(i + 1),
+          inf.fecha,
+          inf.oficioNro,
+          `${inf.tipoExpediente} N° ${inf.nroExpediente}/${inf.anio}`,
+          inf.caratula,
+          inf.juzgado,
+          inf.dependenciaInterviniente,
+          inf.licenciadoACargoNombre,
+          inf.estado,
+          inf.fechaElevacion ? `${inf.fechaElevacion} (${inf.quienRecibio || 'S/D'})` : 'Pendiente',
+        ]);
 
-    const rows = filteredList.map((inf, i) => [
-      String(i + 1),
-      inf.fecha,
-      inf.oficioNro,
-      `${inf.tipoExpediente} N° ${inf.nroExpediente}/${inf.anio}`,
-      inf.caratula,
-      inf.juzgado,
-      inf.dependenciaInterviniente,
-      inf.licenciadoACargoNombre,
-      inf.estado,
-      inf.fechaElevacion ? `${inf.fechaElevacion} (${inf.quienRecibio || 'S/D'})` : 'Pendiente',
-    ]);
+        autoTable(doc, {
+          startY: finalY + 4,
+          head: [
+            [
+              'N°',
+              'Fecha',
+              'Oficio',
+              'Expediente',
+              'Carátula',
+              'Juzgado/Fiscalía',
+              'Dependencia',
+              'Licenciado a Cargo',
+              'Estado',
+              'Elevación / Receptor',
+            ],
+          ],
+          body: rows,
+          theme: 'grid',
+          headStyles: {
+            fillColor: [30, 41, 59],
+            textColor: 255,
+            fontSize: 7.5,
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          styles: {
+            fontSize: 6.8,
+            cellPadding: 2,
+            valign: 'middle',
+          },
+          columnStyles: {
+            0: { halign: 'center', cellWidth: 7 },
+            1: { halign: 'center', cellWidth: 16 },
+            2: { cellWidth: 22 },
+            3: { cellWidth: 30 },
+            4: { cellWidth: 46 },
+            5: { cellWidth: 32 },
+            6: { cellWidth: 32 },
+            7: { cellWidth: 32 },
+            8: { halign: 'center', cellWidth: 20 },
+            9: { cellWidth: 'auto' },
+          },
+        });
 
-    autoTable(doc, {
-      startY: finalY + 4,
-      head: [
-        [
-          'N°',
-          'Fecha',
-          'Oficio',
-          'Expediente',
-          'Carátula',
-          'Juzgado/Fiscalía',
-          'Dependencia',
-          'Licenciado a Cargo',
-          'Estado',
-          'Elevación / Receptor',
-        ],
-      ],
-      body: rows,
-      theme: 'grid',
-      headStyles: {
-        fillColor: [30, 41, 59],
-        textColor: 255,
-        fontSize: 7.5,
-        fontStyle: 'bold',
-        halign: 'center',
-      },
-      styles: {
-        fontSize: 6.8,
-        cellPadding: 2,
-        valign: 'middle',
-      },
-      columnStyles: {
-        0: { halign: 'center', cellWidth: 7 },
-        1: { halign: 'center', cellWidth: 16 },
-        2: { cellWidth: 22 },
-        3: { cellWidth: 30 },
-        4: { cellWidth: 50 },
-        5: { cellWidth: 35 },
-        6: { cellWidth: 35 },
-        7: { cellWidth: 35 },
-        8: { halign: 'center', cellWidth: 20 },
-        9: { cellWidth: 26 },
+        drawPoliceFooter(doc, config);
+        return doc;
       },
     });
-
-    drawPoliceFooter(doc, config);
-    doc.save(`Informes_Tecnicos_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   const handleExportSingleReportPdf = (inf: InformeTecnico, opciones?: OpcionesImpresion) => {
-    const orientacion = opciones?.orientacion === 'landscape' ? 'l' : 'p';
-    let formato: any = 'a4';
-    if (opciones?.tamano === 'legal') formato = [216, 356];
-    else if (opciones?.tamano === 'letter') formato = 'letter';
+    const fileName = `Informe_Tecnico_${inf.oficioNro.replace(/\//g, '-')}.pdf`;
+    requestPdfExport({
+      title: `Constancia de Informe Técnico - Oficio ${inf.oficioNro}`,
+      fileName,
+      defaultOrientation: opciones?.orientacion || 'portrait',
+      defaultPaperSize: opciones?.tamano || 'a4',
+      buildDoc: (opts) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(opts.orientation), 'mm', resolveJsPdfFormat(opts.paperSize));
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
 
-    const doc = new jsPDF(orientacion, 'mm', formato);
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
+        const finalY = drawPoliceHeader(
+          doc,
+          config,
+          'CONSTANCIA OFICIAL DE INFORME TÉCNICO PERICIAL'
+        );
 
-    let finalY = drawPoliceHeader(
-      doc,
-      config,
-      'CONSTANCIA OFICIAL DE INFORME TÉCNICO PERICIAL'
-    );
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`OFICIO N°: ${inf.oficioNro.toUpperCase()}`, 15, finalY + 6);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Fecha de Registro: ${inf.fecha}`, pageWidth - 70, finalY + 6);
 
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`OFICIO N°: ${inf.oficioNro.toUpperCase()}`, 15, finalY + 6);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Fecha de Registro: ${inf.fecha}`, pageWidth - 70, finalY + 6);
+        const data = [
+          ['Tipo de Sumario / Causa:', `${inf.tipoExpediente} N° ${inf.nroExpediente}/${inf.anio}`],
+          ['Fecha del Oficio:', inf.fecha],
+          ['Fecha de Recepción en Dependencia:', inf.fechaRecepcion || inf.fecha],
+          ['Carátula de la Causa:', inf.caratula],
+          ['Juzgado / Fiscalía Interviniente:', inf.juzgado],
+          ['Dependencia Solicitante / Instructora:', inf.dependenciaInterviniente],
+          ['Personal a Cargo de Instrucción:', inf.personalInstruccion || 'No indicado'],
+          ['Licenciado a Cargo del Peritaje:', inf.licenciadoACargoNombre || 'A designar'],
+          [
+            'Auxiliar Designado (Diligenciamiento):',
+            inf.auxiliarACargoNombre
+              ? `${inf.auxiliarACargoNombre} (Cargo: ${inf.auxiliarCargo || 'Auxiliar Notificador y Diligenciador Pericial'})`
+              : 'Sin auxiliar asignado',
+          ],
+          [
+            'Inspección Ocular Vinculada:',
+            inf.inspeccionOcularNro
+              ? `I.O. N° ${inf.inspeccionOcularNro}`
+              : 'Sin vinculación directa con I.O.',
+          ],
+          ['Estado del Trámite:', inf.estado],
+          [
+            'Elevación y Destino:',
+            inf.fechaElevacion
+              ? `Elevado el ${inf.fechaElevacion} - Recepcionado por: ${inf.quienRecibio || 'S/D'} ${
+                  inf.cargoReceptor ? `(${inf.cargoReceptor})` : ''
+                }`
+              : 'Aún en proceso interno / Sin elevar',
+          ],
+          ['Oficio Adjunto:', inf.anexoOficioNombre ? `ANEXADO: ${inf.anexoOficioNombre}` : 'Sin anexo digital'],
+          ['Informe Pericial Adjunto:', inf.anexoInformeNombre ? `ANEXADO: ${inf.anexoInformeNombre}` : 'Sin anexo digital'],
+        ];
 
-    const data = [
-      ['Tipo de Sumario / Causa:', `${inf.tipoExpediente} N° ${inf.nroExpediente}/${inf.anio}`],
-      ['Fecha del Oficio:', inf.fecha],
-      ['Fecha de Recepción en Dependencia:', inf.fechaRecepcion || inf.fecha],
-      ['Carátula de la Causa:', inf.caratula],
-      ['Juzgado / Fiscalía Interviniente:', inf.juzgado],
-      ['Dependencia Solicitante / Instructora:', inf.dependenciaInterviniente],
-      ['Personal a Cargo de Instrucción:', inf.personalInstruccion || 'No indicado'],
-      ['Licenciado a Cargo del Peritaje:', inf.licenciadoACargoNombre || 'A designar'],
-      [
-        'Auxiliar Designado (Diligenciamiento):',
-        inf.auxiliarACargoNombre
-          ? `${inf.auxiliarACargoNombre} (Cargo: ${inf.auxiliarCargo || 'Auxiliar Notificador y Diligenciador Pericial'})`
-          : 'Sin auxiliar asignado',
-      ],
-      [
-        'Inspección Ocular Vinculada:',
-        inf.inspeccionOcularNro
-          ? `I.O. N° ${inf.inspeccionOcularNro}`
-          : 'Sin vinculación directa con I.O.',
-      ],
-      ['Estado del Trámite:', inf.estado],
-      [
-        'Elevación y Destino:',
-        inf.fechaElevacion
-          ? `Elevado el ${inf.fechaElevacion} - Recepcionado por: ${inf.quienRecibio || 'S/D'} ${
-              inf.cargoReceptor ? `(${inf.cargoReceptor})` : ''
-            }`
-          : 'Aún en proceso interno / Sin elevar',
-      ],
-      ['Oficio Adjunto:', inf.anexoOficioNombre ? `ANEXADO: ${inf.anexoOficioNombre}` : 'Sin anexo digital'],
-      ['Informe Pericial Adjunto:', inf.anexoInformeNombre ? `ANEXADO: ${inf.anexoInformeNombre}` : 'Sin anexo digital'],
-    ];
+        autoTable(doc, {
+          startY: finalY + 12,
+          body: data,
+          theme: 'grid',
+          styles: {
+            fontSize: 8.5,
+            cellPadding: 3,
+          },
+          columnStyles: {
+            0: { fontStyle: 'bold', cellWidth: 65, fillColor: [248, 250, 252] },
+            1: { cellWidth: 'auto' },
+          },
+        });
 
-    autoTable(doc, {
-      startY: finalY + 12,
-      body: data,
-      theme: 'grid',
-      styles: {
-        fontSize: 8.5,
-        cellPadding: 3,
-      },
-      columnStyles: {
-        0: { fontStyle: 'bold', cellWidth: 65, fillColor: [248, 250, 252] },
-        1: { cellWidth: 'auto' },
+        let currentY = (doc as any).lastAutoTable.finalY + 7;
+
+        if (inf.dictamenTexto) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9);
+          doc.text('EXTRACTO / DICTAMEN PERICIAL TÉCNICO:', 15, currentY);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          const splitText = doc.splitTextToSize(inf.dictamenTexto, pageWidth - 30);
+          doc.text(splitText, 15, currentY + 4.5);
+          currentY += 6 + splitText.length * 3.8;
+        }
+
+        if (inf.auxiliarACargoNombre) {
+          currentY += 4;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9);
+          doc.text('DILIGENCIAMIENTO Y NOTIFICACIÓN JUDICIAL:', 15, currentY);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          const commText = `Se faculta y comisiona expresamente al Auxiliar ${inf.auxiliarACargoNombre}, en su carácter de ${inf.auxiliarCargo || 'Auxiliar Notificador y Diligenciador Pericial'}, para que proceda formalmente a la entrega, diligenciamiento y notificación del presente Informe Técnico Pericial ante el Magistrado / Autoridad requirente con las formalidades de estilo.`;
+          const splitComm = doc.splitTextToSize(commText, pageWidth - 30);
+          doc.text(splitComm, 15, currentY + 4.5);
+          currentY += 6 + splitComm.length * 3.8;
+        }
+
+        let sigY = currentY + 10;
+        if (sigY > pageHeight - 35) {
+          doc.addPage();
+          sigY = 40;
+        }
+
+        doc.setDrawColor(50, 60, 75);
+        doc.setLineWidth(0.4);
+
+        const auxX = 55;
+        doc.line(auxX - 35, sigY + 12, auxX + 35, sigY + 12);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text(inf.auxiliarACargoNombre || 'AUXILIAR DESIGNADO', auxX, sigY + 16, { align: 'center' });
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.text(inf.auxiliarCargo || 'Auxiliar Notificador / Diligenciador', auxX, sigY + 20, { align: 'center' });
+
+        const licX = pageWidth - 55;
+        doc.line(licX - 35, sigY + 12, licX + 35, sigY + 12);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text(inf.licenciadoACargoNombre || 'LICENCIADO A CARGO', licX, sigY + 16, { align: 'center' });
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.text('Perito Oficial / Licenciado Interviniente', licX, sigY + 20, { align: 'center' });
+
+        drawPoliceFooter(doc, config);
+        return doc;
       },
     });
-
-    let currentY = (doc as any).lastAutoTable.finalY + 7;
-
-    // Dictamen texto si existe
-    if (inf.dictamenTexto) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text('EXTRACTO / DICTAMEN PERICIAL TÉCNICO:', 15, currentY);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      const splitText = doc.splitTextToSize(inf.dictamenTexto, pageWidth - 30);
-      doc.text(splitText, 15, currentY + 4.5);
-      currentY += 6 + splitText.length * 3.8;
-    }
-
-    // Diligenciamiento asignado al auxiliar
-    if (inf.auxiliarACargoNombre) {
-      currentY += 4;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text('DILIGENCIAMIENTO Y NOTIFICACIÓN JUDICIAL:', 15, currentY);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      const commText = `Se faculta y comisiona expresamente al Auxiliar ${inf.auxiliarACargoNombre}, en su carácter de ${inf.auxiliarCargo || 'Auxiliar Notificador y Diligenciador Pericial'}, para que proceda formalmente a la entrega, diligenciamiento y notificación del presente Informe Técnico Pericial ante el Magistrado / Autoridad requirente con las formalidades de estilo.`;
-      const splitComm = doc.splitTextToSize(commText, pageWidth - 30);
-      doc.text(splitComm, 15, currentY + 4.5);
-      currentY += 6 + splitComm.length * 3.8;
-    }
-
-    // Firmas: Licenciado a la derecha y Auxiliar a la izquierda
-    let sigY = currentY + 10;
-    if (sigY > pageHeight - 35) {
-      doc.addPage();
-      sigY = 40;
-    }
-
-    doc.setDrawColor(50, 60, 75);
-    doc.setLineWidth(0.4);
-
-    // Firma del Auxiliar (a la izquierda)
-    const auxX = 55;
-    doc.line(auxX - 35, sigY + 12, auxX + 35, sigY + 12);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text(inf.auxiliarACargoNombre || 'AUXILIAR DESIGNADO', auxX, sigY + 16, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.text(inf.auxiliarCargo || 'Auxiliar Notificador / Diligenciador', auxX, sigY + 20, { align: 'center' });
-
-    // Firma del Licenciado a Cargo (a la derecha)
-    const licX = pageWidth - 55;
-    doc.line(licX - 35, sigY + 12, licX + 35, sigY + 12);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text(inf.licenciadoACargoNombre || 'LICENCIADO A CARGO', licX, sigY + 16, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.text('Perito Oficial / Licenciado Interviniente', licX, sigY + 20, { align: 'center' });
-
-    drawPoliceFooter(doc, config);
-    doc.save(`Informe_Tecnico_${inf.oficioNro.replace(/\//g, '-')}.pdf`);
   };
 
   return (

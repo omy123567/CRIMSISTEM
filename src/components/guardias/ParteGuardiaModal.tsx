@@ -10,7 +10,9 @@ import {
   GrupoPersonal,
   UsuarioSistema,
   DelegacionPolicial,
+  LicenciaPolicial,
 } from '../../types/police';
+import { getLicenciaActivaPersonal, formatFechaDisplay } from '../../services/licenciaService';
 import {
   X,
   ClipboardList,
@@ -34,6 +36,7 @@ interface ParteGuardiaModalProps {
   personalList: Personal[];
   movilesList: MovilPolicial[];
   gruposList?: GrupoPersonal[];
+  licenciasPoliciales?: LicenciaPolicial[];
   config: ConfiguracionSistema;
   currentUser?: UsuarioSistema;
   delegacionesList?: DelegacionPolicial[];
@@ -47,6 +50,7 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
   personalList,
   movilesList,
   gruposList = [],
+  licenciasPoliciales = [],
   config,
   currentUser,
   delegacionesList: propDelegaciones = [],
@@ -212,6 +216,22 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
   const personalOtrosGrupos = useMemo(() => {
     return personalList;
   }, [personalList]);
+
+  // Personal de la delegación en licencia vigente en la fecha de inicio de guardia
+  const personalEnLicenciaFecha = useMemo(() => {
+    return personalList
+      .filter((p) => !p.delegacionId || p.delegacionId === selectedDelegacionId)
+      .map((p) => {
+        const cond = getLicenciaActivaPersonal(
+          p.id,
+          formData.fechaInicio,
+          licenciasPoliciales,
+          personalList
+        );
+        return cond ? { personal: p, cond } : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+  }, [personalList, selectedDelegacionId, formData.fechaInicio, licenciasPoliciales]);
 
   // Asignar nueva función
   const [nuevaFuncion, setNuevaFuncion] = useState({ funcion: '', personalNombre: '' });
@@ -623,6 +643,31 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
               </div>
             </div>
 
+            {personalEnLicenciaFecha.length > 0 && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-amber-950 space-y-1">
+                <div className="font-bold text-[11px] flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-amber-700" />
+                  <span>
+                    Personal en condición de Licencia Policial el {formatFechaDisplay(formData.fechaInicio)} ({personalEnLicenciaFecha.length}):
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {personalEnLicenciaFecha.map(({ personal, cond }) => (
+                    <span
+                      key={personal.id}
+                      className="inline-flex items-center gap-1 bg-white border border-amber-300 text-amber-950 px-2 py-0.5 rounded-md text-[11px] font-semibold"
+                    >
+                      <span>{personal.jerarquia} {personal.apellidoYNombre}</span>
+                      <span className="text-amber-700 font-bold">
+                        — {cond.tipoLicencia}
+                        {cond.fechaReanudacion ? ` (Reanuda ${formatFechaDisplay(cond.fechaReanudacion)} 08:00)` : ''}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Filas de Funciones asignadas */}
             <div className="space-y-2">
               <div className="hidden sm:grid sm:grid-cols-12 gap-2 text-[10px] font-bold text-slate-500 uppercase px-1">
@@ -631,8 +676,17 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
                 <div className="col-span-1 text-center">Acción</div>
               </div>
 
-              {formData.funcionesPersonal.map((f, idx) => (
-                <div key={f.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2 bg-white rounded-xl border border-slate-200 shadow-2xs items-center">
+              {formData.funcionesPersonal.map((f, idx) => {
+                const condRow = f.personalNombre
+                  ? getLicenciaActivaPersonal(
+                      f.personalNombre,
+                      formData.fechaInicio,
+                      licenciasPoliciales,
+                      personalList
+                    )
+                  : null;
+                return (
+                <div key={f.id} className={`grid grid-cols-1 sm:grid-cols-12 gap-2 p-2 rounded-xl border shadow-2xs items-center ${condRow ? 'bg-amber-50/70 border-amber-300' : 'bg-white border-slate-200'}`}>
                   <div className="sm:col-span-6">
                     <input
                       type="text"
@@ -646,6 +700,12 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
                       placeholder="Efectivo policial"
                       className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-semibold text-slate-900 text-xs"
                     />
+                    {condRow && (
+                      <span className="mt-1 inline-block text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded">
+                        DE LICENCIA ({condRow.tipoLicencia}
+                        {condRow.fechaReanudacion ? ` • Reanuda ${formatFechaDisplay(condRow.fechaReanudacion)} 08:00 hs` : ''})
+                      </span>
+                    )}
                   </div>
 
                   <div className="sm:col-span-5">
@@ -674,7 +734,8 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Fila para agregar nuevo efectivo y función */}
@@ -703,11 +764,20 @@ export const ParteGuardiaModal: React.FC<ParteGuardiaModalProps> = ({
                       className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
                     >
                       <option value="">-- Seleccionar efectivo policial --</option>
-                      {(agregarDeOtroGrupo ? personalOtrosGrupos : personalDelegacionYGrupo).map((p) => (
-                        <option key={p.id} value={`${p.jerarquia} ${p.apellidoYNombre}`}>
-                          {p.jerarquia} {p.apellidoYNombre} ({p.seccionGrupo || 'Sin grupo'}) - {p.plaza || 's/p'}
-                        </option>
-                      ))}
+                      {(agregarDeOtroGrupo ? personalOtrosGrupos : personalDelegacionYGrupo).map((p) => {
+                        const condOpt = getLicenciaActivaPersonal(
+                          p.id,
+                          formData.fechaInicio,
+                          licenciasPoliciales,
+                          personalList
+                        );
+                        return (
+                          <option key={p.id} value={`${p.jerarquia} ${p.apellidoYNombre}`}>
+                            {p.jerarquia} {p.apellidoYNombre} ({p.seccionGrupo || 'Sin grupo'}) - {p.plaza || 's/p'}
+                            {condOpt ? ` [DE LICENCIA: ${condOpt.tipoLicencia}]` : ''}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                   <div className="sm:col-span-5">

@@ -1,7 +1,51 @@
 export const AUTH_TOKEN_STORAGE_KEY = 'sispol_auth_token';
+export const TRUSTED_DEVICES_STORAGE_KEY = 'sispol_trusted_devices';
 
 type AuthExpiredListener = () => void;
 let authExpiredListeners: AuthExpiredListener[] = [];
+
+export function getTrustedDevicesMap(): Record<string, { token: string; deviceId?: string }> {
+  try {
+    const raw = localStorage.getItem(TRUSTED_DEVICES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getAllTrustedDeviceTokens(): string[] {
+  const map = getTrustedDevicesMap();
+  return Object.values(map)
+    .map((entry) => (entry && typeof entry.token === 'string' ? entry.token : ''))
+    .filter(Boolean);
+}
+
+export function getLocalTrustedDeviceIdForUser(userId: string): string | undefined {
+  const map = getTrustedDevicesMap();
+  return map[userId]?.deviceId;
+}
+
+export function saveTrustedDeviceTokenForUser(userId: string, token: string, deviceId?: string): void {
+  try {
+    const map = getTrustedDevicesMap();
+    map[userId] = { token, deviceId };
+    localStorage.setItem(TRUSTED_DEVICES_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function removeTrustedDeviceTokenForUser(userId: string): void {
+  try {
+    const map = getTrustedDevicesMap();
+    delete map[userId];
+    localStorage.setItem(TRUSTED_DEVICES_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
 
 export function getAuthToken(): string | null {
   try {
@@ -56,7 +100,11 @@ export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}
 
   if (response.status === 401) {
     const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    if (!urlStr.includes('/api/auth/login') && !urlStr.includes('/api/auth/change-password')) {
+    if (
+      !urlStr.includes('/api/auth/login') &&
+      !urlStr.includes('/api/auth/change-password') &&
+      !urlStr.includes('/api/auth/2fa/')
+    ) {
       notifyAuthExpired();
     }
   }

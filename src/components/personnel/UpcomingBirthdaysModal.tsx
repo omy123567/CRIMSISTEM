@@ -26,6 +26,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 interface UpcomingBirthdaysModalProps {
   isOpen: boolean;
@@ -95,7 +96,6 @@ export const UpcomingBirthdaysModal: React.FC<UpcomingBirthdaysModalProps> = ({
 
   // Exportar cronograma a PDF para la cartelera de guardia
   const handleExportPdf = () => {
-    const doc = new jsPDF('p', 'mm', 'a4');
     const titulo =
       activeTab === 'hoy'
         ? 'CUMPLEAÑEROS DE LA JORNADA - SALUDO PROTOCOLAR'
@@ -103,44 +103,53 @@ export const UpcomingBirthdaysModal: React.FC<UpcomingBirthdaysModalProps> = ({
         ? `CRONOGRAMA DE CUMPLEAÑOS - MES DE ${MONTH_NAMES[mesSeleccionado].toUpperCase()}`
         : `CRONOGRAMA DE PRÓXIMOS CUMPLEAÑOS (PRÓXIMOS ${diasRango} DÍAS)`;
 
-    const currentY = drawPoliceHeader(doc, config, titulo, 10);
+    requestPdfExport({
+      title: 'Cronograma de Cumpleaños del Personal',
+      fileName: `Cronograma_Cumpleaños_${activeTab}_${new Date().toISOString().slice(0, 10)}.pdf`,
+      defaultOrientation: 'portrait',
+      defaultPaperSize: 'a4',
+      buildDoc: ({ orientation, paperSize }) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+        const currentY = drawPoliceHeader(doc, config, titulo, 10);
 
-    const rows = filteredList.map((b, idx) => [
-      idx + 1,
-      b.formattedDate,
-      b.isToday ? '¡HOY!' : b.isTomorrow ? 'MAÑANA' : `En ${b.daysRemaining} días`,
-      b.personal.jerarquia,
-      b.personal.apellidoYNombre,
-      b.personal.plaza,
-      b.personal.seccionGrupo,
-      `${b.turningAge} años`,
-      b.personal.telefono || '---',
-    ]);
+        const rows = filteredList.map((b, idx) => [
+          idx + 1,
+          b.formattedDate,
+          b.isToday ? '¡HOY!' : b.isTomorrow ? 'MAÑANA' : `En ${b.daysRemaining} días`,
+          b.personal.jerarquia,
+          b.personal.apellidoYNombre,
+          b.personal.plaza,
+          b.personal.seccionGrupo,
+          `${b.turningAge} años`,
+          b.personal.telefono || '---',
+        ]);
 
-    autoTable(doc, {
-      startY: currentY + 4,
-      head: [
-        [
-          'N°',
-          'Fecha',
-          'Término',
-          'Jerarquía',
-          'Apellido y Nombre',
-          'Plaza',
-          'Guardia/Sección',
-          'Edad',
-          'Teléfono',
-        ],
-      ],
-      body: rows,
-      theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [24, 43, 73], textColor: 255, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
+        autoTable(doc, {
+          startY: currentY + 4,
+          head: [
+            [
+              'N°',
+              'Fecha',
+              'Término',
+              'Jerarquía',
+              'Apellido y Nombre',
+              'Plaza',
+              'Guardia/Sección',
+              'Edad',
+              'Teléfono',
+            ],
+          ],
+          body: rows,
+          theme: 'grid',
+          styles: { fontSize: 8, cellPadding: 2 },
+          headStyles: { fillColor: [24, 43, 73], textColor: 255, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+        });
+
+        drawPoliceFooter(doc, config);
+        return doc;
+      },
     });
-
-    drawPoliceFooter(doc, config);
-    doc.save(`Cronograma_Cumpleaños_${activeTab}_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   if (!isOpen) return null;

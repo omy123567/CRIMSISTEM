@@ -22,6 +22,8 @@ import {
   Users,
   Sparkles,
   Info,
+  KeyRound,
+  Smartphone,
 } from 'lucide-react';
 import { MODULOS_DISPONIBLES } from './UsuariosView';
 
@@ -57,6 +59,8 @@ const DEFAULT_ACCIONES: AccionesRol = {
   puedeRecargarOtrasDelegaciones: false,
   puedeGestionarUsuarios: false,
   puedeConfirmarFotografias: false,
+  puedeCambiarPasswordOtros: false,
+  puedeGestionar2faOtros: false,
 };
 
 export const RolModal: React.FC<RolModalProps> = ({
@@ -135,6 +139,8 @@ export const RolModal: React.FC<RolModalProps> = ({
       puedeRecargarOtrasDelegaciones: val,
       puedeGestionarUsuarios: val,
       puedeConfirmarFotografias: val,
+      puedeCambiarPasswordOtros: val,
+      puedeGestionar2faOtros: val,
     });
   };
 
@@ -154,6 +160,8 @@ export const RolModal: React.FC<RolModalProps> = ({
         puedeRecargarOtrasDelegaciones: false,
         puedeGestionarUsuarios: false,
         puedeConfirmarFotografias: false,
+        puedeCambiarPasswordOtros: false,
+        puedeGestionar2faOtros: false,
       });
       setModulosPermitidos(['dashboard', 'guardias', 'inspecciones', 'intervenciones', 'vehiculos', 'personas', 'accidentologia', 'expedientes', 'falta-oficio']);
       setColor('slate');
@@ -172,8 +180,10 @@ export const RolModal: React.FC<RolModalProps> = ({
         puedeRecargarOtrasDelegaciones: false,
         puedeGestionarUsuarios: false,
         puedeConfirmarFotografias: true,
+        puedeCambiarPasswordOtros: false,
+        puedeGestionar2faOtros: false,
       });
-      setModulosPermitidos(['dashboard', 'personal', 'guardias', 'inspecciones', 'intervenciones', 'causas-policiales', 'accidentologia', 'expedientes', 'falta-oficio', 'vehiculos', 'personas', 'forense', 'licenciados', 'informes-tecnicos', 'numerario']);
+      setModulosPermitidos(['dashboard', 'personal', 'licencias', 'guardias', 'inspecciones', 'intervenciones', 'causas-policiales', 'accidentologia', 'expedientes', 'falta-oficio', 'vehiculos', 'personas', 'forense', 'licenciados', 'informes-tecnicos', 'numerario']);
       setColor('emerald');
     } else if (preset === 'admin') {
       setAcciones({
@@ -190,6 +200,8 @@ export const RolModal: React.FC<RolModalProps> = ({
         puedeRecargarOtrasDelegaciones: true,
         puedeGestionarUsuarios: true,
         puedeConfirmarFotografias: true,
+        puedeCambiarPasswordOtros: true,
+        puedeGestionar2faOtros: true,
       });
       setModulosPermitidos(MODULOS_DISPONIBLES.filter(m => m.id !== 'auditoria').map(m => m.id));
       setColor('blue');
@@ -208,6 +220,8 @@ export const RolModal: React.FC<RolModalProps> = ({
         puedeRecargarOtrasDelegaciones: false,
         puedeGestionarUsuarios: false,
         puedeConfirmarFotografias: false,
+        puedeCambiarPasswordOtros: false,
+        puedeGestionar2faOtros: false,
       });
       setColor('amber');
     }
@@ -693,6 +707,44 @@ export const RolModal: React.FC<RolModalProps> = ({
                     </span>
                     <span className="text-[10px] text-slate-600 block leading-tight">
                       Permite validar la cantidad de fotos presionando sobre el estado de la I.O. y otorgar conformidad fotográfica.
+                    </span>
+                  </div>
+                </label>
+
+                {/* puedeCambiarPasswordOtros */}
+                <label className="flex items-start gap-2.5 p-2.5 bg-white rounded-lg border border-amber-200 cursor-pointer hover:border-amber-400">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(acciones.puedeCambiarPasswordOtros)}
+                    onChange={() => toggleAccion('puedeCambiarPasswordOtros')}
+                    className="w-4 h-4 text-amber-700 rounded mt-0.5"
+                  />
+                  <div>
+                    <span className="font-bold text-amber-950 block flex items-center gap-1">
+                      <KeyRound className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Cambiar Contraseñas de Otros</span>
+                    </span>
+                    <span className="text-[10px] text-slate-600 block leading-tight">
+                      Autoriza a restablecer o modificar contraseñas de acceso de otros usuarios.
+                    </span>
+                  </div>
+                </label>
+
+                {/* puedeGestionar2faOtros */}
+                <label className="flex items-start gap-2.5 p-2.5 bg-white rounded-lg border border-emerald-200 cursor-pointer hover:border-emerald-400">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(acciones.puedeGestionar2faOtros)}
+                    onChange={() => toggleAccion('puedeGestionar2faOtros')}
+                    className="w-4 h-4 text-emerald-700 rounded mt-0.5"
+                  />
+                  <div>
+                    <span className="font-bold text-emerald-950 block flex items-center gap-1">
+                      <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Activar / Desactivar 2FA de Otros</span>
+                    </span>
+                    <span className="text-[10px] text-slate-600 block leading-tight">
+                      Autoriza a vincular o desactivar Google Authenticator (2FA) en cuentas de otros usuarios.
                     </span>
                   </div>
                 </label>

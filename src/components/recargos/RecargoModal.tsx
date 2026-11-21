@@ -6,7 +6,9 @@ import {
   UsuarioSistema,
   DelegacionPolicial,
   GrupoPersonal,
+  LicenciaPolicial,
 } from '../../types/police';
+import { getLicenciaActivaPersonal, formatFechaDisplay } from '../../services/licenciaService';
 import { db } from '../../db/database';
 import {
   X,
@@ -27,6 +29,7 @@ import {
 interface RecargoModalProps {
   recargo?: RecargoOperativo | null;
   personalList: Personal[];
+  licenciasPoliciales?: LicenciaPolicial[];
   config: ConfiguracionSistema;
   currentUser?: UsuarioSistema;
   delegacionesList?: DelegacionPolicial[];
@@ -38,6 +41,7 @@ interface RecargoModalProps {
 export const RecargoModal: React.FC<RecargoModalProps> = ({
   recargo,
   personalList,
+  licenciasPoliciales = [],
   config,
   currentUser,
   delegacionesList = [],
@@ -111,6 +115,7 @@ export const RecargoModal: React.FC<RecargoModalProps> = ({
   const [busquedaPersonal, setBusquedaPersonal] = useState('');
   const [mostrarDropdownPersonal, setMostrarDropdownPersonal] = useState(false);
   const [gruposDelegacion, setGruposDelegacion] = useState<GrupoPersonal[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Cargar grupos creados de la delegación
   React.useEffect(() => {
@@ -205,16 +210,17 @@ export const RecargoModal: React.FC<RecargoModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!formData.fecha) {
-      alert('Indique la fecha del recargo');
+      setFormError('Indique la fecha del recargo.');
       return;
     }
     if (!formData.horaPresentacion) {
-      alert('Indique la hora de presentación');
+      setFormError('Indique la hora de presentación.');
       return;
     }
     if (!formData.personalDesignado?.trim()) {
-      alert('Debe designar personal policial para el recargo');
+      setFormError('Debe designar personal policial para el recargo.');
       return;
     }
 
@@ -236,6 +242,20 @@ export const RecargoModal: React.FC<RecargoModalProps> = ({
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
+
+  const efectivosEnLicenciaSeleccionados = useMemo(() => {
+    return listaPersonalActual
+      .map((nombre) => {
+        const cond = getLicenciaActivaPersonal(
+          nombre,
+          formData.fecha,
+          licenciasPoliciales,
+          personalList
+        );
+        return cond ? { nombre, cond } : null;
+      })
+      .filter((x): x is { nombre: string; cond: NonNullable<ReturnType<typeof getLicenciaActivaPersonal>> } => x !== null);
+  }, [listaPersonalActual, formData.fecha, licenciasPoliciales, personalList]);
 
   const delegacionActualObj = delegacionesList.find(
     (d) => d.id === formData.delegacionId
@@ -267,6 +287,12 @@ export const RecargoModal: React.FC<RecargoModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+          {formError && (
+            <div className="bg-red-50 border border-red-300 text-red-900 rounded-lg px-3.5 py-2.5 flex items-center gap-2 font-semibold">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
           {/* 1. Fecha & 2. Hora de Presentación (Exclusivamente hora de inicio con reloj) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -623,22 +649,37 @@ export const RecargoModal: React.FC<RecargoModalProps> = ({
                   ) : (
                     resultadosBusquedaPersonal.map((p) => {
                       const yaAsignado = (formData.personalDesignado || '').includes(p.apellidoYNombre);
+                      const condLic = getLicenciaActivaPersonal(
+                        p.id,
+                        formData.fecha,
+                        licenciasPoliciales,
+                        personalList
+                      );
                       return (
                         <div
                           key={p.id}
                           onClick={() => {
                             handleAgregarPersonalObj(p);
-                            if (!busquedaPersonal) {
-                              // Mantener dropdown abierto si está navegando por la lista completa
-                            }
                           }}
                           className={`p-2.5 hover:bg-blue-50 cursor-pointer flex items-center justify-between transition-colors ${
-                            yaAsignado ? 'bg-emerald-50/50' : ''
+                            condLic
+                              ? 'bg-amber-50/70'
+                              : yaAsignado
+                              ? 'bg-emerald-50/50'
+                              : ''
                           }`}
                         >
                           <div>
-                            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                            <div className="font-bold text-slate-900 flex flex-wrap items-center gap-1.5">
                               <span>{p.jerarquia} {p.apellidoYNombre}</span>
+                              {condLic && (
+                                <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-1.5 py-0.2 rounded">
+                                  DE LICENCIA ({condLic.tipoLicencia}
+                                  {condLic.fechaReanudacion
+                                    ? ` • Reanuda ${formatFechaDisplay(condLic.fechaReanudacion)} 08:00 hs`
+                                    : ''})
+                                </span>
+                              )}
                               {yaAsignado && (
                                 <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
                                   ✓ Asignado
@@ -661,6 +702,8 @@ export const RecargoModal: React.FC<RecargoModalProps> = ({
                             className={`text-[10px] px-2 py-0.5 rounded font-bold ${
                               yaAsignado
                                 ? 'bg-slate-200 text-slate-600'
+                                : condLic
+                                ? 'bg-amber-200 text-amber-950'
                                 : 'bg-blue-100 text-blue-900 hover:bg-blue-200'
                             }`}
                           >
@@ -677,24 +720,63 @@ export const RecargoModal: React.FC<RecargoModalProps> = ({
             {/* Badges de personal agregado */}
             {listaPersonalActual.length > 0 ? (
               <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 rounded-lg border border-slate-200">
-                {listaPersonalActual.map((efectivo, idx) => (
-                  <span
-                    key={idx}
-                    className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-950 border border-blue-200 px-2.5 py-1 rounded-md font-semibold text-xs"
-                  >
-                    <UserCheck className="w-3 h-3 text-blue-700" />
-                    <span>{efectivo}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleEliminarEfectivo(efectivo)}
-                      className="hover:text-red-600 text-slate-400 p-0.5 ml-0.5 cursor-pointer"
+                {listaPersonalActual.map((efectivo, idx) => {
+                  const cond = getLicenciaActivaPersonal(
+                    efectivo,
+                    formData.fecha,
+                    licenciasPoliciales,
+                    personalList
+                  );
+                  return (
+                    <span
+                      key={idx}
+                      className={`inline-flex items-center gap-1.5 border px-2.5 py-1 rounded-md font-semibold text-xs ${
+                        cond
+                          ? 'bg-amber-50 text-amber-950 border-amber-300'
+                          : 'bg-blue-50 text-blue-950 border-blue-200'
+                      }`}
                     >
-                      ×
-                    </button>
-                  </span>
-                ))}
+                      <UserCheck
+                        className={`w-3 h-3 ${cond ? 'text-amber-700' : 'text-blue-700'}`}
+                      />
+                      <span>{efectivo}</span>
+                      {cond && (
+                        <span className="text-[10px] font-bold bg-amber-200/80 text-amber-950 px-1.5 py-0.5 rounded">
+                          En Licencia ({cond.tipoLicencia})
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleEliminarEfectivo(efectivo)}
+                        className="hover:text-red-600 text-slate-400 p-0.5 ml-0.5 cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
             ) : null}
+
+            {/* Aviso explícito si hay personal designado que figura de licencia */}
+            {efectivosEnLicenciaSeleccionados.length > 0 && (
+              <div className="bg-amber-50 border border-amber-300 rounded-lg p-2.5 text-amber-950 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div className="space-y-0.5 text-[11px]">
+                  <div className="font-bold">
+                    Personal con condición de Licencia Policial en fecha {formatFechaDisplay(formData.fecha)}:
+                  </div>
+                  {efectivosEnLicenciaSeleccionados.map((item) => (
+                    <div key={item.nombre}>
+                      • <strong>{item.nombre}</strong>: {item.cond.tipoLicencia}
+                      {item.cond.fechaReanudacion
+                        ? ` (Reanuda servicio el ${formatFechaDisplay(item.cond.fechaReanudacion)} a las ${item.cond.horaReanudacion || '08:00'} hs)`
+                        : ''}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Input libre de texto también editable */}
             <input

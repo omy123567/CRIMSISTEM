@@ -4,6 +4,8 @@ import { X, Car, Download, Filter, CheckCircle2, Calendar, Wrench, Shield, Build
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import { PdfPaperSize } from '../../types/police';
 
 interface ReporteMovilesModalProps {
   isOpen: boolean;
@@ -37,7 +39,7 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
 
   // Formato de papel
   const [orientacion, setOrientacion] = useState<'p' | 'l'>('l');
-  const [tamanoPapel, setTamanoPapel] = useState<'a4' | 'legal' | 'letter'>('a4');
+  const [tamanoPapel, setTamanoPapel] = useState<PdfPaperSize>('a4');
 
   const puedeVerOtras = Boolean(
     currentUser?.rol === 'superusuario' || currentUser?.puedeVerOtrasDelegaciones
@@ -113,55 +115,64 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
   ]);
 
   const handleDescargarPdf = () => {
-    const doc = new jsPDF(orientacion, 'mm', tamanoPapel);
+    const fileName = `Reporte_Parque_Automotor_${new Date().toISOString().slice(0, 10)}.pdf`;
+    requestPdfExport({
+      title: 'Reporte Oficial del Parque Automotor',
+      fileName,
+      defaultOrientation: orientacion === 'p' ? 'portrait' : 'landscape',
+      defaultPaperSize: tamanoPapel,
+      buildDoc: (opts) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(opts.orientation), 'mm', resolveJsPdfFormat(opts.paperSize));
 
-    const titulo = `REPORTE OFICIAL DEL PARQUE AUTOMOTOR Y MÓVILES POLICIALES`;
-    const currentY = drawPoliceHeader(doc, config, titulo, 10);
+        const titulo = `REPORTE OFICIAL DEL PARQUE AUTOMOTOR Y MÓVILES POLICIALES`;
+        const currentY = drawPoliceHeader(doc, config, titulo, 10);
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(80, 80, 80);
-    const filtrosTxt = `Filtros: Tipo: ${filtroTipo} | Estado: ${filtroEstado} | Período: ${rangoTipo.toUpperCase()} | Unidades listadas: ${filteredList.length}`;
-    doc.text(filtrosTxt, 10, currentY + 3);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(80, 80, 80);
+        const filtrosTxt = `Filtros: Tipo: ${filtroTipo} | Estado: ${filtroEstado} | Período: ${rangoTipo.toUpperCase()} | Unidades listadas: ${filteredList.length}`;
+        doc.text(filtrosTxt, 10, currentY + 3);
 
-    const rows: (string | number)[][] = filteredList.map((m, i) => [
-      i + 1,
-      m.nroMovilInterno || '---',
-      m.marca || '---',
-      m.modelo || '---',
-      m.dominioPatente || '---',
-      m.tipoVehiculo || m.tipo || '---',
-      m.estadoOperativo || '---',
-      m.kilometrajeActual ? `${m.kilometrajeActual.toLocaleString()} km` : '---',
-      m.tipoCombustible || 'Nafta',
-      m.choferHabitual || 'Rotativo',
-      m.observaciones || 'Sin novedades',
-    ]);
+        const rows: (string | number)[][] = filteredList.map((m, i) => [
+          i + 1,
+          m.nroMovilInterno || '---',
+          m.marca || '---',
+          m.modelo || '---',
+          m.dominioPatente || '---',
+          m.tipoVehiculo || m.tipo || '---',
+          m.estadoOperativo || '---',
+          m.kilometrajeActual ? `${m.kilometrajeActual.toLocaleString()} km` : '---',
+          m.tipoCombustible || 'Nafta',
+          m.choferHabitual || 'Rotativo',
+          m.observaciones || 'Sin novedades',
+        ]);
 
-    autoTable(doc, {
-      startY: currentY + 6,
-      head: [[
-        'N°',
-        'Interno',
-        'Marca',
-        'Modelo',
-        'Dominio',
-        'Tipo',
-        'Estado',
-        'Odómetro',
-        'Combustible',
-        'Chofer',
-        'Observaciones',
-      ]],
-      body: rows,
-      theme: 'grid',
-      headStyles: { fillColor: [17, 38, 77], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
-      styles: { fontSize: 7, cellPadding: 1.6, lineColor: [200, 210, 225], lineWidth: 0.1 },
-      margin: { left: 10, right: 10 },
+        autoTable(doc, {
+          startY: currentY + 6,
+          head: [[
+            'N°',
+            'Interno',
+            'Marca',
+            'Modelo',
+            'Dominio',
+            'Tipo',
+            'Estado',
+            'Odómetro',
+            'Combustible',
+            'Chofer',
+            'Observaciones',
+          ]],
+          body: rows,
+          theme: 'grid',
+          headStyles: { fillColor: [17, 38, 77], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+          styles: { fontSize: 7, cellPadding: 1.6, lineColor: [200, 210, 225], lineWidth: 0.1 },
+          margin: { left: 10, right: 10 },
+        });
+
+        drawPoliceFooter(doc, config);
+        return doc;
+      },
     });
-
-    drawPoliceFooter(doc, config);
-    doc.save(`Reporte_Parque_Automotor_${new Date().toISOString().slice(0, 10)}.pdf`);
     onClose();
   };
 
@@ -330,12 +341,13 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
               <label className="block font-bold text-slate-700 mb-1">Tamaño:</label>
               <select
                 value={tamanoPapel}
-                onChange={(e) => setTamanoPapel(e.target.value as any)}
+                onChange={(e) => setTamanoPapel(e.target.value as PdfPaperSize)}
                 className="w-full px-2 py-1 bg-white border border-slate-300 rounded"
               >
-                <option value="a4">A4 (Estándar)</option>
-                <option value="legal">Oficio / Legal</option>
-                <option value="letter">Carta</option>
+                <option value="a4">A4 (210 × 297 mm)</option>
+                <option value="oficio">Oficio (216 × 330 mm)</option>
+                <option value="legal">Legal (216 × 356 mm)</option>
+                <option value="letter">Carta (216 × 279 mm)</option>
               </select>
             </div>
           </div>

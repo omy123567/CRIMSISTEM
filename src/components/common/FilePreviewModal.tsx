@@ -13,6 +13,7 @@ import {
   Image as ImageIcon,
   Paperclip,
 } from 'lucide-react';
+import { PdfCanvasPreview } from './PdfCanvasPreview';
 
 export interface PreviewAttachmentItem {
   id?: string;
@@ -444,11 +445,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 height: fitMode ? '80vh' : `${Math.round(78 * Math.max(1, zoom))}vh`,
               }}
             >
-              <iframe
-                src={activeItem.dataUrl}
-                title={activeItem.nombre}
-                className="w-full h-full border-0"
-              />
+              <PdfCanvasPreview src={activeItem.dataUrl} className="w-full h-full" />
             </div>
           ) : (
             <div

@@ -9,6 +9,7 @@ import {
   TipoIntervencion,
   InspeccionOcular,
   UsuarioSistema,
+  LicenciaPolicial,
 } from '../../types/police';
 import {
   ClipboardList,
@@ -46,6 +47,7 @@ interface GuardiasViewProps {
   personalList: Personal[];
   movilesList: MovilPolicial[];
   gruposList?: GrupoPersonal[];
+  licenciasPoliciales?: LicenciaPolicial[];
   config: ConfiguracionSistema;
   currentUser?: UsuarioSistema;
   onSaveParte: (parte: ParteNovedadesGuardia) => void;
@@ -62,6 +64,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
   personalList,
   movilesList,
   gruposList = [],
+  licenciasPoliciales = [],
   config,
   currentUser,
   onSaveParte,
@@ -371,6 +374,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
           personalList={personalList}
           movilesList={movilesList}
           gruposList={gruposList}
+          licenciasPoliciales={licenciasPoliciales}
           config={config}
           currentUser={currentUser}
           onSelectGuardia={(p) => {
@@ -715,7 +719,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
               </button>
 
               <button
-                onClick={() => generarPdfParteGuardia(activeParte, config)}
+                onClick={() => generarPdfParteGuardia(activeParte, config, { licenciasPoliciales, personalList })}
                 className="bg-blue-800 hover:bg-blue-700 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
                 title="Exportar PDF Oficial de esta Guardia"
               >
@@ -729,6 +733,8 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
           <ParteVisualPreview
             parte={activeParte}
             config={config}
+            personalList={personalList}
+            licenciasPoliciales={licenciasPoliciales}
             onClose={() => setViewMode('tabla')}
             onEditParte={() => setIsParteModalOpen(true)}
             onAddIntervencion={() => {
@@ -770,6 +776,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
           personalList={personalList}
           movilesList={movilesList}
           gruposList={gruposList}
+          licenciasPoliciales={licenciasPoliciales}
           config={config}
           currentUser={currentUser}
           onSaveConfig={onSaveConfig}

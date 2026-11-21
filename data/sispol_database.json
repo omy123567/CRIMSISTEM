@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-11-18T10:28:31.158Z",
+  "lastUpdated": "2026-11-21T13:14:14.334Z",
   "configuracion": [
     {
       "id": "global-config",
@@ -383,6 +383,38 @@
           "orden": 19,
           "padreId": null,
           "visible": true
+        },
+        {
+          "id": "licencias",
+          "label": "Licencia Policial",
+          "desc": "Régimen, Saldos Art. 7 y Feriados",
+          "orden": 3,
+          "padreId": null,
+          "visible": true
+        }
+      ],
+      "tiposLicenciaCatalogo": [
+        {
+          "id": "lic-anual",
+          "nombre": "Anual",
+          "esDefault": true,
+          "descuentaSaldoAnual": true,
+          "activo": true
+        },
+        {
+          "id": "lic-invernal",
+          "nombre": "Invernal",
+          "esDefault": true,
+          "descuentaSaldoAnual": false,
+          "diasSugeridos": 10,
+          "activo": true
+        },
+        {
+          "id": "lic-extraordinaria",
+          "nombre": "Extraordinaria",
+          "esDefault": true,
+          "descuentaSaldoAnual": false,
+          "activo": true
         }
       ]
     }
@@ -424,15 +456,19 @@
         "numerario",
         "accidentologia",
         "usuarios",
-        "config"
+        "config",
+        "licencias"
       ],
       "puedeEliminar": true,
       "activo": true,
       "dni": "30445566",
       "nombre": "División Cibercrimen",
       "createdAt": "2026-11-07T12:23:30.779Z",
-      "updatedAt": "2026-11-07T12:23:30.779Z",
-      "passwordHash": "scrypt$da2619840e17853e357c3291dfadff74$f3ece9818f145c45db32e045aa75436b765fc26bbb641064e8ba508dd2e38ce03bdd86e27ab3322d2c5c164732d6ed6d955cb78f7ebe4993e0a7b27aa8f5c3a3"
+      "updatedAt": "2026-11-19T22:34:00.668Z",
+      "passwordHash": "scrypt$da2619840e17853e357c3291dfadff74$f3ece9818f145c45db32e045aa75436b765fc26bbb641064e8ba508dd2e38ce03bdd86e27ab3322d2c5c164732d6ed6d955cb78f7ebe4993e0a7b27aa8f5c3a3",
+      "ultimoAcceso": "2026-11-19T22:34:00.611Z",
+      "totpEnabled": false,
+      "trustedDevices": []
     },
     {
       "id": "usr-superadmin",
@@ -470,7 +506,8 @@
         "numerario",
         "accidentologia",
         "usuarios",
-        "config"
+        "config",
+        "licencias"
       ],
       "puedeEliminar": true,
       "activo": true,
@@ -478,7 +515,8 @@
       "nombre": "Comisario Mayor D.G.P.C.",
       "createdAt": "2026-11-07T12:23:30.779Z",
       "updatedAt": "2026-11-07T12:23:30.779Z",
-      "passwordHash": "scrypt$32a6187247940fa54034b31043525d18$832af985c1a0e9b847e110fa9dbc1581603e55e8140a6d592a8d616dd386a340ece1326722f2ffb778004688b327b1ed1371d4f1aa2c4208b2653600f9dcb2e5"
+      "passwordHash": "scrypt$32a6187247940fa54034b31043525d18$832af985c1a0e9b847e110fa9dbc1581603e55e8140a6d592a8d616dd386a340ece1326722f2ffb778004688b327b1ed1371d4f1aa2c4208b2653600f9dcb2e5",
+      "ultimoAcceso": "2026-11-21T13:14:14.189Z"
     },
     {
       "id": "usr-admin-lb",
@@ -511,7 +549,8 @@
         "numerario",
         "accidentologia",
         "usuarios",
-        "config"
+        "config",
+        "licencias"
       ],
       "puedeEliminar": true,
       "activo": true,
@@ -576,7 +615,8 @@
         "vehiculos",
         "forense",
         "usuarios",
-        "config"
+        "config",
+        "licencias"
       ],
       "puedeEliminar": true,
       "activo": true,
@@ -606,7 +646,8 @@
         "guardias",
         "inspecciones",
         "moviles",
-        "recargos"
+        "recargos",
+        "licencias"
       ],
       "puedeEliminar": false,
       "activo": true,
@@ -1001,7 +1042,8 @@
         "numerario",
         "usuarios",
         "auditoria",
-        "config"
+        "config",
+        "licencias"
       ],
       "acciones": {
         "puedeCrear": true,
@@ -1047,7 +1089,8 @@
         "informes-tecnicos",
         "numerario",
         "usuarios",
-        "config"
+        "config",
+        "licencias"
       ],
       "acciones": {
         "puedeCrear": true,
@@ -1291,6 +1334,550 @@
   "folios": [],
   "auditoria": [
     {
+      "id": "aud-1795266854334-e9b1f3",
+      "fechaHora": "2026-11-21T13:14:14.334Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "OTRO",
+      "descripcion": "Cierre de sesión de @superadmin",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "932e4d72f461ea341a91ab4a9d102ae88f52fbd74347ea8968635026790c2a00"
+    },
+    {
+      "id": "aud-1795266854190-e0b102",
+      "fechaHora": "2026-11-21T13:14:14.189Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de Comisario Mayor D.G.P.C. (@superadmin)",
+      "detalles": "Rol: superusuario | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "17fe5af68788e63083cb194c03a879cee83eb33eb487f73179bcc1c83f4976c1"
+    },
+    {
+      "id": "aud-1795128345126-582699",
+      "fechaHora": "2026-11-19T22:45:45.126Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-clorinda",
+      "modulo": "usuarios",
+      "accion": "ELIMINAR",
+      "descripcion": "Eliminó elemento ID \"usr-test-otherdel-1795128344204\" de usuarios",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "af4e823d920a699151f8ac1f288c065d8fa64d9662942d9bcb4faaafc7b78a88"
+    },
+    {
+      "id": "aud-1795128345121-139f75",
+      "fechaHora": "2026-11-19T22:45:45.121Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "usuarios",
+      "accion": "ELIMINAR",
+      "descripcion": "Eliminó elemento ID \"usr-test-noperm-1795128344204\" de usuarios",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "b5fd3e44552dede4469ab00499631cc68f5d9c4ec1879d7c082185a412b5833c"
+    },
+    {
+      "id": "aud-1795128345114-60fd29",
+      "fechaHora": "2026-11-19T22:45:45.114Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "usuarios",
+      "accion": "ELIMINAR",
+      "descripcion": "Eliminó elemento ID \"usr-test-tgt-1795128344204\" de usuarios",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "3f5458eb5f42a491418b3b6cdd69f950f870dbf79b020d4207683a92250db65a"
+    },
+    {
+      "id": "aud-1795128345106-619969",
+      "fechaHora": "2026-11-19T22:45:45.106Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "usuarios",
+      "accion": "ELIMINAR",
+      "descripcion": "Eliminó elemento ID \"usr-test-perm-1795128344204\" de usuarios",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "ad6faddeb233ad1035323aa9ce636b73f3060cbe918c447be70b5dd371b0ca16"
+    },
+    {
+      "id": "aud-1795128345011-596b61",
+      "fechaHora": "2026-11-19T22:45:45.011Z",
+      "usuarioId": "usr-test-tgt-1795128344204",
+      "username": "tgt.usr.1795128344204",
+      "apellidoYNombre": "Usr Objetivo Test",
+      "rol": "Operador",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de Usr Objetivo Test (@tgt.usr.1795128344204)",
+      "detalles": "Rol: Operador | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "54bd65f9f8e70e53b49037ba9574ba5eafb4827f98e657285e334878328559eb"
+    },
+    {
+      "id": "aud-1795128344957-a150ff",
+      "fechaHora": "2026-11-19T22:45:44.957Z",
+      "usuarioId": "usr-test-perm-1795128344204",
+      "username": "op.perm.1795128344204",
+      "apellidoYNombre": "Op Permisos Test",
+      "rol": "Operador",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "MODIFICAR",
+      "descripcion": "Operador @op.perm.1795128344204 desactivó/restableció Google Authenticator (2FA) y dispositivos de confianza de @tgt.usr.1795128344204",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "e5c5627a078169586449a98d5a481482a541d9b2d97669f5cd1c0ab58ab3acf6"
+    },
+    {
+      "id": "aud-1795128344898-46320c",
+      "fechaHora": "2026-11-19T22:45:44.898Z",
+      "usuarioId": "usr-test-perm-1795128344204",
+      "username": "op.perm.1795128344204",
+      "apellidoYNombre": "Op Permisos Test",
+      "rol": "Operador",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "MODIFICAR",
+      "descripcion": "Operador @op.perm.1795128344204 activó Google Authenticator (2FA) en la cuenta @tgt.usr.1795128344204",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "88c66d90b8d1919d8a34204eb7f37f92f40e4eec9e40fec079fc5eeba638f49c"
+    },
+    {
+      "id": "aud-1795128344887-dc826d",
+      "fechaHora": "2026-11-19T22:45:44.887Z",
+      "usuarioId": "usr-test-perm-1795128344204",
+      "username": "op.perm.1795128344204",
+      "apellidoYNombre": "Op Permisos Test",
+      "rol": "Operador",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "MODIFICAR",
+      "descripcion": "Operador @op.perm.1795128344204 generó QR de activación 2FA para @tgt.usr.1795128344204",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "fbb42cc1d98a3b24fa4ba3757f96bfbcac0085ee0a8621ae9fb58b437881654e"
+    },
+    {
+      "id": "aud-1795128344821-b433eb",
+      "fechaHora": "2026-11-19T22:45:44.821Z",
+      "usuarioId": "usr-test-tgt-1795128344204",
+      "username": "tgt.usr.1795128344204",
+      "apellidoYNombre": "Usr Objetivo Test",
+      "rol": "Operador",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de Usr Objetivo Test (@tgt.usr.1795128344204)",
+      "detalles": "Rol: Operador | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "24ec9e9b44b61753c25037ef24920eced8dc37222df8acf28ce39ec37ea73175"
+    },
+    {
+      "id": "aud-1795128344754-501ede",
+      "fechaHora": "2026-11-19T22:45:44.754Z",
+      "usuarioId": "usr-test-perm-1795128344204",
+      "username": "op.perm.1795128344204",
+      "apellidoYNombre": "Op Permisos Test",
+      "rol": "Operador",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "CAMBIO_PASSWORD",
+      "descripcion": "Operador @op.perm.1795128344204 cambió la contraseña institucional de @tgt.usr.1795128344204 (Usr Objetivo Test)",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "12e96549eab8d8597c82f0e7757f54101fafd3c25345a6ffcfca2c7d87e5655b"
+    },
+    {
+      "id": "aud-1795128344697-baa636",
+      "fechaHora": "2026-11-19T22:45:44.697Z",
+      "usuarioId": "usr-test-noperm-1795128344204",
+      "username": "noperm.1795128344204",
+      "apellidoYNombre": "Usr SinPerm Test",
+      "rol": "Operador",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de Usr SinPerm Test (@noperm.1795128344204)",
+      "detalles": "Rol: Operador | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "475340c7868842ebc08883d93bac737472f90cd86641da867d29ae30d5c86c4a"
+    },
+    {
+      "id": "aud-1795128344628-8057ab",
+      "fechaHora": "2026-11-19T22:45:44.628Z",
+      "usuarioId": "usr-test-perm-1795128344204",
+      "username": "op.perm.1795128344204",
+      "apellidoYNombre": "Op Permisos Test",
+      "rol": "Operador",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de Op Permisos Test (@op.perm.1795128344204)",
+      "detalles": "Rol: Operador | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "042c5ed46a147ccf9fde267cf34018851fe783421a5ab796ccf6a8ee226960c4"
+    },
+    {
+      "id": "aud-1795128344573-29d38d",
+      "fechaHora": "2026-11-19T22:45:44.573Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-clorinda",
+      "modulo": "Usuarios",
+      "accion": "CREAR",
+      "descripcion": "Creó registro en usuarios: clorinda.1795128344204",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "76359b6bb38d5b08e98e6ac61b9088bd3b9f3369dd5eb4ef9deb19e5e804f178"
+    },
+    {
+      "id": "aud-1795128344506-f1bdd1",
+      "fechaHora": "2026-11-19T22:45:44.506Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "CREAR",
+      "descripcion": "Creó registro en usuarios: noperm.1795128344204",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "091edb5fb324633c7bc3d8392e5ae75a01c0f1df9513676a789807fd2f03222c"
+    },
+    {
+      "id": "aud-1795128344436-38da29",
+      "fechaHora": "2026-11-19T22:45:44.436Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "CREAR",
+      "descripcion": "Creó registro en usuarios: tgt.usr.1795128344204",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "fcd8213f3594ab791e2c806e0817948158754a69564a894cb225e3fb215292bd"
+    },
+    {
+      "id": "aud-1795128344361-fc8e4f",
+      "fechaHora": "2026-11-19T22:45:44.361Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "CREAR",
+      "descripcion": "Creó registro en usuarios: op.perm.1795128344204",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "eff0310387027fb296b91919624d3c1ed23850c01b31b6c4841a5fdd7d0ebbb9"
+    },
+    {
+      "id": "aud-1795128296912-1975f7",
+      "fechaHora": "2026-11-19T22:44:56.912Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-clorinda",
+      "modulo": "usuarios",
+      "accion": "ELIMINAR",
+      "descripcion": "Eliminó elemento ID \"usr-test-otherdel-1795128296435\" de usuarios",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "3432de38b86a4625d66c011b4a09f5a0132e2b068d8c105f1451ad0b25f02b57"
+    },
+    {
+      "id": "aud-1795128296905-cde577",
+      "fechaHora": "2026-11-19T22:44:56.905Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "usuarios",
+      "accion": "ELIMINAR",
+      "descripcion": "Eliminó elemento ID \"usr-test-noperm-1795128296435\" de usuarios",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "bbebb69b303cd0725db65d6e6d7a7284ab0ef592501f735c3a1832ff70b25cb2"
+    },
+    {
+      "id": "aud-1795128296896-1b9e7d",
+      "fechaHora": "2026-11-19T22:44:56.896Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "usuarios",
+      "accion": "ELIMINAR",
+      "descripcion": "Eliminó elemento ID \"usr-test-tgt-1795128296435\" de usuarios",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "1f0af78f9ad284ad71c4fcd56af7c7f677e1838dfe1e0ef6f570844128471b71"
+    },
+    {
+      "id": "aud-1795128296885-b61ebb",
+      "fechaHora": "2026-11-19T22:44:56.885Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "usuarios",
+      "accion": "ELIMINAR",
+      "descripcion": "Eliminó elemento ID \"usr-test-perm-1795128296435\" de usuarios",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "d14924dc53f8c2ee6594757be7535b450aaa962ffcb2d13e5b6b13c742067591"
+    },
+    {
+      "id": "aud-1795128296866-71700b",
+      "fechaHora": "2026-11-19T22:44:56.866Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-clorinda",
+      "modulo": "Usuarios",
+      "accion": "CREAR",
+      "descripcion": "Creó registro en usuarios: clorinda.1795128296435",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "b207f46557987367c8b1c148326bef3be9bd2452f7d61b01b379513c80c8afb5"
+    },
+    {
+      "id": "aud-1795128296800-685d8b",
+      "fechaHora": "2026-11-19T22:44:56.800Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "CREAR",
+      "descripcion": "Creó registro en usuarios: noperm.1795128296435",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "6c331f8a11d43a3f22b171babeb3edc14ca1296d20c970969d6f3653ba474b59"
+    },
+    {
+      "id": "aud-1795128296725-4570a6",
+      "fechaHora": "2026-11-19T22:44:56.725Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "CREAR",
+      "descripcion": "Creó registro en usuarios: tgt.usr.1795128296435",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "3a3901efc40e578066385dba162d1c549ea6377a6b7a01e9ad9f4dbf7afed08c"
+    },
+    {
+      "id": "aud-1795128296626-38bc42",
+      "fechaHora": "2026-11-19T22:44:56.626Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "CREAR",
+      "descripcion": "Creó registro en usuarios: op.perm.1795128296435",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "5285de655caf2eef9d8940366408014594b289fc3bf0f89b95161d5ce219be9a"
+    },
+    {
+      "id": "aud-1795128087738-3b6c30",
+      "fechaHora": "2026-11-19T22:41:27.738Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Auditoría",
+      "accion": "ELIMINAR",
+      "descripcion": "Depuración controlada por retención (> 90 días): 0 eventos antiguos purgados.",
+      "ipOrigen": "138.121.113.35",
+      "integrityHash": "f91f8f94fc2e8f297529b1ef608e91f3cb74af160e35d4b73e773eb14552f8a9"
+    },
+    {
+      "id": "aud-1795127640668-a22c7e",
+      "fechaHora": "2026-11-19T22:34:00.668Z",
+      "usuarioId": "usr-cibercrimen-lb",
+      "username": "cibercrimen",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "MODIFICAR",
+      "descripcion": "Desactivó Google Authenticator (2FA) y revocó sus dispositivos de confianza en @cibercrimen",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "21fd82ed66173bbe6429f7df75ffdfc13dd1dbea55f0b9392b316a9032e675a5"
+    },
+    {
+      "id": "aud-1795127640611-1b07b1",
+      "fechaHora": "2026-11-19T22:34:00.611Z",
+      "usuarioId": "usr-cibercrimen-lb",
+      "username": "cibercrimen",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión 2FA (Código de respaldo) exitoso para @cibercrimen",
+      "detalles": "Rol: superusuario | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "1d3584e76cc77268bbce6622e6759d3ed24a5acf29ff3134e2f96654b70326a8"
+    },
+    {
+      "id": "aud-1795127640540-7a8185",
+      "fechaHora": "2026-11-19T22:34:00.540Z",
+      "usuarioId": "usr-cibercrimen-lb",
+      "username": "cibercrimen",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de División Cibercrimen Laguna Blanca (@cibercrimen) mediante dispositivo de confianza \"PC Prueba\"",
+      "detalles": "Rol: superusuario | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "eba77930492cc34827ec4f7f3ce6ec602115feb3a8b3484de83b455109ca016c"
+    },
+    {
+      "id": "aud-1795127640484-824662",
+      "fechaHora": "2026-11-19T22:34:00.484Z",
+      "usuarioId": "usr-cibercrimen-lb",
+      "username": "cibercrimen",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "MODIFICAR",
+      "descripcion": "Activó Google Authenticator (2FA) en su cuenta @cibercrimen y registró dispositivo de confianza \"PC Prueba\"",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "81e38fbbb6a369d8940bf091fe9e2b2f0cf77c1744d5b1a3cacd0ee3bfa18f2b"
+    },
+    {
+      "id": "aud-1795127640388-42c54b",
+      "fechaHora": "2026-11-19T22:34:00.388Z",
+      "usuarioId": "usr-cibercrimen-lb",
+      "username": "cibercrimen",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de División Cibercrimen Laguna Blanca (@cibercrimen)",
+      "detalles": "Rol: superusuario | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "9268db7b83246f94b5c20fc6a4849f324331a1eca932caba594c687f5046194b"
+    },
+    {
+      "id": "aud-1795127640339-ad3bfd",
+      "fechaHora": "2026-11-19T22:34:00.339Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Usuarios",
+      "accion": "MODIFICAR",
+      "descripcion": "Superusuario @superadmin restableció Google Authenticator (2FA) y dispositivos de confianza de @cibercrimen",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "ae934426427668fadafa3a8f2675385134fca91c4f8b02c77cc9f5539e16d980"
+    },
+    {
+      "id": "aud-1795127640322-78d080",
+      "fechaHora": "2026-11-19T22:34:00.322Z",
+      "usuarioId": "usr-superadmin",
+      "username": "superadmin",
+      "apellidoYNombre": "Comisario Mayor D.G.P.C.",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de Comisario Mayor D.G.P.C. (@superadmin)",
+      "detalles": "Rol: superusuario | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "6697d5c4117cf3da8263d244b51779796a15f2aa001a20ec8809e49e2818ef90"
+    },
+    {
+      "id": "aud-1795127618355-7fe9a1",
+      "fechaHora": "2026-11-19T22:33:38.355Z",
+      "usuarioId": "usr-cibercrimen-lb",
+      "username": "cibercrimen",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión 2FA (Código de respaldo) exitoso para @cibercrimen",
+      "detalles": "Rol: superusuario | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "811293ce22caabc45eba455372c5f51bea47d57ffd357e958b47415632c2f4ca"
+    },
+    {
+      "id": "aud-1795127618290-7b0f91",
+      "fechaHora": "2026-11-19T22:33:38.290Z",
+      "usuarioId": "usr-cibercrimen-lb",
+      "username": "cibercrimen",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de División Cibercrimen Laguna Blanca (@cibercrimen) mediante dispositivo de confianza \"PC Prueba\"",
+      "detalles": "Rol: superusuario | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "8305f03b4c64b736497d89defcd7bb1eec7f095983450f1b37b933c173a757f6"
+    },
+    {
+      "id": "aud-1795127618226-0e0c51",
+      "fechaHora": "2026-11-19T22:33:38.226Z",
+      "usuarioId": "usr-cibercrimen-lb",
+      "username": "cibercrimen",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "MODIFICAR",
+      "descripcion": "Activó Google Authenticator (2FA) en su cuenta @cibercrimen y registró dispositivo de confianza \"PC Prueba\"",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "200988f840d325d05e61b4ed3c46671e0f7494c387e6922de0c9dd564c22ad9b"
+    },
+    {
+      "id": "aud-1795127618062-ab5911",
+      "fechaHora": "2026-11-19T22:33:38.062Z",
+      "usuarioId": "usr-cibercrimen-lb",
+      "username": "cibercrimen",
+      "apellidoYNombre": "División Cibercrimen Laguna Blanca",
+      "rol": "superusuario",
+      "delegacionId": "del-laguna-blanca",
+      "modulo": "Autenticación",
+      "accion": "LOGIN",
+      "descripcion": "Inicio de sesión exitoso de División Cibercrimen Laguna Blanca (@cibercrimen)",
+      "detalles": "Rol: superusuario | IP: 127.0.0.1",
+      "ipOrigen": "127.0.0.1",
+      "integrityHash": "2e66fa180401dd35b8037e636e7c6fe32d51e35e015e5078cd471afcb7d81a91"
+    },
+    {
       "id": "aud-1794997711158-3c7ae6",
       "fechaHora": "2026-11-18T10:28:31.158Z",
       "usuarioId": "usr-superadmin",
@@ -1307,5 +1894,385 @@
     }
   ],
   "novedadesDelegaciones": [],
-  "charlasPrevencion": []
+  "charlasPrevencion": [],
+  "licenciasPoliciales": [],
+  "saldosLicencias": [],
+  "feriados": [
+    {
+      "id": "fer-2025-01-01",
+      "fecha": "2025-01-01",
+      "nombre": "Año Nuevo",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-03-03",
+      "fecha": "2025-03-03",
+      "nombre": "Carnaval (Lunes)",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-03-04",
+      "fecha": "2025-03-04",
+      "nombre": "Carnaval (Martes)",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-03-24",
+      "fecha": "2025-03-24",
+      "nombre": "Día Nacional de la Memoria por la Verdad y la Justicia",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-04-02",
+      "fecha": "2025-04-02",
+      "nombre": "Día del Veterano y de los Caídos en la Guerra de Malvinas",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-04-18",
+      "fecha": "2025-04-18",
+      "nombre": "Viernes Santo",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-05-01",
+      "fecha": "2025-05-01",
+      "nombre": "Día del Trabajador",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-05-25",
+      "fecha": "2025-05-25",
+      "nombre": "Día de la Revolución de Mayo",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-06-16",
+      "fecha": "2025-06-16",
+      "nombre": "Paso a la Inmortalidad del Gral. Martín Miguel de Güemes",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-06-20",
+      "fecha": "2025-06-20",
+      "nombre": "Paso a la Inmortalidad del Gral. Manuel Belgrano",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-07-09",
+      "fecha": "2025-07-09",
+      "nombre": "Día de la Independencia",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-08-15",
+      "fecha": "2025-08-15",
+      "nombre": "Día no laborable con fines turísticos",
+      "tipo": "No Laborable",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-10-12",
+      "fecha": "2025-10-12",
+      "nombre": "Día del Respeto a la Diversidad Cultural",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-11-24",
+      "fecha": "2025-11-24",
+      "nombre": "Día de la Soberanía Nacional",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-12-08",
+      "fecha": "2025-12-08",
+      "nombre": "Inmaculada Concepción de María",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2025-12-25",
+      "fecha": "2025-12-25",
+      "nombre": "Navidad",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-01-01",
+      "fecha": "2026-01-01",
+      "nombre": "Año Nuevo",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-02-16",
+      "fecha": "2026-02-16",
+      "nombre": "Carnaval (Lunes)",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-02-17",
+      "fecha": "2026-02-17",
+      "nombre": "Carnaval (Martes)",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-03-24",
+      "fecha": "2026-03-24",
+      "nombre": "Día Nacional de la Memoria por la Verdad y la Justicia",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-04-02",
+      "fecha": "2026-04-02",
+      "nombre": "Día del Veterano y de los Caídos en la Guerra de Malvinas",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-04-03",
+      "fecha": "2026-04-03",
+      "nombre": "Viernes Santo",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-05-01",
+      "fecha": "2026-05-01",
+      "nombre": "Día del Trabajador",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-05-25",
+      "fecha": "2026-05-25",
+      "nombre": "Día de la Revolución de Mayo",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-06-15",
+      "fecha": "2026-06-15",
+      "nombre": "Paso a la Inmortalidad del Gral. Martín Miguel de Güemes",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-06-20",
+      "fecha": "2026-06-20",
+      "nombre": "Paso a la Inmortalidad del Gral. Manuel Belgrano",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-07-09",
+      "fecha": "2026-07-09",
+      "nombre": "Día de la Independencia",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-08-17",
+      "fecha": "2026-08-17",
+      "nombre": "Paso a la Inmortalidad del Gral. José de San Martín",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-10-12",
+      "fecha": "2026-10-12",
+      "nombre": "Día del Respeto a la Diversidad Cultural",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-11-23",
+      "fecha": "2026-11-23",
+      "nombre": "Día de la Soberanía Nacional (Trasladado)",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-12-08",
+      "fecha": "2026-12-08",
+      "nombre": "Inmaculada Concepción de María",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2026-12-25",
+      "fecha": "2026-12-25",
+      "nombre": "Navidad",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-01-01",
+      "fecha": "2027-01-01",
+      "nombre": "Año Nuevo",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-02-08",
+      "fecha": "2027-02-08",
+      "nombre": "Carnaval (Lunes)",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-02-09",
+      "fecha": "2027-02-09",
+      "nombre": "Carnaval (Martes)",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-03-24",
+      "fecha": "2027-03-24",
+      "nombre": "Día Nacional de la Memoria por la Verdad y la Justicia",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-03-26",
+      "fecha": "2027-03-26",
+      "nombre": "Viernes Santo",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-04-02",
+      "fecha": "2027-04-02",
+      "nombre": "Día del Veterano y de los Caídos en la Guerra de Malvinas",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-05-01",
+      "fecha": "2027-05-01",
+      "nombre": "Día del Trabajador",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-05-25",
+      "fecha": "2027-05-25",
+      "nombre": "Día de la Revolución de Mayo",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-06-20",
+      "fecha": "2027-06-20",
+      "nombre": "Paso a la Inmortalidad del Gral. Manuel Belgrano",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-07-09",
+      "fecha": "2027-07-09",
+      "nombre": "Día de la Independencia",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-08-16",
+      "fecha": "2027-08-16",
+      "nombre": "Paso a la Inmortalidad del Gral. José de San Martín",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-10-11",
+      "fecha": "2027-10-11",
+      "nombre": "Día del Respeto a la Diversidad Cultural",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-11-22",
+      "fecha": "2027-11-22",
+      "nombre": "Día de la Soberanía Nacional",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-12-08",
+      "fecha": "2027-12-08",
+      "nombre": "Inmaculada Concepción de María",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fer-2027-12-25",
+      "fecha": "2027-12-25",
+      "nombre": "Navidad",
+      "tipo": "Nacional",
+      "origen": "Sistema",
+      "createdAt": "2027-01-01T00:00:00.000Z"
+    }
+  ]
 }

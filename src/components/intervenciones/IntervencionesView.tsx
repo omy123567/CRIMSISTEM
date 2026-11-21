@@ -37,6 +37,7 @@ import { IntervencionModal } from '../guardias/IntervencionModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 interface IntervencionesViewProps {
   intervencionesList: IntervencionParte[];
@@ -198,86 +199,93 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
     }
   }, [config, tipoForzadoModal]);
 
-  // Exportar Listado Oficial a PDF
+  // Exportar Listado Oficial a PDF con orientación, tamaño de papel y vista previa
   const handleExportPdf = () => {
-    const doc = new jsPDF('l', 'mm', 'a4');
     const titulo =
       activeTab === 'criminalistica'
         ? 'REGISTRO OFICIAL DE LABORES CRIMINALÍSTICAS (LC)'
         : 'REGISTRO OFICIAL DE SINIESTROS Y HECHOS VIALES (ACCIDENTOLOGÍA)';
+    const fileName = `Registro_${activeTab === 'criminalistica' ? 'LC_Criminalistica' : 'Siniestros_Viales'}_${
+      new Date().toISOString().split('T')[0]
+    }.pdf`;
 
-    const finalY = drawPoliceHeader(doc, config, titulo);
+    requestPdfExport({
+      title: titulo,
+      fileName,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: (opts) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(opts.orientation), 'mm', resolveJsPdfFormat(opts.paperSize));
+        const finalY = drawPoliceHeader(doc, config, titulo);
 
-    const rows = currentList.map((int, idx) => {
-      const personal = `${int.personalTecnico.peritoAuxiliar} | ${int.personalTecnico.choferFotografo}`;
-      const detalles =
-        int.tipoIntervencion === 'Accidentológica' && int.vehiculosSiniestro?.length
-          ? int.vehiculosSiniestro
-              .map((v) => `${v.identificador}: ${v.marca || ''} ${v.modelo || ''} (${v.dominio || 's/p'})`)
-              .join('; ')
-          : int.sintesisHecho;
+        const rows = currentList.map((int, idx) => {
+          const personal = `${int.personalTecnico.peritoAuxiliar} | ${int.personalTecnico.choferFotografo}`;
+          const detalles =
+            int.tipoIntervencion === 'Accidentológica' && int.vehiculosSiniestro?.length
+              ? int.vehiculosSiniestro
+                  .map((v) => `${v.identificador}: ${v.marca || ''} ${v.modelo || ''} (${v.dominio || 's/p'})`)
+                  .join('; ')
+              : int.sintesisHecho;
 
-      return [
-        String(idx + 1),
-        int.codigoIntervencion,
-        int.inspeccionFecha,
-        int.inspeccionHora,
-        int.hecho,
-        int.inspeccionLugar,
-        int.dependencia,
-        personal,
-        detalles,
-      ];
+          return [
+            String(idx + 1),
+            int.codigoIntervencion,
+            int.inspeccionFecha,
+            int.inspeccionHora,
+            int.hecho,
+            int.inspeccionLugar,
+            int.dependencia,
+            personal,
+            detalles,
+          ];
+        });
+
+        autoTable(doc, {
+          startY: finalY + 4,
+          head: [
+            [
+              'N°',
+              'Código Intervención',
+              'Fecha',
+              'Hora',
+              'Hecho / Causa',
+              'Lugar de Ocurrido',
+              'Dependencia',
+              'Perito / Chofer',
+              activeTab === 'accidentologia' ? 'Vehículos Involucrados' : 'Síntesis',
+            ],
+          ],
+          body: rows,
+          theme: 'grid',
+          headStyles: {
+            fillColor: activeTab === 'criminalistica' ? [30, 41, 59] : [15, 76, 129],
+            textColor: 255,
+            fontSize: 7.5,
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          styles: {
+            fontSize: 6.8,
+            cellPadding: 2,
+            valign: 'middle',
+          },
+          columnStyles: {
+            0: { halign: 'center', cellWidth: 7 },
+            1: { cellWidth: 32 },
+            2: { halign: 'center', cellWidth: 16 },
+            3: { halign: 'center', cellWidth: 14 },
+            4: { cellWidth: 35 },
+            5: { cellWidth: 40 },
+            6: { cellWidth: 30 },
+            7: { cellWidth: 40 },
+            8: { cellWidth: 'auto' },
+          },
+        });
+
+        drawPoliceFooter(doc, config);
+        return doc;
+      },
     });
-
-    autoTable(doc, {
-      startY: finalY + 4,
-      head: [
-        [
-          'N°',
-          'Código Intervención',
-          'Fecha',
-          'Hora',
-          'Hecho / Causa',
-          'Lugar de Ocurrido',
-          'Dependencia',
-          'Perito / Chofer',
-          activeTab === 'accidentologia' ? 'Vehículos Involucrados' : 'Síntesis',
-        ],
-      ],
-      body: rows,
-      theme: 'grid',
-      headStyles: {
-        fillColor: activeTab === 'criminalistica' ? [30, 41, 59] : [15, 76, 129],
-        textColor: 255,
-        fontSize: 7.5,
-        fontStyle: 'bold',
-        halign: 'center',
-      },
-      styles: {
-        fontSize: 6.8,
-        cellPadding: 2,
-        valign: 'middle',
-      },
-      columnStyles: {
-        0: { halign: 'center', cellWidth: 7 },
-        1: { cellWidth: 32 },
-        2: { halign: 'center', cellWidth: 16 },
-        3: { halign: 'center', cellWidth: 14 },
-        4: { cellWidth: 35 },
-        5: { cellWidth: 40 },
-        6: { cellWidth: 30 },
-        7: { cellWidth: 40 },
-        8: { cellWidth: 60 },
-      },
-    });
-
-    drawPoliceFooter(doc, config);
-    doc.save(
-      `Registro_${activeTab === 'criminalistica' ? 'LC_Criminalistica' : 'Siniestros_Viales'}_${
-        new Date().toISOString().split('T')[0]
-      }.pdf`
-    );
   };
 
   return (

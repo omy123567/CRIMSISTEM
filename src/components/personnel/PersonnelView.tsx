@@ -23,10 +23,11 @@ import { PersonnelModal } from './PersonnelModal';
 import { UpcomingBirthdaysModal } from './UpcomingBirthdaysModal';
 import { TrasladarPersonalModal } from './TrasladarPersonalModal';
 import { getTodayBirthdays, getUpcomingBirthdays } from '../../services/birthdayService';
-import { generarPdfLegajoPersonal, generarPdfFormularioRegistroMano } from '../../services/pdfService';
+import { generarPdfLegajoPersonal, generarPdfFormularioRegistroMano, drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import { calcularAniosAntiguedad, formatFechaDisplay } from '../../services/licenciaService';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { ReportePersonalModal } from './ReportePersonalModal';
 
@@ -108,56 +109,64 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
     });
   }, [personalList, searchTerm, filtroJerarquia, filtroGrupo, filtroEstado]);
 
-  // Exportar Nómina Completa a PDF
+  // Exportar Nómina Completa a PDF con selector y vista previa
   const handleExportNominaPdf = () => {
-    const doc = new jsPDF('l', 'mm', 'a4');
-    const currentY = drawPoliceHeader(
-      doc,
-      config,
-      'NÓMINA GENERAL DE PERSONAL POLICIAL Y ESTADO DE REVISTA',
-      10
-    );
+    requestPdfExport({
+      title: 'Nómina General de Personal Policial',
+      fileName: `Nomina_Personal_${new Date().toISOString().slice(0, 10)}.pdf`,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: ({ orientation, paperSize }) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+        const currentY = drawPoliceHeader(
+          doc,
+          config,
+          'NÓMINA GENERAL DE PERSONAL POLICIAL Y ESTADO DE REVISTA',
+          10
+        );
 
-    const rows = filteredList.map((p, i) => [
-      i + 1,
-      p.jerarquia,
-      p.apellidoYNombre,
-      p.dni,
-      p.cedulaProvincial || '---',
-      p.plaza,
-      p.seccionGrupo,
-      p.estado,
-      `${p.armamento?.marca || ''} ${p.armamento?.serieNro || ''}${p.armamento?.secuestradoORetenido ? ' (RETENIDA)' : ''}`,
-      `${p.chaleco?.serieNro || ''} (T:${p.chaleco?.talla || ''})`,
-      p.licenciaNro ? `${p.licenciaNro} (${p.licenciaCategoria})` : '---',
-      p.telefono,
-    ]);
+        const rows = filteredList.map((p, i) => [
+          i + 1,
+          p.jerarquia,
+          p.apellidoYNombre,
+          p.dni,
+          p.cedulaProvincial || '---',
+          p.plaza,
+          p.seccionGrupo,
+          p.estado,
+          `${p.armamento?.marca || ''} ${p.armamento?.serieNro || ''}${p.armamento?.secuestradoORetenido ? ' (RETENIDA)' : ''}`,
+          `${p.chaleco?.serieNro || ''} (T:${p.chaleco?.talla || ''})`,
+          p.licenciaNro ? `${p.licenciaNro} (${p.licenciaCategoria})` : '---',
+          p.telefono,
+        ]);
 
-    autoTable(doc, {
-      startY: currentY,
-      head: [[
-        'N°',
-        'Jerarquía',
-        'Apellido y Nombre',
-        'DNI',
-        'Cédula Prov.',
-        'Plaza',
-        'Grupo / Sección',
-        'Estado',
-        'Armamento',
-        'Chaleco',
-        'Licencia',
-        'Teléfono'
-      ]],
-      body: rows,
-      theme: 'grid',
-      headStyles: { fillColor: [17, 38, 77], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
-      styles: { fontSize: 7, cellPadding: 1.8, lineColor: [200, 210, 225], lineWidth: 0.1 },
-      margin: { left: 10, right: 10 },
+        autoTable(doc, {
+          startY: currentY,
+          head: [[
+            'N°',
+            'Jerarquía',
+            'Apellido y Nombre',
+            'DNI',
+            'Cédula Prov.',
+            'Plaza',
+            'Grupo / Sección',
+            'Estado',
+            'Armamento',
+            'Chaleco',
+            'Licencia',
+            'Teléfono'
+          ]],
+          body: rows,
+          theme: 'grid',
+          headStyles: { fillColor: [17, 38, 77], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
+          styles: { fontSize: 7, cellPadding: 1.8, lineColor: [200, 210, 225], lineWidth: 0.1 },
+          margin: { left: 10, right: 10 },
+        });
+
+        drawPoliceFooter(doc, config);
+        return doc;
+      },
     });
-
-    drawPoliceFooter(doc, config);
-    doc.save(`Nomina_Personal_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   return (
@@ -449,6 +458,14 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                       <span className="font-semibold text-slate-800">{p.seccionGrupo}</span>
                     </div>
                     <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Antigüedad:</span>
+                      <span className="font-semibold text-blue-900">
+                        {p.fechaIngreso
+                          ? `${calcularAniosAntiguedad(p.fechaIngreso)} ${calcularAniosAntiguedad(p.fechaIngreso) === 1 ? 'año' : 'años'} (Ing. ${formatFechaDisplay(p.fechaIngreso)})`
+                          : 'Sin fecha de ingreso'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
                       <span className="text-slate-400">Licencia:</span>
                       <span className="text-slate-700">{p.licenciaCategoria || 'Sin registro'}</span>
                     </div>
@@ -568,7 +585,8 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                     )}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    {p.seccionGrupo} • Plaza {p.plaza || 's/p'} • Cel: {p.telefono}
+                    {p.seccionGrupo} • Plaza {p.plaza || 's/p'} • Antigüedad:{' '}
+                    {p.fechaIngreso ? `${calcularAniosAntiguedad(p.fechaIngreso)} años` : 'S/D'} • Cel: {p.telefono}
                   </div>
                 </div>
               </div>
@@ -649,7 +667,14 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                       <div className="text-[10px] text-blue-900 font-semibold">CP: {p.cedulaProvincial}</div>
                     )}
                   </td>
-                  <td className="py-2.5 px-3">{p.seccionGrupo}</td>
+                  <td className="py-2.5 px-3">
+                    <div>{p.seccionGrupo}</div>
+                    {p.fechaIngreso && (
+                      <div className="text-[10px] font-semibold text-blue-900">
+                        Antigüedad: {calcularAniosAntiguedad(p.fechaIngreso)} años
+                      </div>
+                    )}
+                  </td>
                   <td className="py-2.5 px-3">
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${

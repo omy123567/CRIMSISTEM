@@ -665,6 +665,7 @@ export interface ConfiguracionSistema {
   causasReferencia?: string[]; // "S/ Robo Calificado", "S/ Siniestro Vial Grave", "S/ Averiguación de Causal de Muerte", etc.
   tiposLesionCatalogo?: string[]; // "Sin Lesiones", "Leves", "Graves", "Gravísimas", "A Determinar / En Observación"
   ordenColumnasGuardia?: string[]; // Orden personalizable: ['personal', 'moviles', 'lc', 'forense', 'segVial', 'cibercrimen']
+  tiposLicenciaCatalogo?: TipoLicenciaConfig[]; // Catálogo de tipos de licencia policial (Anual, Invernal, Extraordinaria, otros)
 
   // Supabase Sync opcional
   supabaseUrl?: string;
@@ -747,6 +748,8 @@ export interface AccionesRol {
   puedeRecargarOtrasDelegaciones: boolean;   // Asignar recargos operativos a delegaciones ajenas
   puedeGestionarUsuarios: boolean;           // Crear, editar y administrar usuarios y roles
   puedeConfirmarFotografias?: boolean;       // Validar y confirmar cantidad de fotografías en Inspecciones Oculares
+  puedeCambiarPasswordOtros?: boolean;       // Cambiar contraseñas de otros usuarios
+  puedeGestionar2faOtros?: boolean;          // Activar o desactivar Google Authenticator (2FA) de otros usuarios
 }
 
 export type ColorRol = 'blue' | 'purple' | 'emerald' | 'amber' | 'rose' | 'indigo' | 'cyan' | 'slate';
@@ -834,6 +837,16 @@ export interface DelegacionPolicial {
   createdAt: string;
 }
 
+export interface DispositivoConfiableInfo {
+  id: string;
+  label: string;
+  userAgent?: string;
+  ipOrigen?: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt?: string;
+}
+
 export interface UsuarioSistema {
   id: string;
   apellidoYNombre: string;
@@ -842,6 +855,12 @@ export interface UsuarioSistema {
   password?: string; // Solo se envía desde formularios al crear/cambiar; nunca se persiste ni retorna en claro
   passwordHash?: string; // Hash scrypt almacenado exclusivamente en servidor
   offlineVerifier?: string; // Verificador salado local para acceso PWA offline
+  totpEnabled?: boolean; // Autenticación en 2 pasos (Google Authenticator)
+  totpSecret?: string; // Solo en servidor
+  totpPendingSecret?: string; // Solo en servidor durante configuración
+  totpBackupCodesHashes?: string[]; // Solo en servidor
+  totpActivatedAt?: string;
+  trustedDevices?: DispositivoConfiableInfo[]; // Dispositivos de confianza registrados (sin tokenHash en cliente)
   delegacionId: string; // Delegación primaria asignada
   rol: RolUsuario; // 'Operador' | 'Administrador' | 'superusuario' | 'Oficial de Guardia' | 'Carga / Editor' | 'Solo Lectura (Auditor / Consulta)'
   rolId?: string; // ID del RolSistema vinculado
@@ -873,6 +892,12 @@ export interface UsuarioSistema {
 
   // Permiso específico: Emitir avisos o novedades inter-delegaciones
   puedeEmitirNovedades?: boolean;
+
+  // Permiso específico: Cambiar contraseñas de otros usuarios
+  puedeCambiarPasswordOtros?: boolean;
+
+  // Permiso específico: Activar o desactivar 2FA (Google Authenticator) de otros usuarios
+  puedeGestionar2faOtros?: boolean;
 
   activo: boolean;
   dni?: string;
@@ -1013,6 +1038,101 @@ export interface CharlaPrevencion {
   estado: EstadoCharlaPrevencion;
   adjuntos?: AdjuntoArchivo[];
   creadoPorUsuario?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// --- CONFIGURACIÓN GLOBAL DE PDF (ORIENTACIÓN, PAPEL Y VISTA PREVIA) ---
+export type PdfOrientation = 'portrait' | 'landscape';
+export type PdfPaperSize = 'a4' | 'oficio' | 'legal' | 'letter';
+
+export interface PdfExportOptions {
+  orientation: PdfOrientation;
+  paperSize: PdfPaperSize;
+}
+
+// --- MÓDULO: RÉGIMEN DE LICENCIAS POLICIALES ---
+export interface TipoLicenciaConfig {
+  id: string;
+  nombre: string; // "Anual", "Invernal", "Extraordinaria", etc.
+  esDefault?: boolean;
+  descuentaSaldoAnual: boolean; // Si imputa días contra los saldos disponibles por año (Anual = true)
+  diasSugeridos?: number;
+  activo: boolean;
+}
+
+export interface ImputacionAnioLicencia {
+  anio: number;
+  dias: number;
+}
+
+export interface LicenciaPolicial {
+  id: string;
+  personalId: string;
+  // Campos estrictamente heredados de Personal y Legajo:
+  jerarquia: string;
+  apellidoYNombre: string;
+  dni: string;
+  fechaIngreso?: string;
+  antiguedadAnios: number; // Solamente años (sin meses)
+
+  tipoLicencia: string; // 'Anual' | 'Invernal' | 'Extraordinaria' | personalizado
+  fechaSalida: string; // YYYY-MM-DD
+  diasHabilesSolicitados: number; // Días hábiles administrativos de licencia
+  // Viaje / traslado por vía terrestre (Art. 11)
+  incluyeViajeTerrestre?: boolean;
+  distanciaKm?: number;
+  diasViajeArt11: number; // 0, 1..5 días según Art. 11
+
+  // Calculados automáticamente teniendo en cuenta feriados y días hábiles
+  fechaFinLicencia: string; // YYYY-MM-DD (último día de licencia)
+  fechaReanudacion: string; // YYYY-MM-DD (día hábil siguiente de regreso)
+  horaReanudacion: string; // "08:00"
+
+  // Lógica de imputación multi-año
+  imputacionAnios: ImputacionAnioLicencia[];
+  anioReferenciaDefault?: number;
+
+  // Interrupción Art. 15
+  fueInterrumpida: boolean;
+  fechaInterrupcion?: string; // YYYY-MM-DD
+  motivoInterrupcion?: string; // Art. 15
+  diasEfectivamenteGozados?: number;
+  diasRestituidos?: number;
+
+  observaciones?: string;
+  disposicionNro?: string;
+  delegacionId?: string;
+  usuarioRegistro?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaldoLicenciaAnio {
+  id: string; // `${personalId}_${anio}`
+  personalId: string;
+  anio: number;
+  diasCorrespondientes: number; // Calculado según Art. 7 (14 a 49 días hábiles) o ajustado
+  diasUsados: number;
+  vencido: boolean;
+  fechaVencimiento?: string;
+  motivoVencimiento?: string;
+  observaciones?: string;
+  delegacionId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TipoFeriado = 'Nacional' | 'Provincial' | 'No Laborable' | 'Asueto';
+
+export interface FeriadoDiaNoLaborable {
+  id: string;
+  fecha: string; // YYYY-MM-DD
+  nombre: string;
+  tipo: TipoFeriado | string;
+  origen?: 'Manual' | 'Sistema' | 'URL' | 'Imagen';
+  urlFuente?: string;
+  delegacionId?: string;
   createdAt: string;
   updatedAt?: string;
 }

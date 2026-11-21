@@ -48,6 +48,7 @@ interface AdministrarModulosModalProps {
 export const MODULOS_BASE_CATALOGO: Array<{ id: string; label: string; desc: string }> = [
   { id: 'dashboard', label: 'Dashboard Ejecutivo', desc: 'KPIs y Estadísticas' },
   { id: 'personal', label: 'Personal y Legajos', desc: 'Nómina, Armas y Chalecos' },
+  { id: 'licencias', label: 'Licencia Policial', desc: 'Régimen Art. 7, 11, 15 & Feriados' },
   { id: 'grupos', label: 'Grupos', desc: 'Secciones de Guardia & Nómina' },
   { id: 'expedientes', label: 'Expedientes Judiciales', desc: 'Oficios, Tareas y PPI' },
   { id: 'falta-oficio', label: 'Casos Falta de Oficio', desc: 'Urgencias preliminares' },

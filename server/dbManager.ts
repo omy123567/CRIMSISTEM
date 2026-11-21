@@ -8,6 +8,7 @@ import {
   DEFAULT_SERIES_NUMERARIO,
   DEFAULT_CONFIG,
 } from '../src/db/database';
+import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from '../src/services/licenciaService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +41,9 @@ export interface SispolDatabase {
   auditoria: any[];
   novedadesDelegaciones: any[];
   charlasPrevencion: any[];
+  licenciasPoliciales: any[];
+  saldosLicencias: any[];
+  feriados: any[];
 }
 
 function getInitialDatabase(): SispolDatabase {
@@ -69,6 +73,9 @@ function getInitialDatabase(): SispolDatabase {
     auditoria: [],
     novedadesDelegaciones: [],
     charlasPrevencion: [],
+    licenciasPoliciales: [],
+    saldosLicencias: [],
+    feriados: DEFAULT_FERIADOS_ARGENTINA.map((f) => ({ ...f })),
   };
 }
 
@@ -116,6 +123,53 @@ export function initDatabase(): SispolDatabase {
           modified = true;
         }
       }
+    }
+
+    // Migración incremental: asegurar módulo 'licencias' y catálogo de licencias en configuraciones existentes
+    if (Array.isArray(parsed.configuracion)) {
+      parsed.configuracion = parsed.configuracion.map((cfg: any) => {
+        let cfgMod = false;
+        const copy = { ...cfg };
+        if (!Array.isArray(copy.tiposLicenciaCatalogo) || copy.tiposLicenciaCatalogo.length === 0) {
+          copy.tiposLicenciaCatalogo = DEFAULT_TIPOS_LICENCIA;
+          cfgMod = true;
+        }
+        if (Array.isArray(copy.estructuraModulos) && !copy.estructuraModulos.some((m: any) => m.id === 'licencias')) {
+          copy.estructuraModulos = [
+            ...copy.estructuraModulos,
+            { id: 'licencias', label: 'Licencia Policial', desc: 'Régimen, Saldos Art. 7 y Feriados', orden: 3, padreId: null, visible: true },
+          ];
+          cfgMod = true;
+        }
+        if (cfgMod) modified = true;
+        return copy;
+      });
+    }
+
+    if (Array.isArray(parsed.roles)) {
+      parsed.roles = parsed.roles.map((r: any) => {
+        if ((r.id === 'rol-superusuario' || r.id === 'rol-admin') && Array.isArray(r.modulosPermitidos) && !r.modulosPermitidos.includes('licencias')) {
+          modified = true;
+          return { ...r, modulosPermitidos: [...r.modulosPermitidos, 'licencias'] };
+        }
+        return r;
+      });
+    }
+
+    if (Array.isArray(parsed.usuarios)) {
+      parsed.usuarios = parsed.usuarios.map((u: any) => {
+        if ((u.rol === 'superusuario' || u.rol === 'Administrador') && Array.isArray(u.modulosPermitidos) && !u.modulosPermitidos.includes('licencias')) {
+          modified = true;
+          return { ...u, modulosPermitidos: [...u.modulosPermitidos, 'licencias'] };
+        }
+        return u;
+      });
+    }
+
+    if (Array.isArray(parsed.feriados) && parsed.feriados.length === 0 && !parsed.feriadosInitialized) {
+      parsed.feriados = DEFAULT_FERIADOS_ARGENTINA.map((f) => ({ ...f }));
+      parsed.feriadosInitialized = true;
+      modified = true;
     }
 
     if (modified) {
@@ -201,6 +255,8 @@ export function wipeOperationalData(): SispolDatabase {
   db.folios = [];
   db.novedadesDelegaciones = [];
   db.charlasPrevencion = [];
+  db.licenciasPoliciales = [];
+  db.saldosLicencias = [];
 
   saveDatabase(db);
   return db;

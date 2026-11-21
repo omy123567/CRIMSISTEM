@@ -12,7 +12,12 @@ import {
   Building,
   User,
   CheckCircle2,
+  FileText,
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 interface LibroFoliosModalProps {
   isOpen: boolean;
@@ -134,6 +139,60 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
     document.body.removeChild(link);
   };
 
+  const handleExportPdf = () => {
+    const fileName = `Libro_Folios_${
+      alcance === 'serie' ? (activeSerie?.nombre || 'Serie').replace(/\s+/g, '_') : 'Unificado_General'
+    }_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+    const seriesMap = new Map<string, string>();
+    seriesList.forEach((s) => seriesMap.set(s.id, s.nombre));
+
+    requestPdfExport({
+      title: `Libro Oficial de Registro de Folios (${alcance === 'serie' ? activeSerie?.nombre || 'Serie' : 'Unificado'})`,
+      fileName,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: (opts) => {
+        const doc = new jsPDF({
+          orientation: resolveJsPdfOrientation(opts.orientation),
+          unit: 'mm',
+          format: resolveJsPdfFormat(opts.paperSize),
+        });
+        const startY = drawPoliceHeader(
+          doc,
+          config,
+          `LIBRO OFICIAL DE REGISTRO DE FOLIOS (${alcance === 'serie' ? activeSerie?.nombre || '' : 'UNIFICADO'})`,
+          10
+        );
+
+        const body = foliosFiltrados.map((f) => [
+          String(f.numero),
+          seriesMap.get(f.serieId) || 'Serie',
+          f.codigoCaratula || '---',
+          f.categoriaDocumento || '---',
+          `${f.fechaAsignacion || ''} ${f.horaAsignacion || ''}`.trim(),
+          f.asunto || '---',
+          f.destinatario || '---',
+          f.solicitante || '---',
+        ]);
+
+        autoTable(doc, {
+          startY: startY + 4,
+          head: [['Folio N°', 'Serie', 'Carátula / Cód.', 'Categoría', 'Fecha / Hora', 'Asunto / Objeto', 'Destinatario', 'Solicitante']],
+          body: body.length > 0 ? body : [['-', '-', 'Sin folios para los filtros actuales', '-', '-', '-', '-', '-']],
+          theme: 'grid',
+          styles: { fontSize: 7.5, cellPadding: 2 },
+          headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', halign: 'center' },
+          columnStyles: { 0: { cellWidth: 16, halign: 'center', fontStyle: 'bold' } },
+          didDrawPage: () => {
+            drawPoliceFooter(doc, config);
+          },
+        });
+        return doc;
+      },
+    });
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -164,6 +223,15 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
             >
               <Download className="w-4 h-4" />
               <span>Exportar Excel</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleExportPdf}
+              className="bg-indigo-700 hover:bg-indigo-800 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs transition-colors cursor-pointer shadow-xs"
+              title="Configurar papel, vista previa y exportar PDF"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Exportar PDF</span>
             </button>
             <button
               type="button"

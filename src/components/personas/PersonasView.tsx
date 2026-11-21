@@ -24,6 +24,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 export interface PersonaRegistroConsolidado {
   id: string;
@@ -256,65 +257,73 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
 
   // Exportar a PDF oficial
   const handleExportPdf = () => {
-    const doc = new jsPDF('l', 'mm', 'a4');
-    const startY = drawPoliceHeader(
-      doc,
-      config,
-      'REGISTRO CENTRALIZADO DE PERSONAS - HISTORIAL PERICIAL',
-      10
-    );
+    requestPdfExport({
+      title: 'Registro Centralizado de Personas',
+      fileName: `SISPOL_Registro_Personas_${new Date().toISOString().slice(0, 10)}.pdf`,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: ({ orientation, paperSize }) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+        const startY = drawPoliceHeader(
+          doc,
+          config,
+          'REGISTRO CENTRALIZADO DE PERSONAS - HISTORIAL PERICIAL',
+          10
+        );
 
-    if (modoOrganizacion === 'agrupado') {
-      const rows = filteredAgrupados.map((p, i) => [
-        i + 1,
-        p.apellidoYNombre,
-        p.dni,
-        p.edadMasReciente,
-        `${p.totalHechos} intervención(es)`,
-        p.condicionesDistintas.join(', '),
-        p.hechos.map((h) => `${h.inspeccionFecha}: ${h.intervencionHecho} (${h.condicion})`).join('\n'),
-      ]);
+        if (modoOrganizacion === 'agrupado') {
+          const rows = filteredAgrupados.map((p, i) => [
+            i + 1,
+            p.apellidoYNombre,
+            p.dni,
+            p.edadMasReciente,
+            `${p.totalHechos} intervención(es)`,
+            p.condicionesDistintas.join(', '),
+            p.hechos.map((h) => `${h.inspeccionFecha}: ${h.intervencionHecho} (${h.condicion})`).join('\n'),
+          ]);
 
-      autoTable(doc, {
-        startY: startY + 5,
-        head: [['#', 'Apellido y Nombre', 'DNI', 'Edad', 'Hechos', 'Condición(es)', 'Historial de Intervenciones']],
-        body: rows,
-        styles: { fontSize: 7.5, cellPadding: 2 },
-        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
-        columnStyles: {
-          0: { cellWidth: 8 },
-          1: { cellWidth: 42, fontStyle: 'bold' },
-          2: { cellWidth: 22 },
-          3: { cellWidth: 12 },
-          4: { cellWidth: 24, fontStyle: 'bold' },
-          5: { cellWidth: 35 },
-          6: { cellWidth: 125 },
-        },
-      });
-    } else {
-      const rows = filteredListDetallada.map((p, i) => [
-        i + 1,
-        p.apellidoYNombre,
-        p.dni,
-        p.edad,
-        p.condicion,
-        p.tipoRegistro,
-        p.intervencionHecho,
-        p.inspeccionFecha,
-        p.intervencionCodigo,
-      ]);
+          autoTable(doc, {
+            startY: startY + 5,
+            head: [['#', 'Apellido y Nombre', 'DNI', 'Edad', 'Hechos', 'Condición(es)', 'Historial de Intervenciones']],
+            body: rows,
+            styles: { fontSize: 7.5, cellPadding: 2 },
+            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+            columnStyles: {
+              0: { cellWidth: 8 },
+              1: { cellWidth: 36, fontStyle: 'bold' },
+              2: { cellWidth: 20 },
+              3: { cellWidth: 12 },
+              4: { cellWidth: 24, fontStyle: 'bold' },
+              5: { cellWidth: 32 },
+              6: { cellWidth: 'auto' },
+            },
+          });
+        } else {
+          const rows = filteredListDetallada.map((p, i) => [
+            i + 1,
+            p.apellidoYNombre,
+            p.dni,
+            p.edad,
+            p.condicion,
+            p.tipoRegistro,
+            p.intervencionHecho,
+            p.inspeccionFecha,
+            p.intervencionCodigo,
+          ]);
 
-      autoTable(doc, {
-        startY: startY + 5,
-        head: [['#', 'Apellido y Nombre', 'DNI', 'Edad', 'Condición', 'Tipo', 'Hecho Caratulado', 'Fecha', 'Nº Intervención']],
-        body: rows,
-        styles: { fontSize: 7.5, cellPadding: 2 },
-        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
-      });
-    }
+          autoTable(doc, {
+            startY: startY + 5,
+            head: [['#', 'Apellido y Nombre', 'DNI', 'Edad', 'Condición', 'Tipo', 'Hecho Caratulado', 'Fecha', 'Nº Intervención']],
+            body: rows,
+            styles: { fontSize: 7.5, cellPadding: 2 },
+            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+          });
+        }
 
-    drawPoliceFooter(doc, config);
-    doc.save(`SISPOL_Registro_Personas_${new Date().toISOString().slice(0, 10)}.pdf`);
+        drawPoliceFooter(doc, config);
+        return doc;
+      },
+    });
   };
 
   return (

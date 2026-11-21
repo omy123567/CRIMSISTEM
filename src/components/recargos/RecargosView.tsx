@@ -5,7 +5,9 @@ import {
   ConfiguracionSistema,
   UsuarioSistema,
   DelegacionPolicial,
+  LicenciaPolicial,
 } from '../../types/police';
+import { getLicenciaActivaPersonal, formatFechaDisplay } from '../../services/licenciaService';
 import {
   Clock,
   Plus,
@@ -28,10 +30,12 @@ import { ReporteRecargosModal } from './ReporteRecargosModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 interface RecargosViewProps {
   recargosList: RecargoOperativo[];
   personalList: Personal[];
+  licenciasPoliciales?: LicenciaPolicial[];
   config: ConfiguracionSistema;
   currentUser?: UsuarioSistema;
   delegacionesList?: DelegacionPolicial[];
@@ -43,6 +47,7 @@ interface RecargosViewProps {
 export const RecargosView: React.FC<RecargosViewProps> = ({
   recargosList,
   personalList,
+  licenciasPoliciales = [],
   config,
   currentUser,
   delegacionesList = [],
@@ -136,29 +141,28 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
 
   // Generar PDF oficial con orientación, tamaño de papel y desglose de servicios por delegación y personal
   const handleGenerarPdfConOpciones = (opciones: OpcionesImpresion) => {
-    const orientation = opciones.orientacion === 'portrait' ? 'p' : 'l';
-    let format: any = 'a4';
-    if (opciones.tamano === 'legal') {
-      format = [216, 356];
-    } else if (opciones.tamano === 'letter') {
-      format = 'letter';
-    }
+    const fileName = `Recargos_Operativos_${new Date().toISOString().slice(0, 10)}.pdf`;
+    requestPdfExport({
+      title: 'Planilla Oficial de Recargos Operativos',
+      fileName,
+      defaultOrientation: opciones.orientacion,
+      defaultPaperSize: opciones.tamano,
+      buildDoc: (pdfOpts) => {
+        const doc = new jsPDF(resolveJsPdfOrientation(pdfOpts.orientation), 'mm', resolveJsPdfFormat(pdfOpts.paperSize));
+        const delegacionActiva =
+          delegacionesList.find((d) => d.id === activeDelegacionId) || delegacionesList[0];
+        const delNombreOficial = delegacionActiva?.nombre || config.dependencia;
+        const oficinaHeader = 'OFICINA DE SERVICIOS Y OPERACIONES POLICIALES';
 
-    const doc = new jsPDF(orientation, 'mm', format);
-    const delegacionActiva =
-      delegacionesList.find((d) => d.id === activeDelegacionId) || delegacionesList[0];
-    const delNombreOficial = delegacionActiva?.nombre || config.dependencia;
-    const oficinaHeader = 'OFICINA DE SERVICIOS Y OPERACIONES POLICIALES';
-
-    const currentY = drawPoliceHeader(
-      doc,
-      config,
-      `PLANILLA OFICIAL DE RECARGOS OPERATIVOS Y SERVICIOS EXTRAORDINARIOS\nDELEGACIÓN: ${delNombreOficial} - ${oficinaHeader}`,
-      10
-    );
+        const currentY = drawPoliceHeader(
+          doc,
+          config,
+          `PLANILLA OFICIAL DE RECARGOS OPERATIVOS Y SERVICIOS EXTRAORDINARIOS\nDELEGACIÓN: ${delNombreOficial} - ${oficinaHeader}`,
+          10
+        );
 
     const rows = filteredRecargos.map((r, i) => {
-      const personal =
+      const nombresList = (
         r.personalDesignado ||
         (r.personalIds
           ? r.personalIds
@@ -168,7 +172,21 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
               })
               .filter(Boolean)
               .join(', ')
-          : '---');
+          : '')
+      )
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const personal =
+        nombresList.length > 0
+          ? nombresList
+              .map((nom) => {
+                const cond = getLicenciaActivaPersonal(nom, r.fecha, licenciasPoliciales, personalList);
+                return cond ? `${nom} [DE LICENCIA: ${cond.tipoLicencia}]` : nom;
+              })
+              .join(', ')
+          : '---';
 
       const horaPres =
         r.horaPresentacion ||
@@ -331,7 +349,9 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
       doc.text('Firma, Aclaración y Sello Oficial', firmaX, finalY + 19, { align: 'center' });
     }
 
-    doc.save(`Recargos_Operativos_${new Date().toISOString().slice(0, 10)}.pdf`);
+        return doc;
+      },
+    });
   };
 
   return (
@@ -564,6 +584,41 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
                         <div className="line-clamp-2" title={personalStr}>
                           {personalStr}
                         </div>
+                        {(() => {
+                          const nombres = personalStr
+                            .split(',')
+                            .map((s) => s.trim())
+                            .filter((s) => s && s !== '---');
+                          const enLic = nombres
+                            .map((nom) => {
+                              const cond = getLicenciaActivaPersonal(
+                                nom,
+                                rec.fecha,
+                                licenciasPoliciales,
+                                personalList
+                              );
+                              return cond ? { nom, cond } : null;
+                            })
+                            .filter((x): x is NonNullable<typeof x> => x !== null);
+                          if (enLic.length === 0) return null;
+                          return (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {enLic.map((item) => (
+                                <span
+                                  key={item.nom}
+                                  className="inline-block text-[10px] font-bold bg-amber-100 text-amber-950 border border-amber-300 px-1.5 py-0.5 rounded"
+                                  title={`${item.nom} se encuentra en ${item.cond.tipoLicencia}${
+                                    item.cond.fechaReanudacion
+                                      ? ` (Reanuda ${formatFechaDisplay(item.cond.fechaReanudacion)} 08:00 hs)`
+                                      : ''
+                                  }`}
+                                >
+                                  Licencia: {item.nom} ({item.cond.tipoLicencia})
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2.5 text-slate-600 max-w-xs">
                         <div className="line-clamp-2" title={rec.observaciones || '---'}>
@@ -607,6 +662,7 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
         <RecargoModal
           recargo={selectedRecargo}
           personalList={personalList}
+          licenciasPoliciales={licenciasPoliciales}
           config={config}
           currentUser={currentUser}
           delegacionesList={delegacionesList}
@@ -650,6 +706,7 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
         onClose={() => setIsReportModalOpen(false)}
         recargosList={recargosList}
         personalList={personalList}
+        licenciasPoliciales={licenciasPoliciales}
         config={config}
         delegacionesList={delegacionesList}
         currentUser={currentUser}

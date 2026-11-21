@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { X, Printer, FileText, Check, Eye, Download, CheckSquare, Square, ZoomIn } from 'lucide-react';
+import { PdfCanvasPreview } from './PdfCanvasPreview';
 
 export type OrientacionPapel = 'portrait' | 'landscape';
-export type TamanoPapel = 'a4' | 'legal' | 'letter';
+export type TamanoPapel = 'a4' | 'oficio' | 'legal' | 'letter';
 
 export interface SeccionesImpresion {
   encabezado: boolean;
@@ -155,11 +156,7 @@ export const ModalOpcionesImpresion: React.FC<ModalOpcionesImpresionProps> = ({
               </div>
 
               <div className="h-[65vh] w-full rounded-lg border border-slate-300 overflow-hidden bg-slate-200 shadow-inner">
-                <iframe
-                  src={activePreview}
-                  title="Vista Preliminar PDF"
-                  className="w-full h-full border-0"
-                />
+                <PdfCanvasPreview src={activePreview} className="w-full h-full" />
               </div>
             </div>
           ) : (
@@ -323,11 +320,12 @@ export const ModalOpcionesImpresion: React.FC<ModalOpcionesImpresionProps> = ({
                 <label className="block font-bold text-slate-800 mb-1.5">
                   3. Tamaño de Papel (Texto adaptado automáticamente)
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { id: 'a4', label: 'A4 (210 x 297 mm)', desc: 'Estándar oficial' },
-                    { id: 'legal', label: 'Oficio / Legal (216 x 356 mm)', desc: 'Expedientes' },
-                    { id: 'letter', label: 'Carta / Letter (216 x 279 mm)', desc: 'Formato carta' },
+                    { id: 'a4', label: 'A4 (210 x 297 mm)', desc: '210 × 297 mm' },
+                    { id: 'oficio', label: 'Oficio (216 x 330 mm)', desc: '216 × 330 mm' },
+                    { id: 'legal', label: 'Legal (216 x 356 mm)', desc: '216 × 356 mm' },
+                    { id: 'letter', label: 'Carta (216 x 279 mm)', desc: '216 × 279 mm' },
                   ].map((opt) => (
                     <label
                       key={opt.id}

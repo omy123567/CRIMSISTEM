@@ -31,6 +31,7 @@ import {
   Calendar,
   BookOpen,
   Paperclip,
+  Smartphone,
 } from 'lucide-react';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 import { OfflineIndicator } from '../common/OfflineIndicator';
@@ -50,6 +51,7 @@ interface NavbarProps {
   onNavigateToCharlas?: () => void;
   onSelectDelegacion: (delegacionId: string) => void;
   onOpenCambiarPassword: () => void;
+  onOpenTwoFactor?: () => void;
   onLogout: () => void;
   onOpenBackups: () => void;
   isSidebarVisible?: boolean;
@@ -69,6 +71,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateToCharlas,
   onSelectDelegacion,
   onOpenCambiarPassword,
+  onOpenTwoFactor,
   onLogout,
   onOpenBackups,
   isSidebarVisible = true,
@@ -706,6 +709,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
 
                     <div className="p-1 space-y-1">
+                      {onOpenTwoFactor && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowUserMenu(false);
+                            onOpenTwoFactor();
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 rounded-lg flex items-center justify-between gap-2 cursor-pointer transition-colors"
+                        >
+                          <span className="flex items-center gap-2">
+                            <Smartphone className="w-4 h-4 text-emerald-400" />
+                            <span>Google Auth (2FA)</span>
+                          </span>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase border ${
+                              currentUser.totpEnabled
+                                ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                            }`}
+                          >
+                            {currentUser.totpEnabled ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => {

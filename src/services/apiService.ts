@@ -5,8 +5,11 @@ import {
   setAuthToken,
   clearAuthToken,
   crearOfflineVerifier,
+  getAllTrustedDeviceTokens,
+  saveTrustedDeviceTokenForUser,
+  removeTrustedDeviceTokenForUser,
 } from './securityClient';
-import { RegistroAuditoria, UsuarioSistema } from '../types/police';
+import { DispositivoConfiableInfo, RegistroAuditoria, UsuarioSistema } from '../types/police';
 
 export interface ServerSyncStatus {
   isOnline: boolean;
@@ -38,6 +41,9 @@ const COLLECTIONS = [
   'configuracion',
   'novedadesDelegaciones',
   'charlasPrevencion',
+  'licenciasPoliciales',
+  'saldosLicencias',
+  'feriados',
 ] as const;
 
 type CollectionName = (typeof COLLECTIONS)[number];
@@ -67,15 +73,39 @@ export function subscribeToSyncStatus(listener: (status: ServerSyncStatus) => vo
 export interface ServerLoginResponse {
   ok: boolean;
   offline?: boolean;
+  requires2fa?: boolean;
+  pendingToken?: string;
+  username?: string;
+  apellidoYNombre?: string;
+  expiredTrustedDevice?: boolean;
+  trustedDeviceUsed?: string;
   user?: UsuarioSistema;
   token?: string;
   error?: string;
   status?: number;
 }
 
+async function cacheAuthenticatedUserLocally(user: UsuarioSistema, rawPassword?: string) {
+  try {
+    const existingLocal = await db.usuarios.get(user.id);
+    const offlineVerifier =
+      rawPassword && !user.totpEnabled
+        ? await crearOfflineVerifier(user.username, rawPassword)
+        : existingLocal?.offlineVerifier;
+    await db.usuarios.put({
+      ...(existingLocal || {}),
+      ...user,
+      password: '',
+      offlineVerifier: user.totpEnabled ? undefined : offlineVerifier,
+    });
+  } catch (e) {
+    console.warn('[Security] No se pudo actualizar caché local de usuario:', e);
+  }
+}
+
 /**
  * Autentica contra el servidor central (/api/auth/login).
- * Si el servidor no está accesible (offline real), retorna { ok: false, offline: true }.
+ * Envía los tokens de dispositivos de confianza almacenados localmente.
  */
 export async function loginOnServer(
   usernameOrEmail: string,
@@ -86,11 +116,12 @@ export async function loginOnServer(
   }
 
   try {
+    const trustedDeviceTokens = getAllTrustedDeviceTokens();
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ usernameOrEmail, password }),
+      body: JSON.stringify({ usernameOrEmail, password, trustedDeviceTokens }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -103,32 +134,302 @@ export async function loginOnServer(
       };
     }
 
+    if (data.requires2fa && data.pendingToken) {
+      return {
+        ok: false,
+        offline: false,
+        requires2fa: true,
+        pendingToken: data.pendingToken,
+        username: data.username,
+        apellidoYNombre: data.apellidoYNombre,
+        expiredTrustedDevice: Boolean(data.expiredTrustedDevice),
+      };
+    }
+
     if (data.token && data.user) {
       setAuthToken(data.token);
-      // Guardar verificador criptográfico salado localmente para permitir acceso PWA si cae la red
-      try {
-        const verifier = await crearOfflineVerifier(data.user.username, password);
-        const existingLocal = await db.usuarios.get(data.user.id);
-        await db.usuarios.put({
-          ...(existingLocal || {}),
-          ...data.user,
-          password: '',
-          offlineVerifier: verifier,
-        });
-      } catch (e) {
-        console.warn('[Security] No se pudo actualizar verificador offline:', e);
-      }
+      await cacheAuthenticatedUserLocally(data.user, password);
 
       currentStatus.isOnline = true;
       currentStatus.serverError = null;
       notifyStatus();
-      return { ok: true, user: data.user, token: data.token };
+      return {
+        ok: true,
+        user: data.user,
+        token: data.token,
+        trustedDeviceUsed: data.trustedDeviceUsed,
+      };
     }
 
     return { ok: false, error: 'Respuesta inválida del servidor de autenticación.' };
   } catch (err: any) {
     console.warn('[Auth] Servidor inaccesible, evaluando modo offline:', err?.message);
     return { ok: false, offline: true };
+  }
+}
+
+export async function verify2faLoginOnServer(params: {
+  pendingToken: string;
+  code: string;
+  trustDevice: boolean;
+  deviceLabel?: string;
+  rawPassword?: string;
+}): Promise<{
+  ok: boolean;
+  user?: UsuarioSistema;
+  trustedDevice?: DispositivoConfiableInfo;
+  usedBackupCode?: boolean;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/auth/2fa/verify-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        pendingToken: params.pendingToken,
+        code: params.code,
+        trustDevice: params.trustDevice,
+        deviceLabel: params.deviceLabel,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.token || !data.user) {
+      return { ok: false, error: data.error || `Error verificando 2FA (HTTP ${res.status})` };
+    }
+
+    setAuthToken(data.token);
+    if (data.trustedDeviceToken && data.user?.id) {
+      saveTrustedDeviceTokenForUser(data.user.id, data.trustedDeviceToken, data.trustedDevice?.id);
+    }
+    await cacheAuthenticatedUserLocally(data.user, params.rawPassword);
+
+    currentStatus.isOnline = true;
+    currentStatus.serverError = null;
+    notifyStatus();
+
+    return {
+      ok: true,
+      user: data.user,
+      trustedDevice: data.trustedDevice,
+      usedBackupCode: Boolean(data.usedBackupCode),
+    };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Error de conexión al verificar 2FA.' };
+  }
+}
+
+export async function setup2faOnServer(): Promise<{
+  success: boolean;
+  secret?: string;
+  otpauthUrl?: string;
+  qrDataUrl?: string;
+  error?: string;
+}> {
+  try {
+    const res = await authFetch('/api/auth/2fa/setup', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Error HTTP ${res.status}` };
+    return {
+      success: true,
+      secret: data.secret,
+      otpauthUrl: data.otpauthUrl,
+      qrDataUrl: data.qrDataUrl,
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error de conexión.' };
+  }
+}
+
+export async function enable2faOnServer(params: {
+  currentPassword: string;
+  code: string;
+  trustCurrentDevice: boolean;
+  deviceLabel?: string;
+}): Promise<{
+  success: boolean;
+  backupCodes?: string[];
+  user?: UsuarioSistema;
+  error?: string;
+}> {
+  try {
+    const res = await authFetch('/api/auth/2fa/enable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Error HTTP ${res.status}` };
+
+    if (data.trustedDeviceToken && data.user?.id) {
+      saveTrustedDeviceTokenForUser(data.user.id, data.trustedDeviceToken, data.trustedDevice?.id);
+    }
+    if (data.user) {
+      await cacheAuthenticatedUserLocally(data.user);
+    }
+    return { success: true, backupCodes: data.backupCodes, user: data.user };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error activando 2FA.' };
+  }
+}
+
+export async function disable2faOnServer(
+  currentPassword: string,
+  code: string
+): Promise<{ success: boolean; user?: UsuarioSistema; error?: string }> {
+  try {
+    const res = await authFetch('/api/auth/2fa/disable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Error HTTP ${res.status}` };
+
+    if (data.user?.id) {
+      removeTrustedDeviceTokenForUser(data.user.id);
+      await cacheAuthenticatedUserLocally(data.user);
+    }
+    return { success: true, user: data.user };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error desactivando 2FA.' };
+  }
+}
+
+export async function trustCurrentDeviceOnServer(
+  code: string,
+  deviceLabel?: string
+): Promise<{ success: boolean; user?: UsuarioSistema; trustedDevice?: DispositivoConfiableInfo; error?: string }> {
+  try {
+    const res = await authFetch('/api/auth/2fa/trusted-devices/trust-current', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, deviceLabel }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Error HTTP ${res.status}` };
+
+    if (data.trustedDeviceToken && data.user?.id) {
+      saveTrustedDeviceTokenForUser(data.user.id, data.trustedDeviceToken, data.trustedDevice?.id);
+    }
+    if (data.user) {
+      await cacheAuthenticatedUserLocally(data.user);
+    }
+    return { success: true, user: data.user, trustedDevice: data.trustedDevice };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error registrando dispositivo.' };
+  }
+}
+
+export async function revokeTrustedDeviceOnServer(
+  deviceId: string,
+  userId?: string
+): Promise<{ success: boolean; user?: UsuarioSistema; error?: string }> {
+  try {
+    const res = await authFetch(`/api/auth/2fa/trusted-devices/${encodeURIComponent(deviceId)}`, {
+      method: 'DELETE',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Error HTTP ${res.status}` };
+
+    if (deviceId === 'all' && userId) {
+      removeTrustedDeviceTokenForUser(userId);
+    }
+    if (data.user) {
+      await cacheAuthenticatedUserLocally(data.user);
+    }
+    return { success: true, user: data.user };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error revocando dispositivo.' };
+  }
+}
+
+export async function adminResetUser2faOnServer(
+  userId: string
+): Promise<{ success: boolean; user?: UsuarioSistema; error?: string }> {
+  try {
+    const res = await authFetch(`/api/auth/2fa/admin-reset/${encodeURIComponent(userId)}`, {
+      method: 'POST',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Error HTTP ${res.status}` };
+    if (data.user) {
+      await cacheAuthenticatedUserLocally(data.user);
+    }
+    return { success: true, user: data.user };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error restableciendo 2FA.' };
+  }
+}
+
+export async function adminChangePasswordOnServer(
+  userId: string,
+  newPassword: string
+): Promise<{ success: boolean; user?: UsuarioSistema; error?: string }> {
+  try {
+    const res = await authFetch(`/api/auth/admin-change-password/${encodeURIComponent(userId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newPassword }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Error HTTP ${res.status}` };
+    if (data.user) {
+      await cacheAuthenticatedUserLocally(data.user);
+    }
+    return { success: true, user: data.user };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error al cambiar contraseña del usuario.' };
+  }
+}
+
+export async function adminSetupUser2faOnServer(userId: string): Promise<{
+  success: boolean;
+  secret?: string;
+  otpauthUrl?: string;
+  qrDataUrl?: string;
+  error?: string;
+}> {
+  try {
+    const res = await authFetch(`/api/auth/2fa/admin-setup/${encodeURIComponent(userId)}`, {
+      method: 'POST',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Error HTTP ${res.status}` };
+    return {
+      success: true,
+      secret: data.secret,
+      otpauthUrl: data.otpauthUrl,
+      qrDataUrl: data.qrDataUrl,
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error generando QR 2FA para el usuario.' };
+  }
+}
+
+export async function adminEnableUser2faOnServer(
+  userId: string,
+  code: string
+): Promise<{
+  success: boolean;
+  backupCodes?: string[];
+  user?: UsuarioSistema;
+  error?: string;
+}> {
+  try {
+    const res = await authFetch(`/api/auth/2fa/admin-enable/${encodeURIComponent(userId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `Error HTTP ${res.status}` };
+    if (data.user) {
+      await cacheAuthenticatedUserLocally(data.user);
+    }
+    return { success: true, backupCodes: data.backupCodes, user: data.user };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error activando 2FA del usuario.' };
   }
 }
 
@@ -160,16 +461,7 @@ export async function changePasswordOnServer(
     }
 
     if (data.user) {
-      try {
-        const verifier = await crearOfflineVerifier(data.user.username, newPassword);
-        await db.usuarios.put({
-          ...data.user,
-          password: '',
-          offlineVerifier: verifier,
-        });
-      } catch {
-        // ignore
-      }
+      await cacheAuthenticatedUserLocally(data.user, newPassword);
     }
     return { success: true, user: data.user };
   } catch (err: any) {
@@ -452,5 +744,58 @@ export async function purgeAuditOnServer(
     return { success: true, removed: data.removed };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Error de red' };
+  }
+}
+
+export interface ImportedFeriadoCandidate {
+  fecha: string;
+  nombre: string;
+  tipo: 'Nacional' | 'Provincial' | 'No Laborable' | 'Turístico' | 'Otro';
+}
+
+export async function importFeriadosFromUrlOnServer(url: string): Promise<{
+  success: boolean;
+  feriados?: ImportedFeriadoCandidate[];
+  source?: string;
+  error?: string;
+}> {
+  try {
+    const res = await authFetch('/api/feriados/import-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data.error || `Error HTTP ${res.status}` };
+    }
+    return { success: true, feriados: data.feriados || [], source: data.source };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error de conexión con el servidor.' };
+  }
+}
+
+export async function importFeriadosFromImageOnServer(
+  imageDataUrl: string,
+  anioSugerido?: number
+): Promise<{
+  success: boolean;
+  feriados?: ImportedFeriadoCandidate[];
+  source?: string;
+  error?: string;
+}> {
+  try {
+    const res = await authFetch('/api/feriados/import-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageDataUrl, anioSugerido }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data.error || `Error HTTP ${res.status}` };
+    }
+    return { success: true, feriados: data.feriados || [], source: data.source };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error de conexión con el servidor.' };
   }
 }

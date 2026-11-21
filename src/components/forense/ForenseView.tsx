@@ -14,9 +14,14 @@ import {
   Users,
   ClipboardList,
   X,
+  Download,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { GestionForenseGuardiaModal } from '../guardias/GestionForenseGuardiaModal';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 interface ForenseViewProps {
   forensesList: ForenseTurno[];
@@ -161,6 +166,75 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
     setIsModalOpen(false);
   };
 
+  const handleExportPdf = () => {
+    const fileName = `Forense_Policial_${new Date().toISOString().split('T')[0]}.pdf`;
+    requestPdfExport({
+      title: 'Registro de Forense Policial de Turno',
+      fileName,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: (opts) => {
+        const doc = new jsPDF({
+          orientation: resolveJsPdfOrientation(opts.orientation),
+          unit: 'mm',
+          format: resolveJsPdfFormat(opts.paperSize),
+        });
+        const startY = drawPoliceHeader(
+          doc,
+          config,
+          'REGISTRO OFICIAL DE MÉDICOS FORENSES DE TURNO Y EXAMINADOS',
+          10
+        );
+
+        const rows: (string | number)[][] = [];
+        let idx = 1;
+        guardiasConForense.forEach(({ parte, medicos }) => {
+          medicos.forEach((m) => {
+            rows.push([
+              idx++,
+              'Guardia / Parte',
+              parte.fechaInicio || '---',
+              parte.tipoGuardia || parte.grupoGuardia || 'Guardia',
+              m.medicoNombre,
+              m.turno || 'Guardia',
+              `${m.horaIngreso || '--:--'} a ${m.horaEgreso || '--:--'}`,
+              m.totalExaminados || 0,
+            ]);
+          });
+        });
+        filteredForenses.forEach((f) => {
+          rows.push([
+            idx++,
+            'Registro Directo',
+            '---',
+            f.turno || 'Turno Directo',
+            f.nombreMedico,
+            f.turno || '---',
+            `${f.horaIngreso || '--:--'} a ${f.horaEgreso || '--:--'}`,
+            f.totalExaminados || 0,
+          ]);
+        });
+
+        autoTable(doc, {
+          startY: startY + 4,
+          head: [['N°', 'Origen', 'Fecha', 'Guardia / Turno', 'Médico Forense', 'Detalle Turno', 'Horario', 'Examinados']],
+          body: rows.length > 0 ? rows : [['-', '-', '-', '-', 'Sin registros cargados', '-', '-', '0']],
+          theme: 'grid',
+          styles: { fontSize: 8, cellPadding: 2 },
+          headStyles: { fillColor: [15, 118, 110], textColor: 255, fontStyle: 'bold', halign: 'center' },
+          columnStyles: {
+            0: { cellWidth: 10, halign: 'center' },
+            7: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
+          },
+          didDrawPage: () => {
+            drawPoliceFooter(doc, config);
+          },
+        });
+        return doc;
+      },
+    });
+  };
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -179,14 +253,24 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => handleOpenModal()}
-          className="flex items-center gap-1.5 bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition-colors cursor-pointer self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Cargar Médico de Turno</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-slate-600" />
+            <span>Exportar PDF</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleOpenModal()}
+            className="flex items-center gap-1.5 bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Cargar Médico de Turno</span>
+          </button>
+        </div>
       </div>
 
       {/* Barra de Búsqueda */}

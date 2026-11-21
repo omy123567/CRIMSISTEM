@@ -3,15 +3,21 @@ import {
   ParteNovedadesGuardia,
   IntervencionParte,
   ConfiguracionSistema,
+  Personal,
+  LicenciaPolicial,
 } from '../../types/police';
+import { getLicenciaActivaPersonal, formatFechaDisplay } from '../../services/licenciaService';
 import { Download, Printer, Plus, Edit2, Trash2, X, Eye } from 'lucide-react';
 import { generarPdfParteGuardia } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { ModalOpcionesImpresion, OpcionesImpresion } from '../common/ModalOpcionesImpresion';
+import { PdfCanvasPreview } from '../common/PdfCanvasPreview';
 
 interface ParteVisualPreviewProps {
   parte: ParteNovedadesGuardia;
   config: ConfiguracionSistema;
+  personalList?: Personal[];
+  licenciasPoliciales?: LicenciaPolicial[];
   onEditParte?: () => void;
   onAddIntervencion?: () => void;
   onEditIntervencion?: (interv: IntervencionParte) => void;
@@ -22,6 +28,8 @@ interface ParteVisualPreviewProps {
 export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
   parte,
   config,
+  personalList = [],
+  licenciasPoliciales = [],
   onEditParte,
   onAddIntervencion,
   onEditIntervencion,
@@ -46,6 +54,8 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
       secciones: opciones.secciones,
       incluirFirmaJefe: opciones.incluirFirmaJefe,
       previewOnly: opciones.esVistaPrevia,
+      personalList,
+      licenciasPoliciales,
     });
     if (opciones.esVistaPrevia) {
       setPdfPreviewUrl(url);
@@ -148,16 +158,70 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
           {/* Tabla de funciones asignadas */}
           <table className="w-full border-collapse">
             <tbody>
-              {parte.funcionesPersonal.map((f, i) => (
-                <tr key={f.id || i} className="border-b border-slate-900">
-                  <td className="w-1/2 p-1.5 px-3 font-bold border-r border-slate-900 underline decoration-slate-400">
-                    {f.funcion}
-                  </td>
-                  <td className="w-1/2 p-1.5 px-3 font-semibold text-slate-800">
-                    {f.personalNombre || '-----------------------------'}
-                  </td>
-                </tr>
-              ))}
+              {parte.funcionesPersonal.map((f, i) => {
+                const cond = f.personalNombre
+                  ? getLicenciaActivaPersonal(
+                      f.personalNombre,
+                      parte.fechaInicio,
+                      licenciasPoliciales,
+                      personalList
+                    )
+                  : null;
+                return (
+                  <tr key={f.id || i} className="border-b border-slate-900">
+                    <td className="w-1/2 p-1.5 px-3 font-bold border-r border-slate-900 underline decoration-slate-400">
+                      {f.funcion}
+                    </td>
+                    <td className="w-1/2 p-1.5 px-3 font-semibold text-slate-800">
+                      <span>{f.personalNombre || '-----------------------------'}</span>
+                      {cond && (
+                        <span className="ml-2 inline-block text-[10px] font-bold bg-amber-100 text-amber-950 border border-amber-300 px-1.5 py-0.5 rounded">
+                          DE LICENCIA ({cond.tipoLicencia}
+                          {cond.fechaReanudacion ? ` • Reanuda ${formatFechaDisplay(cond.fechaReanudacion)} 08:00 hs` : ''})
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {/* PERSONAL CON LICENCIA POLICIAL VIGENTE EN LA FECHA */}
+              {(() => {
+                const enLicencia = personalList
+                  .map((p) => {
+                    const cond = getLicenciaActivaPersonal(
+                      p.id,
+                      parte.fechaInicio,
+                      licenciasPoliciales,
+                      personalList
+                    );
+                    return cond ? { p, cond } : null;
+                  })
+                  .filter((x): x is NonNullable<typeof x> => x !== null);
+                if (enLicencia.length === 0) return null;
+                return (
+                  <>
+                    <tr className="border-b border-slate-900 bg-amber-100">
+                      <td colSpan={2} className="text-center font-bold text-xs py-1.5 uppercase tracking-wide text-amber-950">
+                        PERSONAL CON LICENCIA POLICIAL VIGENTE ({formatFechaDisplay(parte.fechaInicio)})
+                      </td>
+                    </tr>
+                    {enLicencia.map(({ p, cond }) => (
+                      <tr key={`lic-prev-${p.id}`} className="border-b border-slate-900 bg-amber-50/60">
+                        <td className="p-1.5 px-3 font-bold border-r border-slate-900 text-amber-950">
+                          {p.jerarquia} {p.apellidoYNombre} (DNI {p.dni})
+                        </td>
+                        <td className="p-1.5 px-3 font-semibold text-amber-900">
+                          Licencia {cond.tipoLicencia}
+                          {cond.fechaSalida && cond.fechaReanudacion
+                            ? ` • Salida: ${formatFechaDisplay(cond.fechaSalida)} • Reanuda: ${formatFechaDisplay(cond.fechaReanudacion)} (${cond.horaReanudacion || '08:00'} hs.)`
+                            : ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </>
+                );
+              })()}
 
               {/* FORENSE(S) DE TURNO Y RELEVOS POLICIALES */}
               <tr className="border-b border-slate-900 bg-[#d9e6f3]">
@@ -585,7 +649,7 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    generarPdfParteGuardia(parte, config);
+                    generarPdfParteGuardia(parte, config, { personalList, licenciasPoliciales });
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm transition-colors cursor-pointer"
                   title="Descargar archivo PDF"
@@ -604,13 +668,9 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
               </div>
             </div>
 
-            {/* Visor interactivo iframe del PDF */}
-            <div className="flex-1 w-full bg-slate-200">
-              <iframe
-                src={pdfPreviewUrl}
-                title="Vista Preliminar PDF Parte de Guardia"
-                className="w-full h-full border-none"
-              />
+            {/* Visor interactivo en canvas del PDF */}
+            <div className="flex-1 w-full bg-slate-200 overflow-hidden">
+              <PdfCanvasPreview src={pdfPreviewUrl} className="w-full h-full" />
             </div>
           </div>
         </div>

@@ -28,6 +28,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { CharlaModal, formatFechaDDMMAAAA } from './CharlaModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
@@ -144,45 +145,57 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
   }, [charlasList, filtroEstado, filtroMes, soloProximas, searchTerm]);
 
   const handleExportPdf = () => {
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const startY = drawPoliceHeader(
-      doc,
-      config,
-      'REGISTRO DE CHARLAS Y PREVENCIÓN COMUNITARIA',
-      12
-    );
+    requestPdfExport({
+      title: 'Registro de Charlas y Prevención Comunitaria',
+      fileName: `Charlas_Prevencion_${new Date().toISOString().slice(0, 10)}.pdf`,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: ({ orientation, paperSize }) => {
+        const doc = new jsPDF({
+          orientation: resolveJsPdfOrientation(orientation),
+          unit: 'mm',
+          format: resolveJsPdfFormat(paperSize),
+        });
+        const startY = drawPoliceHeader(
+          doc,
+          config,
+          'REGISTRO DE CHARLAS Y PREVENCIÓN COMUNITARIA',
+          12
+        );
 
-    autoTable(doc, {
-      startY: startY + 2,
-      head: [
-        [
-          'Fecha',
-          'Hora',
-          'Localidad',
-          'Lugar / Institución',
-          'Tema',
-          'Disertante Designado',
-          'Estado',
-          'Observaciones',
-        ],
-      ],
-      body: filteredCharlas.map((c) => [
-        formatFechaDDMMAAAA(c.fecha),
-        `${c.hora} hs`,
-        c.localidad,
-        c.lugarInstitucion,
-        c.tema,
-        c.disertanteNombre,
-        c.estado,
-        c.observaciones || '—',
-      ]),
-      styles: { fontSize: 8, cellPadding: 2.2 },
-      headStyles: { fillColor: [17, 38, 77], textColor: [255, 255, 255], fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
+        autoTable(doc, {
+          startY: startY + 2,
+          head: [
+            [
+              'Fecha',
+              'Hora',
+              'Localidad',
+              'Lugar / Institución',
+              'Tema',
+              'Disertante Designado',
+              'Estado',
+              'Observaciones',
+            ],
+          ],
+          body: filteredCharlas.map((c) => [
+            formatFechaDDMMAAAA(c.fecha),
+            `${c.hora} hs`,
+            c.localidad,
+            c.lugarInstitucion,
+            c.tema,
+            c.disertanteNombre,
+            c.estado,
+            c.observaciones || '—',
+          ]),
+          styles: { fontSize: 8, cellPadding: 2.2 },
+          headStyles: { fillColor: [17, 38, 77], textColor: [255, 255, 255], fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+        });
+
+        drawPoliceFooter(doc, config);
+        return doc;
+      },
     });
-
-    drawPoliceFooter(doc, config);
-    doc.save(`Charlas_Prevencion_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const getEstadoBadge = (estado: EstadoCharlaPrevencion) => {
