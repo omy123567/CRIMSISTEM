@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { RecargoModal } from './RecargoModal';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { ModalOpcionesImpresion, OpcionesImpresion } from '../common/ModalOpcionesImpresion';
 import { ReporteRecargosModal } from './ReporteRecargosModal';
 import jsPDF from 'jspdf';
@@ -60,6 +61,9 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroGuardia, setFiltroGuardia] = useState('todos');
   const [filtroDelegacion, setFiltroDelegacion] = useState('todas');
+  const [filtroOficina, setFiltroOficina] = useState('todas');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -84,6 +88,15 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
     return map;
   }, [delegacionesList]);
 
+  const oficinasUnicas = useMemo(() => {
+    const set = new Set<string>();
+    recargosList.forEach((r) => {
+      const ofi = (r.oficina || r.grupoUOficina || '').trim();
+      if (ofi) set.add(ofi);
+    });
+    return Array.from(set).sort();
+  }, [recargosList]);
+
   // Filtrado reactivo de recargos
   const filteredRecargos = useMemo(() => {
     return recargosList.filter((r) => {
@@ -101,7 +114,8 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
       ).toLowerCase();
 
       const delNombre = (delegacionesMap.get(r.delegacionId || '') || '').toLowerCase();
-      const oficinaTexto = (r.oficina || r.grupoUOficina || '').toLowerCase();
+      const oficinaVal = (r.oficina || r.grupoUOficina || '').trim();
+      const oficinaTexto = oficinaVal.toLowerCase();
 
       const matchSearch =
         r.fecha.toLowerCase().includes(term) ||
@@ -126,7 +140,11 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
       const matchDel =
         filtroDelegacion === 'todas' || r.delegacionId === filtroDelegacion;
 
-      return matchSearch && matchTipo && matchEstado && matchGuardia && matchDel;
+      const matchOficina = filtroOficina === 'todas' || oficinaVal === filtroOficina;
+      const matchDesde = !fechaDesde || (r.fecha && r.fecha >= fechaDesde);
+      const matchHasta = !fechaHasta || (r.fecha && r.fecha <= fechaHasta);
+
+      return matchSearch && matchTipo && matchEstado && matchGuardia && matchDel && matchOficina && matchDesde && matchHasta;
     });
   }, [
     recargosList,
@@ -135,9 +153,36 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
     filtroEstado,
     filtroGuardia,
     filtroDelegacion,
+    filtroOficina,
+    fechaDesde,
+    fechaHasta,
     personalMap,
     delegacionesMap,
   ]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroTipo !== 'todos') count++;
+    if (filtroEstado !== 'todos') count++;
+    if (filtroGuardia !== 'todos') count++;
+    if (filtroDelegacion !== 'todas') count++;
+    if (filtroOficina !== 'todas') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    return count;
+  }, [searchTerm, filtroTipo, filtroEstado, filtroGuardia, filtroDelegacion, filtroOficina, fechaDesde, fechaHasta]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroTipo('todos');
+    setFiltroEstado('todos');
+    setFiltroGuardia('todos');
+    setFiltroDelegacion('todas');
+    setFiltroOficina('todas');
+    setFechaDesde('');
+    setFechaHasta('');
+  };
 
   // Generar PDF oficial con orientación, tamaño de papel y desglose de servicios por delegación y personal
   const handleGenerarPdfConOpciones = (opciones: OpcionesImpresion) => {
@@ -403,74 +448,120 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
         </div>
       </div>
 
-      {/* Barra de Filtros */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por fecha, personal, oficina..."
-            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white"
-          />
-        </div>
+      {/* Barra de Filtros Plegable */}
+      <CollapsibleFilterBar
+        title="Filtros de Búsqueda de Recargos"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span>
+            Mostrando <strong>{filteredRecargos.length}</strong> de {recargosList.length} recargos
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar por fecha, personal, oficina..."
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white"
+            />
+          </div>
 
-        <div>
-          <select
-            value={filtroTipo}
-            onChange={(e) => setFiltroTipo(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-          >
-            <option value="todos">Todos los Tipos de Recargo</option>
-            {config.tiposRecargo.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div>
+            <select
+              value={filtroTipo}
+              onChange={(e) => setFiltroTipo(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+            >
+              <option value="todos">Todos los Tipos de Recargo</option>
+              {config.tiposRecargo.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div>
-          <select
-            value={filtroGuardia}
-            onChange={(e) => setFiltroGuardia(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-          >
-            <option value="todos">¿Se encuentra de guardia? (Todos)</option>
-            <option value="si">Sí (De guardia)</option>
-            <option value="no">No (Franco)</option>
-          </select>
-        </div>
+          <div>
+            <select
+              value={filtroGuardia}
+              onChange={(e) => setFiltroGuardia(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+            >
+              <option value="todos">¿Se encuentra de guardia? (Todos)</option>
+              <option value="si">Sí (De guardia)</option>
+              <option value="no">No (Franco)</option>
+            </select>
+          </div>
 
-        <div>
-          <select
-            value={filtroEstado}
-            onChange={(e) => setFiltroEstado(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium"
-          >
-            <option value="todos">Todos los Estados</option>
-            <option value="Vigente">Vigente</option>
-            <option value="Finalizado">Finalizado</option>
-            <option value="Suspendido">Suspendido</option>
-          </select>
-        </div>
+          <div>
+            <select
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium"
+            >
+              <option value="todos">Todos los Estados</option>
+              <option value="Vigente">Vigente</option>
+              <option value="Finalizado">Finalizado</option>
+              <option value="Suspendido">Suspendido</option>
+            </select>
+          </div>
 
-        <div>
-          <select
-            value={filtroDelegacion}
-            onChange={(e) => setFiltroDelegacion(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium"
-          >
-            <option value="todas">Todas las Delegaciones</option>
-            {delegacionesList.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.siglas || d.ciudad}
-              </option>
-            ))}
-          </select>
+          <div>
+            <select
+              value={filtroDelegacion}
+              onChange={(e) => setFiltroDelegacion(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium"
+            >
+              <option value="todas">Todas las Delegaciones</option>
+              {delegacionesList.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.siglas || d.ciudad}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={filtroOficina}
+              onChange={(e) => setFiltroOficina(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium"
+            >
+              <option value="todas">Todas las Oficinas / Grupos</option>
+              {oficinasUnicas.map((ofi) => (
+                <option key={ofi} value={ofi}>
+                  {ofi}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-slate-600 shrink-0">Desde:</span>
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-slate-600 shrink-0">Hasta:</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white"
+            />
+          </div>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Tabla Oficial de Recargos */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">

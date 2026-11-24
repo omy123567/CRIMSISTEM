@@ -18,11 +18,13 @@ import {
   Clock,
   Layers,
   X,
-  Building2,
-  Lock,
   Users,
   UserCheck,
   ShieldAlert,
+  User,
+  Building2,
+  Lock,
+  Tags,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -51,12 +53,11 @@ import {
 import {
   calcularAniosAntiguedad,
   calcularBalancePorAnio,
-  DEFAULT_TIPOS_LICENCIA,
   ESCALA_ART_7,
   formatFechaDisplay,
   getDiasEscalaArt7,
   getLicenciaActivaPersonal,
-  parseYmdLocal,
+  normalizeTiposLicenciaCatalogo,
 } from '../../services/licenciaService';
 import {
   generarPdfConstanciaLicencia,
@@ -68,7 +69,9 @@ import {
   importFeriadosFromUrlOnServer,
 } from '../../services/apiService';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { LicenciaModal } from './LicenciaModal';
+import { InterrumpirLicenciaModal } from './InterrumpirLicenciaModal';
 
 interface LicenciasPolicialesViewProps {
   personalList: Personal[];
@@ -109,10 +112,13 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
 }) => {
   const [activeTab, setActiveTab] = useState<'registro' | 'saldos' | 'feriados' | 'reportes'>('registro');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPersonalFilter, setSelectedPersonalFilter] = useState<string>('todos');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroEstado, setFiltroEstado] = useState<'todos' | 'vigente' | 'programada' | 'finalizada' | 'interrumpida'>('todos');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
 
-  // Control estricto de acceso por Delegación
+  // Permisos de Delegación
   const puedeVerTodasDelegaciones = currentUser?.rol === 'superusuario';
   const puedeVerMultiplesDelegaciones =
     puedeVerTodasDelegaciones || Boolean(currentUser?.puedeVerOtrasDelegaciones);
@@ -129,20 +135,32 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
     return delegacionesList.filter((d) => d.id === fixedId);
   }, [delegacionesList, puedeVerTodasDelegaciones, puedeVerMultiplesDelegaciones, currentUser, activeDelegacionId]);
 
-  const defaultUserDelegacionId = currentUser?.delegacionId || activeDelegacionId || 'del-laguna-blanca';
-  const [scopeDelegacion, setScopeDelegacion] = useState<string>(
-    puedeVerMultiplesDelegaciones ? 'TODAS' : defaultUserDelegacionId
+  const fixedUserDelegacionId = currentUser?.delegacionId || activeDelegacionId || 'del-laguna-blanca';
+  const [delegacionFilter, setDelegacionFilter] = useState<string>(
+    puedeVerMultiplesDelegaciones ? activeDelegacionId : fixedUserDelegacionId
   );
 
+  // Sincronizar con la barra superior central cuando cambia activeDelegacionId
   useEffect(() => {
     if (!puedeVerMultiplesDelegaciones) {
-      setScopeDelegacion(defaultUserDelegacionId);
+      setDelegacionFilter(fixedUserDelegacionId);
+    } else if (activeDelegacionId) {
+      setDelegacionFilter(activeDelegacionId);
     }
-  }, [puedeVerMultiplesDelegaciones, defaultUserDelegacionId]);
+  }, [activeDelegacionId, puedeVerMultiplesDelegaciones, fixedUserDelegacionId]);
 
-  const effectiveScopeDelegacion = puedeVerMultiplesDelegaciones
-    ? scopeDelegacion
-    : defaultUserDelegacionId;
+  const effectiveDelegacionFilter = puedeVerMultiplesDelegaciones
+    ? delegacionFilter
+    : fixedUserDelegacionId;
+
+  useEffect(() => {
+    setSelectedPersonalFilter('todos');
+  }, [effectiveDelegacionFilter]);
+
+  const allowedDelegacionIds = useMemo(
+    () => new Set(delegacionesPermitidas.map((d) => d.id)),
+    [delegacionesPermitidas]
+  );
 
   const delegacionNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -152,18 +170,25 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
     return map;
   }, [delegacionesList]);
 
-  const allowedDelegacionIds = useMemo(
-    () => new Set(delegacionesPermitidas.map((d) => d.id)),
-    [delegacionesPermitidas]
+  const activeDelegacionObj = useMemo(
+    () => delegacionesList.find((d) => d.id === effectiveDelegacionFilter),
+    [delegacionesList, effectiveDelegacionFilter]
   );
 
-  // Datos autorizados (nunca expone personal/licencias de delegaciones no autorizadas)
+  const activeDelegacionLabel =
+    effectiveDelegacionFilter === 'todas'
+      ? 'Todas las Delegaciones'
+      : activeDelegacionObj
+      ? activeDelegacionObj.nombre
+      : config.dependencia || effectiveDelegacionFilter;
+
   const personalMapAll = useMemo(() => {
     const m = new Map<string, Personal>();
     personalList.forEach((p) => m.set(p.id, p));
     return m;
   }, [personalList]);
 
+  // Datos autorizados (para modales con selector de delegación permitido)
   const allowedPersonal = useMemo(() => {
     return personalList.filter((p) => {
       const delId = p.delegacionId || 'del-laguna-blanca';
@@ -187,43 +212,49 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
     });
   }, [saldosLicencias, personalMapAll, puedeVerTodasDelegaciones, allowedDelegacionIds]);
 
-  // Datos filtrados al ámbito seleccionado ('TODAS' o una delegación puntual)
+  // Datos filtrados por el filtro de delegación activo
   const scopedPersonal = useMemo(() => {
-    if (effectiveScopeDelegacion === 'TODAS') return allowedPersonal;
+    if (effectiveDelegacionFilter === 'todas') return allowedPersonal;
     return allowedPersonal.filter(
-      (p) => (p.delegacionId || 'del-laguna-blanca') === effectiveScopeDelegacion
+      (p) => (p.delegacionId || 'del-laguna-blanca') === effectiveDelegacionFilter
     );
-  }, [allowedPersonal, effectiveScopeDelegacion]);
+  }, [allowedPersonal, effectiveDelegacionFilter]);
 
   const scopedLicencias = useMemo(() => {
-    if (effectiveScopeDelegacion === 'TODAS') return allowedLicencias;
+    if (effectiveDelegacionFilter === 'todas') return allowedLicencias;
     return allowedLicencias.filter((l) => {
       const owner = personalMapAll.get(l.personalId);
       const delId = l.delegacionId || owner?.delegacionId || 'del-laguna-blanca';
-      return delId === effectiveScopeDelegacion;
+      return delId === effectiveDelegacionFilter;
     });
-  }, [allowedLicencias, personalMapAll, effectiveScopeDelegacion]);
+  }, [allowedLicencias, personalMapAll, effectiveDelegacionFilter]);
 
   const scopedSaldos = useMemo(() => {
-    if (effectiveScopeDelegacion === 'TODAS') return allowedSaldos;
+    if (effectiveDelegacionFilter === 'todas') return allowedSaldos;
     return allowedSaldos.filter((s) => {
       const owner = personalMapAll.get(s.personalId);
       const delId = s.delegacionId || owner?.delegacionId || 'del-laguna-blanca';
-      return delId === effectiveScopeDelegacion;
+      return delId === effectiveDelegacionFilter;
     });
-  }, [allowedSaldos, personalMapAll, effectiveScopeDelegacion]);
+  }, [allowedSaldos, personalMapAll, effectiveDelegacionFilter]);
 
-  // Modal Licencia
+  // Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingLicencia, setEditingLicencia] = useState<LicenciaPolicial | null>(null);
   const [preselectedPersonalId, setPreselectedPersonalId] = useState<string | undefined>(undefined);
+  const [interruptingLicencia, setInterruptingLicencia] = useState<LicenciaPolicial | null>(null);
   const [deleteLicConfirm, setDeleteLicConfirm] = useState<LicenciaPolicial | null>(null);
 
-  // Saldos / Años activos
+  // Modal de gestión rápida de Tipos de Licencia
+  const [isTiposModalOpen, setIsTiposModalOpen] = useState(false);
+  const [nuevoTipoNombre, setNuevoTipoNombre] = useState('');
+  const [nuevoTipoDescuentaSaldo, setNuevoTipoDescuentaSaldo] = useState(false);
+  const [nuevoTipoDiasSugeridos, setNuevoTipoDiasSugeridos] = useState<number>(0);
+
+  // Saldos: del año actual hasta dos años anteriores (ej. en 2026 -> 2024, 2025, 2026)
   const currentYear = new Date().getFullYear();
   const [extraAnios, setExtraAnios] = useState<number[]>([]);
-  const [newAnioInput, setNewAnioInput] = useState<string>(String(currentYear + 1));
-  const [mostrarTodosDesdeIngreso, setMostrarTodosDesdeIngreso] = useState<boolean>(true);
+  const [newAnioInput, setNewAnioInput] = useState<string>(String(currentYear - 3));
   const [editingSaldoCell, setEditingSaldoCell] = useState<{
     personal: Personal;
     anio: number;
@@ -235,6 +266,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
 
   // Feriados
   const [feriadoYearFilter, setFeriadoYearFilter] = useState<string>(String(currentYear));
+  const [feriadoTipoFilter, setFeriadoTipoFilter] = useState<string>('todos');
   const [feriadoSearch, setFeriadoSearch] = useState('');
   const [newFeriadoFecha, setNewFeriadoFecha] = useState('');
   const [newFeriadoNombre, setNewFeriadoNombre] = useState('');
@@ -251,42 +283,14 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
   >([]);
 
   const tiposLicencia: TipoLicenciaConfig[] = useMemo(() => {
-    const custom = config.tiposLicenciaCatalogo || [];
-    if (custom.length > 0) return custom;
-    return DEFAULT_TIPOS_LICENCIA;
+    return normalizeTiposLicenciaCatalogo(config.tiposLicenciaCatalogo);
   }, [config.tiposLicenciaCatalogo]);
 
-  // Años históricos completos desde la fecha de ingreso más antigua en el ámbito hasta el año actual
-  const aniosHistoricosCompletos = useMemo(() => {
-    let minIngYear = currentYear - 4;
-    for (const p of scopedPersonal) {
-      const dt = parseYmdLocal(p.fechaIngreso);
-      if (dt) {
-        const y = dt.getFullYear();
-        if (y >= 1980 && y <= currentYear && y < minIngYear) {
-          minIngYear = y;
-        }
-      }
-    }
-    const set = new Set<number>();
-    for (let y = minIngYear; y <= currentYear; y++) {
-      set.add(y);
-    }
-    extraAnios.forEach((y) => set.add(y));
-    scopedSaldos.forEach((s) => {
-      if (s.anio) set.add(s.anio);
-    });
-    scopedLicencias.forEach((l) => {
-      l.imputacionAnios?.forEach((i) => set.add(i.anio));
-    });
-    return Array.from(set).sort((a, b) => a - b);
-  }, [scopedPersonal, currentYear, extraAnios, scopedSaldos, scopedLicencias]);
-
+  // Por defecto: año actual y dos anteriores (ej. 2024, 2025, 2026), más cualquier año agregado manualmente
   const aniosDisponibles = useMemo(() => {
-    if (mostrarTodosDesdeIngreso) return aniosHistoricosCompletos;
-    const minRecent = currentYear - 4;
-    return aniosHistoricosCompletos.filter((y) => y >= minRecent);
-  }, [aniosHistoricosCompletos, mostrarTodosDesdeIngreso, currentYear]);
+    const set = new Set<number>([currentYear - 2, currentYear - 1, currentYear, ...extraAnios]);
+    return Array.from(set).sort((a, b) => a - b);
+  }, [currentYear, extraAnios]);
 
   const todayYmd = new Date().toISOString().slice(0, 10);
 
@@ -297,7 +301,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
     return 'Finalizada';
   };
 
-  // KPIs estrictos solicitados: Personal Activo, Personal en Licencia, Interrumpidas
+  // KPIs: ÚNICAMENTE Personal Activo, Personal en Licencia e Interrumpidas
   const kpis = useMemo(() => {
     let personalActivo = 0;
     let personalEnLicencia = 0;
@@ -320,11 +324,16 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
     const q = searchTerm.trim().toLowerCase();
     return [...scopedLicencias]
       .filter((l) => {
+        const matchPersonal =
+          selectedPersonalFilter === 'todos' || l.personalId === selectedPersonalFilter;
         const matchSearch =
           !q ||
           l.apellidoYNombre.toLowerCase().includes(q) ||
           l.dni.includes(q) ||
           l.jerarquia.toLowerCase().includes(q) ||
+          (l.subtipoEtiqueta || '').toLowerCase().includes(q) ||
+          (l.parentescoFallecimiento || '').toLowerCase().includes(q) ||
+          (l.articuloReglamento || '').toLowerCase().includes(q) ||
           (l.disposicionNro || '').toLowerCase().includes(q);
         const matchTipo = filtroTipo === 'todos' || l.tipoLicencia === filtroTipo;
         const est = getEstadoLicencia(l);
@@ -334,22 +343,46 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
           (filtroEstado === 'programada' && est === 'Programada') ||
           (filtroEstado === 'finalizada' && est === 'Finalizada') ||
           (filtroEstado === 'interrumpida' && est === 'Interrumpida');
-        return matchSearch && matchTipo && matchEstado;
+        const matchDesde = !fechaDesde || l.fechaSalida >= fechaDesde;
+        const matchHasta = !fechaHasta || l.fechaSalida <= fechaHasta;
+        return matchPersonal && matchSearch && matchTipo && matchEstado && matchDesde && matchHasta;
       })
       .sort((a, b) => b.fechaSalida.localeCompare(a.fechaSalida));
-  }, [scopedLicencias, searchTerm, filtroTipo, filtroEstado, todayYmd]);
+  }, [scopedLicencias, selectedPersonalFilter, searchTerm, filtroTipo, filtroEstado, fechaDesde, fechaHasta, todayYmd]);
 
-  // Matriz de saldos por personal (campos heredados estrictos: Jerarquía, Apellido y Nombre, DNI, Fecha de Ingreso)
+  const activeRegistroFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (selectedPersonalFilter !== 'todos') count++;
+    if (filtroTipo !== 'todos') count++;
+    if (filtroEstado !== 'todos') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    return count;
+  }, [searchTerm, selectedPersonalFilter, filtroTipo, filtroEstado, fechaDesde, fechaHasta]);
+
+  const handleClearRegistroFilters = () => {
+    setSearchTerm('');
+    setSelectedPersonalFilter('todos');
+    setFiltroTipo('todos');
+    setFiltroEstado('todos');
+    setFechaDesde('');
+    setFechaHasta('');
+  };
+
+  // Matriz de saldos POR PERSONAL
   const saldosMatrix = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return scopedPersonal
-      .filter(
-        (p) =>
+      .filter((p) => {
+        const matchSelect = selectedPersonalFilter === 'todos' || p.id === selectedPersonalFilter;
+        const matchSearch =
           !q ||
           p.apellidoYNombre.toLowerCase().includes(q) ||
           p.dni.includes(q) ||
-          p.jerarquia.toLowerCase().includes(q)
-      )
+          p.jerarquia.toLowerCase().includes(q);
+        return matchSelect && matchSearch;
+      })
       .map((p) => {
         const antiguedadAnios = calcularAniosAntiguedad(p.fechaIngreso);
         const escalaArt7 = getDiasEscalaArt7(antiguedadAnios);
@@ -369,7 +402,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
           .join(', ');
         return {
           personal: p,
-          delegacionNombre: delegacionNameMap.get(p.delegacionId || 'del-laguna-blanca') || 'Sin Delegación',
+          delegacionNombre: delegacionNameMap.get(p.delegacionId || 'del-laguna-blanca') || 'Delegación',
           antiguedadAnios,
           escalaArt7,
           balances,
@@ -379,12 +412,11 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
           aniosVencidos,
         };
       });
-  }, [scopedPersonal, searchTerm, scopedSaldos, scopedLicencias, aniosDisponibles, delegacionNameMap]);
+  }, [scopedPersonal, selectedPersonalFilter, searchTerm, scopedSaldos, scopedLicencias, aniosDisponibles, delegacionNameMap]);
 
-  // Totales acumulados POR AÑO (para el ámbito actual)
+  // Totales por año respecto del conjunto filtrado
   const totalesPorAnio = useMemo(() => {
     return aniosDisponibles.map((anio) => {
-      let efectivosEnAnio = 0;
       let correspondientes = 0;
       let usados = 0;
       let vencidos = 0;
@@ -393,7 +425,6 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
       for (const row of saldosMatrix) {
         const b = row.balances.find((item) => item.anio === anio);
         if (!b || !b.enServicio) continue;
-        efectivosEnAnio++;
         correspondientes += b.diasCorrespondientes;
         usados += b.diasUsados;
         if (b.vencido) {
@@ -403,14 +434,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
         }
       }
 
-      return {
-        anio,
-        efectivosEnAnio,
-        correspondientes,
-        usados,
-        vencidos,
-        disponibles,
-      };
+      return { anio, correspondientes, usados, vencidos, disponibles };
     });
   }, [aniosDisponibles, saldosMatrix]);
 
@@ -425,74 +449,6 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
       { correspondientes: 0, usados: 0, vencidos: 0, disponibles: 0 }
     );
   }, [totalesPorAnio]);
-
-  // Resumen por Delegación y Total General (para usuarios habilitados a ver múltiples delegaciones)
-  const resumenPorDelegacion = useMemo(() => {
-    if (!puedeVerMultiplesDelegaciones) return [];
-
-    return delegacionesPermitidas.map((del) => {
-      const delPersonal = allowedPersonal.filter(
-        (p) => (p.delegacionId || 'del-laguna-blanca') === del.id
-      );
-      const delLicencias = allowedLicencias.filter((l) => {
-        const owner = personalMapAll.get(l.personalId);
-        return (l.delegacionId || owner?.delegacionId || 'del-laguna-blanca') === del.id;
-      });
-      const delSaldos = allowedSaldos.filter((s) => {
-        const owner = personalMapAll.get(s.personalId);
-        return (s.delegacionId || owner?.delegacionId || 'del-laguna-blanca') === del.id;
-      });
-
-      let activos = 0;
-      let enLicencia = 0;
-      let correspondientes = 0;
-      let usados = 0;
-      let vencidos = 0;
-      let disponibles = 0;
-
-      for (const p of delPersonal) {
-        if (p.estado !== 'Pasiva' && p.estado !== 'Retirado') {
-          if (getLicenciaActivaPersonal(p.id, todayYmd, delLicencias, delPersonal)?.enLicencia) {
-            enLicencia++;
-          } else {
-            activos++;
-          }
-        }
-        const bals = calcularBalancePorAnio(p, delSaldos, delLicencias, aniosDisponibles);
-        for (const b of bals) {
-          if (!b.enServicio) continue;
-          correspondientes += b.diasCorrespondientes;
-          usados += b.diasUsados;
-          if (b.vencido) {
-            vencidos += Math.max(0, b.diasCorrespondientes - b.diasUsados);
-          } else {
-            disponibles += b.diasDisponibles;
-          }
-        }
-      }
-
-      return {
-        delegacionId: del.id,
-        nombre: del.ciudad ? `${del.siglas} — ${del.ciudad}` : del.nombre,
-        dotacion: delPersonal.length,
-        activos,
-        enLicencia,
-        correspondientes,
-        usados,
-        vencidos,
-        disponibles,
-      };
-    });
-  }, [
-    puedeVerMultiplesDelegaciones,
-    delegacionesPermitidas,
-    allowedPersonal,
-    allowedLicencias,
-    allowedSaldos,
-    personalMapAll,
-    aniosDisponibles,
-    todayYmd,
-  ]);
 
   // Datos para gráficos
   const chartDataPorAnio = useMemo(() => {
@@ -540,12 +496,13 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
     return [...feriados]
       .filter((f) => {
         const matchYear = feriadoYearFilter === 'todos' || f.fecha.startsWith(feriadoYearFilter);
+        const matchTipo = feriadoTipoFilter === 'todos' || f.tipo === feriadoTipoFilter;
         const matchSearch =
           !q || f.nombre.toLowerCase().includes(q) || f.tipo.toLowerCase().includes(q) || f.fecha.includes(q);
-        return matchYear && matchSearch;
+        return matchYear && matchTipo && matchSearch;
       })
       .sort((a, b) => a.fecha.localeCompare(b.fecha));
-  }, [feriados, feriadoYearFilter, feriadoSearch]);
+  }, [feriados, feriadoYearFilter, feriadoTipoFilter, feriadoSearch]);
 
   const handleToggleVencido = async (
     personal: Personal,
@@ -572,7 +529,9 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
           vencido: !currentlyVencido,
           fechaVencimiento: !currentlyVencido ? todayYmd : undefined,
           motivoVencimiento: !currentlyVencido ? 'Marcado como vencido por Superioridad / Personal' : undefined,
-          delegacionId: personal.delegacionId || config.delegacionId,
+          delegacionId:
+            personal.delegacionId ||
+            (effectiveDelegacionFilter === 'todas' ? activeDelegacionId : effectiveDelegacionFilter),
           createdAt: now,
           updatedAt: now,
         };
@@ -580,7 +539,15 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
   };
 
   const handleAddTipoLicencia = async (nuevoTipo: TipoLicenciaConfig) => {
+    if (tiposLicencia.some((t) => t.nombre.toLowerCase() === nuevoTipo.nombre.toLowerCase())) return;
     const updatedCatalog = [...tiposLicencia, nuevoTipo];
+    await onSaveConfig({ ...config, tiposLicenciaCatalogo: updatedCatalog });
+  };
+
+  const handleDeleteTipoLicencia = async (id: string) => {
+    const target = tiposLicencia.find((t) => t.id === id);
+    if (!target || target.esDefault) return;
+    const updatedCatalog = tiposLicencia.filter((t) => t.id !== id);
     await onSaveConfig({ ...config, tiposLicenciaCatalogo: updatedCatalog });
   };
 
@@ -744,10 +711,39 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
     URL.revokeObjectURL(url);
   };
 
-  const scopeLabel =
-    effectiveScopeDelegacion === 'TODAS'
-      ? 'General (Todas las Delegaciones)'
-      : delegacionNameMap.get(effectiveScopeDelegacion) || effectiveScopeDelegacion;
+  const singleRow = selectedPersonalFilter !== 'todos' && saldosMatrix.length === 1 ? saldosMatrix[0] : null;
+  const defaultModalDelegacionId =
+    effectiveDelegacionFilter === 'todas'
+      ? delegacionesPermitidas[0]?.id || activeDelegacionId
+      : effectiveDelegacionFilter;
+
+  const renderFiltroDelegacion = () => {
+    if (!puedeVerMultiplesDelegaciones) {
+      return (
+        <div className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 font-semibold flex items-center gap-1.5">
+          <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+          <span className="truncate">{activeDelegacionLabel}</span>
+        </div>
+      );
+    }
+    return (
+      <div className="relative">
+        <Building2 className="w-3.5 h-3.5 text-blue-900 absolute left-3 top-2.5 pointer-events-none" />
+        <select
+          value={effectiveDelegacionFilter}
+          onChange={(e) => setDelegacionFilter(e.target.value)}
+          className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-800"
+        >
+          <option value="todas">Todas las Delegaciones</option>
+          {delegacionesPermitidas.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.ciudad ? `${d.siglas} (${d.ciudad})` : d.nombre}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -758,11 +754,19 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
             Régimen de Licencias Policiales
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Cómputo automático en días hábiles administrativos, Escala progresiva Art. 7, Traslado Art. 11, Imputación Multi-Año e Interrupción Art. 15.
+            {activeDelegacionLabel} — Cómputo automático en días hábiles administrativos, Escala progresiva Art. 7, Traslado Art. 11, Imputación Multi-Año e Interrupción Art. 15.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsTiposModalOpen(true)}
+            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer"
+          >
+            <Tags className="w-3.5 h-3.5 text-blue-800" />
+            <span>Tipos de Licencia</span>
+          </button>
           <button
             type="button"
             onClick={handleExportCsv}
@@ -783,7 +787,9 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
             type="button"
             onClick={() => {
               setEditingLicencia(null);
-              setPreselectedPersonalId(undefined);
+              setPreselectedPersonalId(
+                selectedPersonalFilter !== 'todos' ? selectedPersonalFilter : undefined
+              );
               setIsModalOpen(true);
             }}
             className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-sm cursor-pointer"
@@ -792,50 +798,6 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
             <span>Registrar Licencia</span>
           </button>
         </div>
-      </div>
-
-      {/* Selector de Ámbito: Por Delegación y En General (o bloqueado a la Delegación del usuario) */}
-      <div className="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-2">
-          <Building2 className="w-4 h-4 text-blue-900" />
-          <span className="font-bold text-slate-800">Alcance de Consulta:</span>
-          {!puedeVerMultiplesDelegaciones && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300 text-slate-800 font-bold">
-              <Lock className="w-3 h-3 text-slate-600" />
-              <span>{scopeLabel} (Delegación Asignada)</span>
-            </span>
-          )}
-        </div>
-
-        {puedeVerMultiplesDelegaciones && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setScopeDelegacion('TODAS')}
-              className={`px-3 py-1.5 rounded-lg font-bold border transition-colors cursor-pointer ${
-                effectiveScopeDelegacion === 'TODAS'
-                  ? 'bg-blue-900 text-white border-blue-900 shadow-2xs'
-                  : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
-              }`}
-            >
-              General (Todas)
-            </button>
-            {delegacionesPermitidas.map((del) => (
-              <button
-                key={del.id}
-                type="button"
-                onClick={() => setScopeDelegacion(del.id)}
-                className={`px-3 py-1.5 rounded-lg font-semibold border transition-colors cursor-pointer ${
-                  effectiveScopeDelegacion === del.id
-                    ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                }`}
-              >
-                {del.ciudad ? `${del.siglas} (${del.ciudad})` : del.nombre}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* KPIs: ÚNICAMENTE Personal Activo, Personal en Licencia e Interrumpidas */}
@@ -881,7 +843,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
       <div className="bg-white rounded-xl border border-slate-200 p-1.5 flex flex-wrap gap-1 shadow-2xs text-xs">
         {[
           { id: 'registro', label: 'Licencias Registradas', icon: Calendar },
-          { id: 'saldos', label: 'Días Disponibles por Personal y Totales por Año (Art. 7)', icon: Layers },
+          { id: 'saldos', label: `Días Disponibles por Personal (${currentYear - 2}–${currentYear})`, icon: Layers },
           { id: 'feriados', label: `Feriados y Días No Laborables (${feriados.length})`, icon: Globe },
           { id: 'reportes', label: 'Reportes y Gráficos', icon: BarChart3 },
         ].map((tab) => {
@@ -908,48 +870,100 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
       {/* TAB 1: LICENCIAS REGISTRADAS */}
       {activeTab === 'registro' && (
         <div className="space-y-4">
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar por Jerarquía, Apellido, Nombre o DNI..."
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none"
-              />
+          {/* Filtros de búsqueda por Personal, Delegación, Tipo y Estado (Plegable) */}
+          <CollapsibleFilterBar
+            title="Filtros de Búsqueda de Licencias"
+            activeFiltersCount={activeRegistroFiltersCount}
+            onClear={handleClearRegistroFilters}
+            summaryRight={
+              <span>
+                Mostrando <strong>{filteredLicencias.length}</strong> de {scopedLicencias.length} licencias
+              </span>
+            }
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar personal, DNI, disposición..."
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                />
+              </div>
+
+              {renderFiltroDelegacion()}
+
+              <div className="relative">
+                <User className="w-3.5 h-3.5 text-blue-900 absolute left-3 top-2.5 pointer-events-none" />
+                <select
+                  value={selectedPersonalFilter}
+                  onChange={(e) => setSelectedPersonalFilter(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-800"
+                >
+                  <option value="todos">Todo el personal ({scopedPersonal.length})</option>
+                  {scopedPersonal.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.jerarquia} — {p.apellidoYNombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                value={filtroTipo}
+                onChange={(e) => setFiltroTipo(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-slate-300 bg-white"
+              >
+                <option value="todos">Todos los Tipos de Licencia</option>
+                {tiposLicencia.map((t) => (
+                  <option key={t.id} value={t.nombre}>
+                    {t.nombre}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filtroEstado}
+                onChange={(e) => setFiltroEstado(e.target.value as any)}
+                className="px-3 py-2 rounded-lg border border-slate-300 bg-white"
+              >
+                <option value="todos">Todos los Estados</option>
+                <option value="vigente">En Curso Hoy</option>
+                <option value="programada">Programadas</option>
+                <option value="finalizada">Finalizadas</option>
+                <option value="interrumpida">Interrumpidas (Art. 15)</option>
+              </select>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-slate-600 shrink-0">Salida desde:</span>
+                <input
+                  type="date"
+                  value={fechaDesde}
+                  onChange={(e) => setFechaDesde(e.target.value)}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-slate-600 shrink-0">Salida hasta:</span>
+                <input
+                  type="date"
+                  value={fechaHasta}
+                  onChange={(e) => setFechaHasta(e.target.value)}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white"
+                />
+              </div>
             </div>
-            <select
-              value={filtroTipo}
-              onChange={(e) => setFiltroTipo(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-slate-300 bg-white"
-            >
-              <option value="todos">Todos los Tipos de Licencia</option>
-              {tiposLicencia.map((t) => (
-                <option key={t.id} value={t.nombre}>
-                  {t.nombre}
-                </option>
-              ))}
-            </select>
-            <select
-              value={filtroEstado}
-              onChange={(e) => setFiltroEstado(e.target.value as any)}
-              className="px-3 py-2 rounded-lg border border-slate-300 bg-white"
-            >
-              <option value="todos">Todos los Estados</option>
-              <option value="vigente">En Curso Hoy</option>
-              <option value="programada">Programadas</option>
-              <option value="finalizada">Finalizadas</option>
-              <option value="interrumpida">Interrumpidas (Art. 15)</option>
-            </select>
-          </div>
+          </CollapsibleFilterBar>
 
           <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-xs">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-900 text-white font-semibold">
                 <tr>
                   <th className="py-3 px-3">Jerarquía / Apellido y Nombre</th>
-                  {effectiveScopeDelegacion === 'TODAS' && <th className="py-3 px-3">Delegación</th>}
+                  {effectiveDelegacionFilter === 'todas' && <th className="py-3 px-3">Delegación</th>}
                   <th className="py-3 px-3">DNI / Antigüedad</th>
                   <th className="py-3 px-3">Tipo</th>
                   <th className="py-3 px-3">Salida</th>
@@ -963,8 +977,11 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
               <tbody className="divide-y divide-slate-100">
                 {filteredLicencias.length === 0 ? (
                   <tr>
-                    <td colSpan={effectiveScopeDelegacion === 'TODAS' ? 10 : 9} className="py-10 text-center text-slate-500">
-                      No hay licencias registradas para {scopeLabel} con los filtros aplicados.
+                    <td
+                      colSpan={effectiveDelegacionFilter === 'todas' ? 10 : 9}
+                      className="py-10 text-center text-slate-500"
+                    >
+                      No hay licencias registradas en {activeDelegacionLabel} con los filtros aplicados.
                     </td>
                   </tr>
                 ) : (
@@ -982,7 +999,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                           <div className="text-[10px] font-bold text-blue-900 uppercase">{lic.jerarquia}</div>
                           <div className="font-bold text-slate-900">{lic.apellidoYNombre}</div>
                         </td>
-                        {effectiveScopeDelegacion === 'TODAS' && (
+                        {effectiveDelegacionFilter === 'todas' && (
                           <td className="py-2.5 px-3 text-[11px] font-semibold text-slate-700">{delName}</td>
                         )}
                         <td className="py-2.5 px-3 font-mono">
@@ -991,10 +1008,24 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                             Antig.: {lic.antiguedadAnios} {lic.antiguedadAnios === 1 ? 'año' : 'años'}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-800">{lic.tipoLicencia}</td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-semibold text-slate-800">{lic.tipoLicencia}</div>
+                          {lic.subtipoEtiqueta && (
+                            <div className="text-[10px] text-indigo-900 font-semibold leading-tight mt-0.5">
+                              {lic.subtipoEtiqueta}
+                            </div>
+                          )}
+                          {lic.esSinGoceHaberes && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-red-100 text-red-800 text-[9px] font-bold">
+                              Sin goce hab. (Art. 62)
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2.5 px-3 font-mono">{formatFechaDisplay(lic.fechaSalida)}</td>
                         <td className="py-2.5 px-3 tabular-nums">
-                          <span className="font-bold text-slate-900">{lic.diasHabilesSolicitados} d.</span>
+                          <span className="font-bold text-slate-900">
+                            {lic.diasHabilesSolicitados} {lic.modoComputo === 'corridos' ? 'd. corr.' : 'd. háb.'}
+                          </span>
                           {lic.diasViajeArt11 > 0 && (
                             <div className="text-[10px] font-semibold text-indigo-800">
                               +{lic.diasViajeArt11} d. Art. 11 ({lic.distanciaKm || 0} km)
@@ -1023,7 +1054,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                               ))}
                             </div>
                           ) : (
-                            <span className="text-slate-400">---</span>
+                            <span className="text-[10px] font-semibold text-slate-500">No descuenta Anual</span>
                           )}
                         </td>
                         <td className="py-2.5 px-3">
@@ -1040,14 +1071,32 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                           >
                             {est === 'Interrumpida' ? 'Interrumpida (Art. 15)' : est}
                           </span>
-                          {lic.fueInterrumpida && lic.motivoInterrupcion && (
-                            <div className="text-[10px] text-red-700 max-w-[160px] truncate mt-0.5" title={lic.motivoInterrupcion}>
-                              {lic.motivoInterrupcion}
+                          {lic.fueInterrumpida && (
+                            <div className="text-[10px] text-red-700 max-w-[170px] truncate mt-0.5" title={lic.motivoInterrupcion}>
+                              {lic.diasRestituidos ? `Restituidos: ${lic.diasRestituidos} d. • ` : ''}
+                              {lic.motivoInterrupcion || ''}
                             </div>
                           )}
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setInterruptingLicencia(lic)}
+                              className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer ${
+                                lic.fueInterrumpida
+                                  ? 'bg-red-100 text-red-800 hover:bg-red-200'
+                                  : 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
+                              }`}
+                              title={
+                                lic.fueInterrumpida
+                                  ? 'Ver / modificar interrupción (Art. 15)'
+                                  : 'Interrumpir licencia desde tabla (Art. 15)'
+                              }
+                            >
+                              <ShieldAlert className="w-3 h-3" />
+                              <span>{lic.fueInterrumpida ? 'Art. 15' : 'Interrumpir'}</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => generarPdfConstanciaLicencia(lic, config)}
@@ -1088,17 +1137,17 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
         </div>
       )}
 
-      {/* TAB 2: DÍAS DISPONIBLES POR PERSONAL, POR DELEGACIÓN Y TOTAL POR AÑO (ART. 7) */}
+      {/* TAB 2: DÍAS DISPONIBLES POR PERSONAL (AÑO ACTUAL HASTA DOS ANTERIORES) */}
       {activeTab === 'saldos' && (
         <div className="space-y-4">
-          {/* Referencia oficial Escala Art. 7 + controles de años */}
-          <div className="bg-slate-900 text-white rounded-xl p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          {/* Referencia oficial Escala Art. 7 + agregar año adicional si se necesita */}
+          <div className="bg-slate-900 text-white rounded-xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div>
               <h3 className="font-bold text-xs uppercase tracking-wide text-blue-200">
-                Escala Progresiva por Antigüedad de Servicio en cada Año (Art. 7)
+                Escala Progresiva por Antigüedad en cada Año (Art. 7) — Período {aniosDisponibles[0]} a {aniosDisponibles[aniosDisponibles.length - 1]}
               </h3>
               <p className="text-[11px] text-slate-300 mt-0.5">
-                Cada período anual calcula automáticamente los días según los años de servicio cumplidos en ese año (ej.: ingreso 01/01/2016 → 2016–2021: 14 días; 2022–2026: 21 días).
+                Los días disponibles son individuales por cada efectivo, calculados desde el año actual hasta dos años anteriores según su antigüedad en cada año.
               </p>
               <div className="flex flex-wrap gap-2 mt-2 text-[11px]">
                 {ESCALA_ART_7.map((e) => (
@@ -1109,18 +1158,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setMostrarTodosDesdeIngreso((v) => !v)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer ${
-                  mostrarTodosDesdeIngreso
-                    ? 'bg-emerald-700 border-emerald-500 text-white'
-                    : 'bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700'
-                }`}
-              >
-                {mostrarTodosDesdeIngreso ? 'Viendo: Todos desde ingreso' : 'Ver todos desde ingreso'}
-              </button>
+            <div className="flex items-center gap-2 shrink-0">
               <input
                 type="number"
                 min={1990}
@@ -1145,163 +1183,109 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
             </div>
           </div>
 
-          {/* Consolidado por Delegación (solo visible si el usuario tiene acceso multi-delegación) */}
-          {puedeVerMultiplesDelegaciones && resumenPorDelegacion.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-              <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
-                  <Building2 className="w-4 h-4 text-blue-900" />
-                  <span>Licencias Disponibles por Delegación y Total General ({aniosDisponibles[0]}–{aniosDisponibles[aniosDisponibles.length - 1]})</span>
-                </h3>
-                <span className="text-[11px] text-slate-500 font-medium">Vista actual: {scopeLabel}</span>
+          {/* Buscador + Filtro de Delegación + Selector de Personal Específico (Plegable) */}
+          <CollapsibleFilterBar
+            title="Filtros de Búsqueda de Personal y Saldos"
+            activeFiltersCount={(searchTerm.trim() ? 1 : 0) + (selectedPersonalFilter !== 'todos' ? 1 : 0)}
+            onClear={() => {
+              setSearchTerm('');
+              setSelectedPersonalFilter('todos');
+            }}
+            summaryRight={
+              <span>
+                Mostrando <strong>{saldosMatrix.length}</strong> de {scopedPersonal.length} efectivos
+              </span>
+            }
+          >
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar personal por Jerarquía, Apellido, Nombre o DNI..."
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                />
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                    <tr>
-                      <th className="py-2.5 px-3">Delegación</th>
-                      <th className="py-2.5 px-3 text-center">Dotación</th>
-                      <th className="py-2.5 px-3 text-center">Activos</th>
-                      <th className="py-2.5 px-3 text-center">En Licencia</th>
-                      <th className="py-2.5 px-3 text-center">Días Corresp.</th>
-                      <th className="py-2.5 px-3 text-center">Días Usados</th>
-                      <th className="py-2.5 px-3 text-center">Días Vencidos</th>
-                      <th className="py-2.5 px-3 text-center">Días Disponibles</th>
-                      <th className="py-2.5 px-3 text-right">Filtro</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {resumenPorDelegacion.map((d) => (
-                      <tr
-                        key={d.delegacionId}
-                        className={effectiveScopeDelegacion === d.delegacionId ? 'bg-blue-50/70' : 'hover:bg-slate-50'}
-                      >
-                        <td className="py-2 px-3 font-bold text-slate-900">{d.nombre}</td>
-                        <td className="py-2 px-3 text-center tabular-nums">{d.dotacion}</td>
-                        <td className="py-2 px-3 text-center tabular-nums font-semibold text-emerald-800">{d.activos}</td>
-                        <td className="py-2 px-3 text-center tabular-nums font-semibold text-blue-800">{d.enLicencia}</td>
-                        <td className="py-2 px-3 text-center tabular-nums">{d.correspondientes} d.</td>
-                        <td className="py-2 px-3 text-center tabular-nums">{d.usados} d.</td>
-                        <td className="py-2 px-3 text-center tabular-nums text-red-700">{d.vencidos} d.</td>
-                        <td className="py-2 px-3 text-center tabular-nums font-extrabold text-emerald-900">
-                          {d.disponibles} d.
-                        </td>
-                        <td className="py-2 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setScopeDelegacion(
-                                effectiveScopeDelegacion === d.delegacionId ? 'TODAS' : d.delegacionId
-                              )
-                            }
-                            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-900 text-white text-[10px] font-bold cursor-pointer"
-                          >
-                            {effectiveScopeDelegacion === d.delegacionId ? 'Ver General' : 'Filtrar'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-slate-900 text-white font-bold">
-                    <tr>
-                      <td className="py-2.5 px-3">TOTAL GENERAL</td>
-                      <td className="py-2.5 px-3 text-center tabular-nums">
-                        {resumenPorDelegacion.reduce((a, b) => a + b.dotacion, 0)}
-                      </td>
-                      <td className="py-2.5 px-3 text-center tabular-nums">
-                        {resumenPorDelegacion.reduce((a, b) => a + b.activos, 0)}
-                      </td>
-                      <td className="py-2.5 px-3 text-center tabular-nums">
-                        {resumenPorDelegacion.reduce((a, b) => a + b.enLicencia, 0)}
-                      </td>
-                      <td className="py-2.5 px-3 text-center tabular-nums">
-                        {resumenPorDelegacion.reduce((a, b) => a + b.correspondientes, 0)} d.
-                      </td>
-                      <td className="py-2.5 px-3 text-center tabular-nums">
-                        {resumenPorDelegacion.reduce((a, b) => a + b.usados, 0)} d.
-                      </td>
-                      <td className="py-2.5 px-3 text-center tabular-nums text-red-300">
-                        {resumenPorDelegacion.reduce((a, b) => a + b.vencidos, 0)} d.
-                      </td>
-                      <td className="py-2.5 px-3 text-center tabular-nums text-emerald-300">
-                        {resumenPorDelegacion.reduce((a, b) => a + b.disponibles, 0)} d.
-                      </td>
-                      <td className="py-2.5 px-3" />
-                    </tr>
-                  </tfoot>
-                </table>
+
+              {renderFiltroDelegacion()}
+
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 text-blue-900 shrink-0" />
+                <select
+                  value={selectedPersonalFilter}
+                  onChange={(e) => setSelectedPersonalFilter(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-800"
+                >
+                  <option value="todos">Todo el personal ({scopedPersonal.length})</option>
+                  {scopedPersonal.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.jerarquia} — {p.apellidoYNombre} (DNI {p.dni})
+                    </option>
+                  ))}
+                </select>
+                {selectedPersonalFilter !== 'todos' && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPersonalFilter('todos')}
+                    className="px-2.5 py-2 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer"
+                  >
+                    Todos
+                  </button>
+                )}
+              </div>
+            </div>
+          </CollapsibleFilterBar>
+
+          {/* Ficha destacada cuando se selecciona un efectivo puntual */}
+          {singleRow && (
+            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 space-y-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[11px] font-bold text-blue-900 uppercase">
+                    {singleRow.personal.jerarquia} • {singleRow.delegacionNombre}
+                  </div>
+                  <div className="text-base font-extrabold text-slate-900">
+                    {singleRow.personal.apellidoYNombre} — DNI {singleRow.personal.dni}
+                  </div>
+                  <div className="text-[11px] text-slate-600 mt-0.5">
+                    Fecha de Ingreso:{' '}
+                    <strong className="font-mono">
+                      {singleRow.personal.fechaIngreso ? formatFechaDisplay(singleRow.personal.fechaIngreso) : 'Sin registro'}
+                    </strong>{' '}
+                    • Antigüedad actual: <strong>{singleRow.antiguedadAnios} {singleRow.antiguedadAnios === 1 ? 'año' : 'años'}</strong>
+                  </div>
+                </div>
+                <div className="bg-white border border-emerald-200 rounded-xl px-4 py-2 text-center shadow-2xs">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase">Total Disponible</div>
+                  <div className="text-xl font-extrabold text-emerald-800 tabular-nums">
+                    {singleRow.totalDisponibles} días
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {singleRow.balances.map((b) => (
+                  <div key={b.anio} className="bg-white border border-slate-200 rounded-lg p-3">
+                    <div className="flex items-center justify-between font-bold">
+                      <span className="text-slate-900">Año {b.anio}</span>
+                      <span className={b.vencido ? 'text-red-700' : 'text-emerald-800'}>
+                        {!b.enServicio ? 'Sin ingreso' : b.vencido ? 'VENCIDO' : `${b.diasDisponibles} disp.`}
+                      </span>
+                    </div>
+                    {b.enServicio && (
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        Antigüedad en {b.anio}: <strong>{b.antiguedadEnAnio} años</strong> • Corresp.: {b.diasCorrespondientes} d. • Usados: {b.diasUsados} d.
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Tabla Resumen de Totales POR AÑO */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">
-                Total por Año — {scopeLabel}
-              </h3>
-              <span className="text-[11px] font-bold text-emerald-800">
-                Acumulado Disponible: {granTotalAnios.disponibles} días hábiles
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                  <tr>
-                    <th className="py-2 px-3">Año / Período</th>
-                    <th className="py-2 px-3 text-center">Efectivos en Servicio</th>
-                    <th className="py-2 px-3 text-center">Total Días Correspondientes</th>
-                    <th className="py-2 px-3 text-center">Total Días Usados</th>
-                    <th className="py-2 px-3 text-center">Total Días Vencidos</th>
-                    <th className="py-2 px-3 text-center">Total Días Disponibles</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {totalesPorAnio.map((t) => (
-                    <tr key={t.anio} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 font-extrabold text-slate-900 font-mono">Período {t.anio}</td>
-                      <td className="py-2 px-3 text-center tabular-nums">{t.efectivosEnAnio}</td>
-                      <td className="py-2 px-3 text-center tabular-nums font-semibold text-slate-800">
-                        {t.correspondientes} d.
-                      </td>
-                      <td className="py-2 px-3 text-center tabular-nums text-blue-900 font-semibold">
-                        {t.usados} d.
-                      </td>
-                      <td className="py-2 px-3 text-center tabular-nums text-red-700 font-semibold">
-                        {t.vencidos} d.
-                      </td>
-                      <td className="py-2 px-3 text-center tabular-nums font-extrabold text-emerald-800">
-                        {t.disponibles} d.
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="bg-slate-900 text-white font-bold">
-                  <tr>
-                    <td className="py-2.5 px-3">TOTAL ACUMULADO ({totalesPorAnio.length} años)</td>
-                    <td className="py-2.5 px-3 text-center">—</td>
-                    <td className="py-2.5 px-3 text-center tabular-nums">{granTotalAnios.correspondientes} d.</td>
-                    <td className="py-2.5 px-3 text-center tabular-nums text-blue-200">{granTotalAnios.usados} d.</td>
-                    <td className="py-2.5 px-3 text-center tabular-nums text-red-300">{granTotalAnios.vencidos} d.</td>
-                    <td className="py-2.5 px-3 text-center tabular-nums text-emerald-300">{granTotalAnios.disponibles} d.</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-
-          <div className="bg-white p-3 rounded-xl border border-slate-200 flex items-center gap-3 text-xs">
-            <Search className="w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar efectivo por Jerarquía, Apellido y Nombre o DNI..."
-              className="flex-1 focus:outline-none"
-            />
-          </div>
-
-          {/* Matriz detallada por Personal y Año */}
+          {/* Matriz por Personal y Año */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-xs">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-900 text-white font-semibold">
@@ -1309,12 +1293,12 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                   <th className="py-3 px-3 sticky left-0 bg-slate-900 z-10 min-w-[180px]">
                     Jerarquía / Apellido y Nombre
                   </th>
-                  {effectiveScopeDelegacion === 'TODAS' && <th className="py-3 px-3">Delegación</th>}
+                  {effectiveDelegacionFilter === 'todas' && <th className="py-3 px-3">Delegación</th>}
                   <th className="py-3 px-3">DNI</th>
                   <th className="py-3 px-3">Fecha Ingreso / Antigüedad</th>
                   <th className="py-3 px-3 text-center">Escala Actual</th>
                   {aniosDisponibles.map((anio) => (
-                    <th key={anio} className="py-3 px-3 text-center min-w-[136px]">
+                    <th key={anio} className="py-3 px-3 text-center min-w-[140px]">
                       Período {anio}
                     </th>
                   ))}
@@ -1326,10 +1310,10 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                 {saldosMatrix.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={aniosDisponibles.length + (effectiveScopeDelegacion === 'TODAS' ? 7 : 6)}
+                      colSpan={aniosDisponibles.length + (effectiveDelegacionFilter === 'todas' ? 7 : 6)}
                       className="py-8 text-center text-slate-500"
                     >
-                      No hay personal registrado en el ámbito seleccionado.
+                      No hay personal que coincida con la búsqueda en {activeDelegacionLabel}.
                     </td>
                   </tr>
                 ) : (
@@ -1339,7 +1323,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                         <div className="text-[10px] font-bold text-blue-900 uppercase">{row.personal.jerarquia}</div>
                         <div className="font-bold text-slate-900">{row.personal.apellidoYNombre}</div>
                       </td>
-                      {effectiveScopeDelegacion === 'TODAS' && (
+                      {effectiveDelegacionFilter === 'todas' && (
                         <td className="py-2.5 px-3 text-[11px] font-semibold text-slate-700">
                           {row.delegacionNombre}
                         </td>
@@ -1461,7 +1445,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                     <td className="py-3 px-3 sticky left-0 bg-slate-900 z-10">
                       TOTAL POR AÑO ({saldosMatrix.length} efect.)
                     </td>
-                    {effectiveScopeDelegacion === 'TODAS' && <td className="py-3 px-3" />}
+                    {effectiveDelegacionFilter === 'todas' && <td className="py-3 px-3" />}
                     <td className="py-3 px-3" />
                     <td className="py-3 px-3" />
                     <td className="py-3 px-3" />
@@ -1697,23 +1681,49 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
             </button>
           </form>
 
-          {/* Filtros y Tabla de Feriados */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-            <div className="p-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <Search className="w-4 h-4 text-slate-400" />
+          {/* Filtros Plegables y Tabla de Feriados */}
+          <CollapsibleFilterBar
+            title="Filtros de Búsqueda de Feriados"
+            activeFiltersCount={(feriadoSearch.trim() ? 1 : 0) + (feriadoTipoFilter !== 'todos' ? 1 : 0) + (feriadoYearFilter !== String(currentYear) ? 1 : 0)}
+            onClear={() => {
+              setFeriadoSearch('');
+              setFeriadoTipoFilter('todos');
+              setFeriadoYearFilter('todos');
+            }}
+            summaryRight={
+              <span>
+                Mostrando <strong>{filteredFeriados.length}</strong> de {feriados.length} feriados
+              </span>
+            }
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
                   value={feriadoSearch}
                   onChange={(e) => setFeriadoSearch(e.target.value)}
-                  placeholder="Filtrar feriado..."
-                  className="focus:outline-none"
+                  placeholder="Filtrar feriado por nombre o fecha..."
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
+
+              <select
+                value={feriadoTipoFilter}
+                onChange={(e) => setFeriadoTipoFilter(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+              >
+                <option value="todos">Todos los Tipos</option>
+                <option value="Nacional">Nacional</option>
+                <option value="Provincial">Provincial</option>
+                <option value="No Laborable">No Laborable</option>
+                <option value="Asueto">Asueto</option>
+              </select>
+
               <select
                 value={feriadoYearFilter}
                 onChange={(e) => setFeriadoYearFilter(e.target.value)}
-                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white font-semibold"
+                className="px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
               >
                 <option value="todos">Todos los años</option>
                 {[currentYear - 1, currentYear, currentYear + 1, currentYear + 2].map((y) => (
@@ -1723,6 +1733,9 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                 ))}
               </select>
             </div>
+          </CollapsibleFilterBar>
+
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -1779,10 +1792,9 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
       {activeTab === 'reportes' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Gráfico de Totales por Año */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
               <h3 className="font-bold text-slate-900 text-sm mb-3">
-                Totales Acumulados por Año — {scopeLabel}
+                Totales por Año ({currentYear - 2}–{currentYear}) — {activeDelegacionLabel}
               </h3>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
@@ -1872,17 +1884,20 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
         </div>
       )}
 
-      {/* Modal de Alta / Edición de Licencia */}
+      {/* Modal de Alta / Edición de Licencia (con selector/bloqueo de Delegación y sin interrupción en carga) */}
       {isModalOpen && (
         <LicenciaModal
           licencia={editingLicencia}
           preselectedPersonalId={preselectedPersonalId}
-          personalList={scopedPersonal}
-          saldosLicencias={scopedSaldos}
-          licenciasExistentes={scopedLicencias}
+          personalList={allowedPersonal}
+          saldosLicencias={allowedSaldos}
+          licenciasExistentes={allowedLicencias}
           feriados={feriados}
           tiposLicencia={tiposLicencia}
-          aniosDisponibles={aniosHistoricosCompletos}
+          aniosDisponibles={aniosDisponibles}
+          delegacionesPermitidas={delegacionesPermitidas}
+          defaultDelegacionId={defaultModalDelegacionId}
+          puedeCambiarDelegacion={puedeVerMultiplesDelegaciones}
           config={config}
           currentUsername={currentUser?.username}
           onSave={async (lic) => {
@@ -1896,6 +1911,135 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
             setEditingLicencia(null);
           }}
         />
+      )}
+
+      {/* Modal dedicado para Interrumpir Licencia desde la Tabla (Art. 15) */}
+      {interruptingLicencia && (
+        <InterrumpirLicenciaModal
+          licencia={interruptingLicencia}
+          feriados={feriados}
+          onSave={async (updated) => {
+            await onSaveLicencia(updated);
+            setInterruptingLicencia(null);
+          }}
+          onClose={() => setInterruptingLicencia(null)}
+        />
+      )}
+
+      {/* Modal de Gestión de Tipos de Licencia */}
+      {isTiposModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-xl border border-slate-300 shadow-2xl max-w-lg w-full overflow-hidden text-xs">
+            <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Tags className="w-4 h-4 text-blue-300" />
+                <h3 className="font-bold text-sm">Catálogo de Tipos de Licencia Policial</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTiposModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg max-h-56 overflow-y-auto">
+                {tiposLicencia.map((t) => (
+                  <div key={t.id} className="px-3 py-2 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-slate-900">{t.nombre}</span>
+                      <span className="ml-2 text-[10px] text-slate-500">
+                        {t.descuentaSaldoAnual ? 'Imputa saldo Art. 7 (establecer días)' : 'No resta de Anual'}
+                        {t.modoComputo === 'corridos' ? ' • Días corridos' : ' • Días hábiles'}
+                        {t.diasSugeridos ? ` • Fijo/Sugerido: ${t.diasSugeridos} d.` : ''}
+                      </span>
+                    </div>
+                    {t.esDefault ? (
+                      <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                        Predeterminado
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTipoLicencia(t.id)}
+                        className="p-1 text-slate-400 hover:text-red-600 rounded cursor-pointer"
+                        title="Eliminar tipo personalizado"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const nombre = nuevoTipoNombre.trim();
+                  if (!nombre) return;
+                  await handleAddTipoLicencia({
+                    id: 'lic-tipo-' + Date.now(),
+                    nombre,
+                    esDefault: false,
+                    descuentaSaldoAnual: nuevoTipoDescuentaSaldo,
+                    diasSugeridos: nuevoTipoDiasSugeridos > 0 ? nuevoTipoDiasSugeridos : undefined,
+                    activo: true,
+                  });
+                  setNuevoTipoNombre('');
+                  setNuevoTipoDiasSugeridos(0);
+                  setNuevoTipoDescuentaSaldo(false);
+                }}
+                className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3"
+              >
+                <div className="font-bold text-slate-900">Agregar Nuevo Tipo de Licencia</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">Nombre *</label>
+                    <input
+                      type="text"
+                      required
+                      value={nuevoTipoNombre}
+                      onChange={(e) => setNuevoTipoNombre(e.target.value)}
+                      placeholder="Ej. Matrimonio, Duelo, Estudio, Médica..."
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Días sugeridos</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={180}
+                      value={nuevoTipoDiasSugeridos}
+                      onChange={(e) => setNuevoTipoDiasSugeridos(Math.max(0, Number(e.target.value) || 0))}
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 font-semibold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={nuevoTipoDescuentaSaldo}
+                      onChange={(e) => setNuevoTipoDescuentaSaldo(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-700"
+                    />
+                    <span>Imputa saldo anual (Art. 7)</span>
+                  </label>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 bg-blue-900 hover:bg-blue-950 text-white font-bold rounded-lg flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Agregar Tipo</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal de Ajuste Manual de Saldo Anual */}
@@ -1989,7 +2133,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                     vencido: editingSaldoCell.vencido,
                     fechaVencimiento: editingSaldoCell.vencido ? todayYmd : undefined,
                     motivoVencimiento: editingSaldoCell.vencido ? 'Marcado como vencido' : undefined,
-                    delegacionId: editingSaldoCell.personal.delegacionId || config.delegacionId,
+                    delegacionId: editingSaldoCell.personal.delegacionId || defaultModalDelegacionId,
                     createdAt: now,
                     updatedAt: now,
                   });

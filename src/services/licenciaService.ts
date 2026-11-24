@@ -8,10 +8,337 @@ import {
 } from '../types/police';
 
 export const DEFAULT_TIPOS_LICENCIA: TipoLicenciaConfig[] = [
-  { id: 'lic-anual', nombre: 'Anual', esDefault: true, descuentaSaldoAnual: true, activo: true },
-  { id: 'lic-invernal', nombre: 'Invernal', esDefault: true, descuentaSaldoAnual: false, diasSugeridos: 10, activo: true },
-  { id: 'lic-extraordinaria', nombre: 'Extraordinaria', esDefault: true, descuentaSaldoAnual: false, activo: true },
+  {
+    id: 'lic-anual',
+    nombre: 'Anual',
+    esDefault: true,
+    descuentaSaldoAnual: true,
+    modoComputo: 'habiles',
+    articuloReglamento: 'Art. 7',
+    activo: true,
+  },
+  {
+    id: 'lic-invernal',
+    nombre: 'Invernal',
+    esDefault: true,
+    descuentaSaldoAnual: false,
+    modoComputo: 'habiles',
+    diasSugeridos: 5,
+    articuloReglamento: 'Licencia Invernal (5 días hábiles, no descuenta Anual)',
+    activo: true,
+  },
+  {
+    id: 'lic-extraordinaria',
+    nombre: 'Extraordinaria',
+    esDefault: true,
+    descuentaSaldoAnual: false,
+    modoComputo: 'corridos',
+    articuloReglamento: 'Arts. 41 al 53',
+    activo: true,
+  },
+  {
+    id: 'lic-excepcional',
+    nombre: 'Excepcional',
+    esDefault: true,
+    descuentaSaldoAnual: false,
+    modoComputo: 'corridos',
+    articuloReglamento: 'Arts. 54 al 62',
+    activo: true,
+  },
 ];
+
+/**
+ * Garantiza que los tipos reglamentarios predeterminados mantengan sus reglas oficiales
+ * (Invernal = 5 días hábiles y no descuenta de Anual; presencia de Excepcional),
+ * preservando cualquier tipo personalizado cargado por el usuario.
+ */
+export function normalizeTiposLicenciaCatalogo(catalog?: TipoLicenciaConfig[]): TipoLicenciaConfig[] {
+  const existing = Array.isArray(catalog) ? catalog : [];
+  const normalizedDefaults = DEFAULT_TIPOS_LICENCIA.map((def) => {
+    const found = existing.find(
+      (item) =>
+        item.id === def.id || item.nombre.trim().toLowerCase() === def.nombre.trim().toLowerCase()
+    );
+    if (!found) return def;
+    if (def.id === 'lic-invernal') {
+      return {
+        ...found,
+        esDefault: true,
+        descuentaSaldoAnual: false,
+        modoComputo: 'habiles' as const,
+        diasSugeridos: 5,
+        articuloReglamento: def.articuloReglamento,
+      };
+    }
+    if (def.id === 'lic-anual') {
+      return {
+        ...found,
+        esDefault: true,
+        descuentaSaldoAnual: true,
+        modoComputo: 'habiles' as const,
+        diasSugeridos: undefined,
+        articuloReglamento: def.articuloReglamento,
+      };
+    }
+    return {
+      ...found,
+      esDefault: true,
+      descuentaSaldoAnual: def.descuentaSaldoAnual,
+      modoComputo: found.modoComputo || def.modoComputo,
+      articuloReglamento: found.articuloReglamento || def.articuloReglamento,
+    };
+  });
+
+  const defaultNames = new Set(DEFAULT_TIPOS_LICENCIA.map((d) => d.nombre.toLowerCase()));
+  const customOnly = existing.filter(
+    (item) => !defaultNames.has(item.nombre.trim().toLowerCase()) && !DEFAULT_TIPOS_LICENCIA.some((d) => d.id === item.id)
+  );
+  return [...normalizedDefaults, ...customOnly];
+}
+
+export interface ParentescoFallecimientoItem {
+  id: string;
+  label: string;
+  inciso: 'a' | 'b' | 'c';
+  diasCorridos: number;
+  grupoDescripcion: string;
+}
+
+/**
+ * Art. 47 — Escala oficial de días corridos por fallecimiento de familiares cercanos,
+ * contando a partir del día del deceso.
+ */
+export const PARENTESCO_FALLECIMIENTO_ART_47: ParentescoFallecimientoItem[] = [
+  // Inciso a) 10 días corridos
+  { id: 'conyuge', label: 'Cónyuge', inciso: 'a', diasCorridos: 10, grupoDescripcion: 'Inc. a) — 10 días corridos' },
+  {
+    id: 'pareja_perdurable',
+    label: 'Pareja perdurable (aparente matrimonio)',
+    inciso: 'a',
+    diasCorridos: 10,
+    grupoDescripcion: 'Inc. a) — 10 días corridos',
+  },
+  { id: 'hijos', label: 'Hijo / Hija', inciso: 'a', diasCorridos: 10, grupoDescripcion: 'Inc. a) — 10 días corridos' },
+  { id: 'padres', label: 'Padre / Madre', inciso: 'a', diasCorridos: 10, grupoDescripcion: 'Inc. a) — 10 días corridos' },
+
+  // Inciso b) 6 días corridos
+  { id: 'hermanos', label: 'Hermano / Hermana', inciso: 'b', diasCorridos: 6, grupoDescripcion: 'Inc. b) — 6 días corridos' },
+  { id: 'abuelos', label: 'Abuelo / Abuela', inciso: 'b', diasCorridos: 6, grupoDescripcion: 'Inc. b) — 6 días corridos' },
+  { id: 'nietos', label: 'Nieto / Nieta', inciso: 'b', diasCorridos: 6, grupoDescripcion: 'Inc. b) — 6 días corridos' },
+  { id: 'suegros', label: 'Suegro / Suegra', inciso: 'b', diasCorridos: 6, grupoDescripcion: 'Inc. b) — 6 días corridos' },
+
+  // Inciso c) 2 días corridos
+  { id: 'tios', label: 'Tío / Tía', inciso: 'c', diasCorridos: 2, grupoDescripcion: 'Inc. c) — 2 días corridos' },
+  {
+    id: 'hermanos_politicos',
+    label: 'Hermano/a político/a (Cuñado/a)',
+    inciso: 'c',
+    diasCorridos: 2,
+    grupoDescripcion: 'Inc. c) — 2 días corridos',
+  },
+  {
+    id: 'hijos_politicos',
+    label: 'Hijo/a político/a (Yerno / Nuera)',
+    inciso: 'c',
+    diasCorridos: 2,
+    grupoDescripcion: 'Inc. c) — 2 días corridos',
+  },
+  { id: 'padrastro', label: 'Padrastro', inciso: 'c', diasCorridos: 2, grupoDescripcion: 'Inc. c) — 2 días corridos' },
+  { id: 'madrastra', label: 'Madrastra', inciso: 'c', diasCorridos: 2, grupoDescripcion: 'Inc. c) — 2 días corridos' },
+  { id: 'hijastro', label: 'Hijastro / Hijastra', inciso: 'c', diasCorridos: 2, grupoDescripcion: 'Inc. c) — 2 días corridos' },
+  {
+    id: 'primos_hermanos',
+    label: 'Primo/a hermano/a',
+    inciso: 'c',
+    diasCorridos: 2,
+    grupoDescripcion: 'Inc. c) — 2 días corridos',
+  },
+  { id: 'sobrinos', label: 'Sobrino / Sobrina', inciso: 'c', diasCorridos: 2, grupoDescripcion: 'Inc. c) — 2 días corridos' },
+  {
+    id: 'bisabuelos',
+    label: 'Bisabuelo / Bisabuela',
+    inciso: 'c',
+    diasCorridos: 2,
+    grupoDescripcion: 'Inc. c) — 2 días corridos',
+  },
+];
+
+export interface SubtipoReglamentarioConfig {
+  id: string;
+  inciso: string;
+  nombre: string;
+  etiquetaCorta: string;
+  articulo: string;
+  modoComputo: 'habiles' | 'corridos';
+  diasDefault: number;
+  autoridad: string;
+  resumenNorma: string;
+}
+
+/**
+ * Arts. 41 al 53 — Licencias Extraordinarias (no acumulativas ni compensables en dinero)
+ */
+export const SUBTIPOS_EXTRAORDINARIA: SubtipoReglamentarioConfig[] = [
+  {
+    id: 'matrimonio',
+    inciso: 'a)',
+    nombre: 'a) Para contraer matrimonio (Art. 42)',
+    etiquetaCorta: 'Matrimonio (Art. 42)',
+    articulo: 'Art. 42',
+    modoComputo: 'habiles',
+    diasDefault: 12,
+    autoridad: 'Jefatura de Policía',
+    resumenNorma: '12 días hábiles. Requiere antigüedad mínima de 6 meses desde el alta en la institución.',
+  },
+  {
+    id: 'enfermedad_familiar',
+    inciso: 'b)',
+    nombre: 'b) Por enfermedad de familiares (Arts. 43–46)',
+    etiquetaCorta: 'Enfermedad Familiar (Art. 43)',
+    articulo: 'Arts. 43–46',
+    modoComputo: 'corridos',
+    diasDefault: 30,
+    autoridad: 'Servicio de Sanidad Policial / Junta Médica',
+    resumenNorma:
+      'Hasta 30 días corridos continuos o discontinuos por año calendario (prorrogable por 30 d. más con Junta Médica; excepcional hasta 6 meses en disponibilidad Art. 114 inc. c).',
+  },
+  {
+    id: 'fallecimiento',
+    inciso: 'c)',
+    nombre: 'c) Por fallecimiento de familiares cercanos (Art. 47)',
+    etiquetaCorta: 'Fallecimiento (Art. 47)',
+    articulo: 'Art. 47',
+    modoComputo: 'corridos',
+    diasDefault: 10,
+    autoridad: 'Jefatura / Jefe de Dependencia',
+    resumenNorma:
+      'Días corridos a partir del deceso según parentesco: Inc. a) 10 días | Inc. b) 6 días | Inc. c) 2 días.',
+  },
+  {
+    id: 'estudios',
+    inciso: 'd)',
+    nombre: 'd) Para rendir exámenes / Estudios (Art. 48)',
+    etiquetaCorta: 'Estudios / Exámenes (Art. 48)',
+    articulo: 'Art. 48',
+    modoComputo: 'corridos',
+    diasDefault: 7,
+    autoridad: 'Jefe de Dependencia / Jefatura de Policía',
+    resumenNorma:
+      'Inc. a) Cursos no policiales: hasta 28 días corridos/año calendario en períodos no superiores a 7 días. Inc. b) Cursos policiales: según Jefatura.',
+  },
+  {
+    id: 'nacimiento_padre',
+    inciso: 'e)',
+    nombre: 'e) Por nacimiento de hijos — para el padre (Art. 49)',
+    etiquetaCorta: 'Nacimiento de Hijo (Art. 49)',
+    articulo: 'Art. 49',
+    modoComputo: 'corridos',
+    diasDefault: 3,
+    autoridad: 'Jefe Inmediato',
+    resumenNorma:
+      '3 días corridos para personal policial masculino. Justificar al reintegro con constancia de nacimiento.',
+  },
+  {
+    id: 'donacion_sangre',
+    inciso: 'f)',
+    nombre: 'f) Por donación de sangre (Art. 50)',
+    etiquetaCorta: 'Donación de Sangre (Art. 50)',
+    articulo: 'Art. 50',
+    modoComputo: 'corridos',
+    diasDefault: 1,
+    autoridad: 'Jefe Inmediato',
+    resumenNorma: '1 día de licencia luego de cada extracción voluntaria justificada.',
+  },
+  {
+    id: 'maternidad',
+    inciso: 'g.1)',
+    nombre: 'g) Por maternidad (Art. 51)',
+    etiquetaCorta: 'Maternidad (Art. 51)',
+    articulo: 'Art. 51',
+    modoComputo: 'corridos',
+    diasDefault: 150,
+    autoridad: 'Servicio de Sanidad Policial / Salud Provincial',
+    resumenNorma:
+      '150 días corridos (45 pre + 105 post, o 30 pre + 120 post). Nacimiento múltiple: +15 d. por hijo adicional; pre-término completa 150 d.; diferido hasta +20 d.; niño muerto: pre + 30 d. post.',
+  },
+  {
+    id: 'adopcion',
+    inciso: 'g.2)',
+    nombre: 'g) Por adopción / tenencia de menores (Art. 52)',
+    etiquetaCorta: 'Adopción (Art. 52)',
+    articulo: 'Art. 52',
+    modoComputo: 'corridos',
+    diasDefault: 90,
+    autoridad: 'Jefatura de Policía',
+    resumenNorma:
+      'Desde el día siguiente a la tenencia: niño hasta 12 meses = 90 días corridos; > 12 meses hasta 5 años = 60 días corridos.',
+  },
+  {
+    id: 'antiguedad_ext',
+    inciso: 'h)',
+    nombre: 'h) Por antigüedad (Art. 53)',
+    etiquetaCorta: 'Antigüedad +20 años (Art. 53)',
+    articulo: 'Art. 53',
+    modoComputo: 'corridos',
+    diasDefault: 90,
+    autoridad: 'Decreto del Poder Ejecutivo Provincial',
+    resumenNorma:
+      'Hasta 3 meses con goce íntegro de haberes, por una sola vez en la carrera policial. Requiere más de 20 años de servicio simple policial.',
+  },
+];
+
+/**
+ * Arts. 54 al 62 — Licencias Excepcionales
+ */
+export const SUBTIPOS_EXCEPCIONAL: SubtipoReglamentarioConfig[] = [
+  {
+    id: 'asuntos_personales',
+    inciso: 'a)',
+    nombre: 'a) Por asuntos personales (Arts. 56–60)',
+    etiquetaCorta: 'Asuntos Personales (Arts. 56–60)',
+    articulo: 'Arts. 56–60',
+    modoComputo: 'corridos',
+    diasDefault: 30,
+    autoridad: 'Jefatura de Policía / Poder Ejecutivo Provincial',
+    resumenNorma:
+      'Requiere mínimo 5 años de antigüedad policial (excepto causal Art. 43). Hasta 30 d.: Jefatura; 31–60 d.: Poder Ejecutivo; >2 a 6 meses: disponibilidad Art. 114 inc. c).',
+  },
+  {
+    id: 'antiguedad_retiro',
+    inciso: 'b)',
+    nombre: 'b) Por antigüedad para el retiro (Art. 61)',
+    etiquetaCorta: 'Antigüedad p/ Retiro (Art. 61)',
+    articulo: 'Art. 61',
+    modoComputo: 'corridos',
+    diasDefault: 180,
+    autoridad: 'Poder Ejecutivo Provincial',
+    resumenNorma:
+      'Hasta 6 meses con solicitud simultánea de retiro voluntario. Antigüedad mínima policial: 29 años Personal Superior o 24 años Personal Subalterno.',
+  },
+  {
+    id: 'sin_goce_haberes',
+    inciso: 'c)',
+    nombre: 'c) Razones particulares sin goce de haberes (Art. 62)',
+    etiquetaCorta: 'Sin Goce de Haberes (Art. 62)',
+    articulo: 'Art. 62',
+    modoComputo: 'corridos',
+    diasDefault: 180,
+    autoridad: 'Poder Ejecutivo Provincial',
+    resumenNorma:
+      '6 meses corridos. Requiere mínimo 5 años en servicio efectivo. Este término NO es computable para antigüedad, retiro ni ascenso.',
+  },
+];
+
+export function esPersonalSuperior(jerarquia?: string): boolean {
+  const j = (jerarquia || '').toLowerCase();
+  return (
+    j.includes('comisario') ||
+    j.includes('oficial principal') ||
+    j.includes('oficial inspector') ||
+    j.includes('oficial subinspector') ||
+    j.includes('oficial ayudante')
+  );
+}
 
 /**
  * Feriados oficiales pre-cargados (2025-2027) para el cálculo automático de días hábiles.
@@ -89,6 +416,35 @@ export function calcularAniosAntiguedad(fechaIngreso?: string, fechaRef?: string
     anios -= 1;
   }
   return Math.max(0, anios);
+}
+
+/**
+ * Calcula meses exactos de servicio desde fechaIngreso hasta fechaRef (utilizado internamente para Art. 42: mínimo 6 meses).
+ */
+export function calcularMesesAntiguedadExactos(fechaIngreso?: string, fechaRef?: string): number {
+  if (!fechaIngreso) return 0;
+  const ing = parseYmdLocal(fechaIngreso);
+  if (!ing) return 0;
+  const ref = fechaRef ? parseYmdLocal(fechaRef) : new Date();
+  if (!ref || ref < ing) return 0;
+
+  let meses = (ref.getFullYear() - ing.getFullYear()) * 12 + (ref.getMonth() - ing.getMonth());
+  if (ref.getDate() < ing.getDate()) {
+    meses -= 1;
+  }
+  return Math.max(0, meses);
+}
+
+/**
+ * Calcula la cantidad exacta de días corridos equivalentes a `meses` calendario a partir de `fechaSalida`.
+ */
+export function calcularDiasCorridosDesdeMeses(fechaSalida: string, meses: number): number {
+  const start = parseYmdLocal(fechaSalida);
+  const m = Math.max(1, Math.floor(meses));
+  if (!start) return m * 30;
+  const endExcl = new Date(start.getFullYear(), start.getMonth() + m, start.getDate());
+  const diffMs = endExcl.getTime() - start.getTime();
+  return Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
 }
 
 /**
@@ -177,7 +533,7 @@ export function formatFechaDisplay(ymd?: string): string {
 
 export interface DiaDetalleLicencia {
   fecha: string;
-  estado: 'Licencia' | 'Fin de Semana' | 'Feriado' | 'Viaje Art. 11' | 'Reanudación';
+  estado: 'Licencia' | 'Día Corrido' | 'Fin de Semana' | 'Feriado' | 'Viaje Art. 11' | 'Reanudación';
   nota?: string;
 }
 
@@ -185,6 +541,7 @@ export interface ResultadoCalculoReanudacion {
   fechaFinLicencia: string;
   fechaReanudacion: string;
   horaReanudacion: string;
+  modoComputo: 'habiles' | 'corridos';
   feriadosEnRango: FeriadoDiaNoLaborable[];
   finesDeSemanaSaltados: number;
   detalleDias: DiaDetalleLicencia[];
@@ -192,29 +549,21 @@ export interface ResultadoCalculoReanudacion {
 
 /**
  * Calcula automáticamente la fecha de finalización y reanudación (a las 08:00 hs.)
- * contando estrictamente días hábiles administrativos (lunes a viernes, excluyendo feriados/días no laborables)
- * y sumando los días adicionales por viaje/traslado terrestre (Art. 11).
- *
- * Ejemplo verificado:
- * Salida: 13/11/2026 (viernes), 7 días hábiles, 1 feriado en el rango (ej. 23/11/2026):
- * - Día 1: 13/11 (Vie)
- * - 14/11 (Sáb), 15/11 (Dom) saltados
- * - Días 2..5: 16, 17, 18, 19/11 (Lun-Jue)
- * - Día 6: 20/11 (Vie)
- * - 21/11 (Sáb), 22/11 (Dom) saltados
- * - 23/11 (Lun - Feriado Soberanía Nacional) saltado
- * - Día 7: 24/11 (Mar) -> último día de licencia
- * - Reanudación: 25/11/2026 a las 08:00 hs.
+ * - modoComputo = 'habiles' (predeterminado): Días hábiles administrativos (lunes a viernes, excluyendo feriados/días no laborables)
+ * - modoComputo = 'corridos': Días corridos calendario (incluye sábados, domingos y feriados)
+ * En ambos casos suma los días adicionales por viaje/traslado terrestre (Art. 11) si corresponde.
  */
 export function calcularFechaReanudacion(params: {
   fechaSalida: string;
   diasHabiles: number;
   diasViajeArt11?: number;
   feriados: FeriadoDiaNoLaborable[];
+  modoComputo?: 'habiles' | 'corridos';
 }): ResultadoCalculoReanudacion | null {
   const startDate = parseYmdLocal(params.fechaSalida);
-  const diasHabiles = Math.max(1, Math.floor(Number(params.diasHabiles) || 0));
+  const diasSolicitados = Math.max(1, Math.floor(Number(params.diasHabiles) || 0));
   const diasViaje = Math.max(0, Math.floor(Number(params.diasViajeArt11) || 0));
+  const modoComputo = params.modoComputo === 'corridos' ? 'corridos' : 'habiles';
   if (!startDate) return null;
 
   const feriadoMap = new Map<string, FeriadoDiaNoLaborable>();
@@ -238,32 +587,52 @@ export function calcularFechaReanudacion(params: {
   let ultimoDiaLicencia = new Date(startDate.getTime());
   let safety = 0;
 
-  while (contados < diasHabiles && safety < 1500) {
-    safety++;
-    const ymd = formatDateYmdLocal(cursor);
-    const feriado = feriadoMap.get(ymd);
-
-    if (isWeekend(cursor)) {
-      finesDeSemanaSaltados++;
-      detalleDias.push({ fecha: ymd, estado: 'Fin de Semana' });
-    } else if (feriado) {
-      feriadosEnRango.push(feriado);
-      detalleDias.push({ fecha: ymd, estado: 'Feriado', nota: feriado.nombre });
-    } else {
+  if (modoComputo === 'corridos') {
+    while (contados < diasSolicitados && safety < 2000) {
+      safety++;
       contados++;
+      const ymd = formatDateYmdLocal(cursor);
       ultimoDiaLicencia = new Date(cursor.getTime());
-      detalleDias.push({ fecha: ymd, estado: 'Licencia', nota: `Día hábil ${contados} de ${diasHabiles}` });
+      if (detalleDias.length < 400) {
+        const feriado = feriadoMap.get(ymd);
+        detalleDias.push({
+          fecha: ymd,
+          estado: 'Día Corrido',
+          nota: `Día corrido ${contados} de ${diasSolicitados}${feriado ? ` (${feriado.nombre})` : ''}`,
+        });
+      }
+      if (contados < diasSolicitados) {
+        cursor.setDate(cursor.getDate() + 1);
+      }
     }
+  } else {
+    while (contados < diasSolicitados && safety < 1500) {
+      safety++;
+      const ymd = formatDateYmdLocal(cursor);
+      const feriado = feriadoMap.get(ymd);
 
-    if (contados < diasHabiles) {
-      cursor.setDate(cursor.getDate() + 1);
+      if (isWeekend(cursor)) {
+        finesDeSemanaSaltados++;
+        detalleDias.push({ fecha: ymd, estado: 'Fin de Semana' });
+      } else if (feriado) {
+        feriadosEnRango.push(feriado);
+        detalleDias.push({ fecha: ymd, estado: 'Feriado', nota: feriado.nombre });
+      } else {
+        contados++;
+        ultimoDiaLicencia = new Date(cursor.getTime());
+        detalleDias.push({ fecha: ymd, estado: 'Licencia', nota: `Día hábil ${contados} de ${diasSolicitados}` });
+      }
+
+      if (contados < diasSolicitados) {
+        cursor.setDate(cursor.getDate() + 1);
+      }
     }
   }
 
-  // Sumar días adicionales por traslado terrestre Art. 11 (días corridos de viaje, o si cae inhábil al finalizar, reanuda siguiente hábil)
+  // Sumar días adicionales por traslado terrestre Art. 11
   let travelRemaining = diasViaje;
   let ultimoDiaEfectivo = new Date(ultimoDiaLicencia.getTime());
-  while (travelRemaining > 0 && safety < 2000) {
+  while (travelRemaining > 0 && safety < 2500) {
     safety++;
     cursor.setDate(cursor.getDate() + 1);
     const ymd = formatDateYmdLocal(cursor);
@@ -276,25 +645,33 @@ export function calcularFechaReanudacion(params: {
     });
   }
 
-  // Buscar el próximo día hábil administrativo para la reanudación de servicio (08:00 hs.)
   const reanudacion = new Date(ultimoDiaEfectivo.getTime());
   reanudacion.setDate(reanudacion.getDate() + 1);
 
-  while (safety < 2500) {
-    safety++;
-    const ymd = formatDateYmdLocal(reanudacion);
-    const feriado = feriadoMap.get(ymd);
-    if (isWeekend(reanudacion)) {
-      finesDeSemanaSaltados++;
-      detalleDias.push({ fecha: ymd, estado: 'Fin de Semana' });
-      reanudacion.setDate(reanudacion.getDate() + 1);
-    } else if (feriado) {
-      feriadosEnRango.push(feriado);
-      detalleDias.push({ fecha: ymd, estado: 'Feriado', nota: feriado.nombre });
-      reanudacion.setDate(reanudacion.getDate() + 1);
-    } else {
-      detalleDias.push({ fecha: ymd, estado: 'Reanudación', nota: 'Reintegro al servicio 08:00 hs.' });
-      break;
+  if (modoComputo === 'corridos') {
+    detalleDias.push({
+      fecha: formatDateYmdLocal(reanudacion),
+      estado: 'Reanudación',
+      nota: 'Reintegro al servicio 08:00 hs.',
+    });
+  } else {
+    // En días hábiles administrativos, la reanudación pasa al siguiente día hábil
+    while (safety < 3000) {
+      safety++;
+      const ymd = formatDateYmdLocal(reanudacion);
+      const feriado = feriadoMap.get(ymd);
+      if (isWeekend(reanudacion)) {
+        finesDeSemanaSaltados++;
+        detalleDias.push({ fecha: ymd, estado: 'Fin de Semana' });
+        reanudacion.setDate(reanudacion.getDate() + 1);
+      } else if (feriado) {
+        feriadosEnRango.push(feriado);
+        detalleDias.push({ fecha: ymd, estado: 'Feriado', nota: feriado.nombre });
+        reanudacion.setDate(reanudacion.getDate() + 1);
+      } else {
+        detalleDias.push({ fecha: ymd, estado: 'Reanudación', nota: 'Reintegro al servicio 08:00 hs.' });
+        break;
+      }
     }
   }
 
@@ -302,6 +679,7 @@ export function calcularFechaReanudacion(params: {
     fechaFinLicencia: formatDateYmdLocal(ultimoDiaEfectivo),
     fechaReanudacion: formatDateYmdLocal(reanudacion),
     horaReanudacion: '08:00',
+    modoComputo,
     feriadosEnRango,
     finesDeSemanaSaltados,
     detalleDias,
@@ -475,9 +853,12 @@ export function getLicenciaActivaPersonal(
   });
 
   if (licenciaVigente) {
+    const tipoLabel = licenciaVigente.subtipoEtiqueta
+      ? `${licenciaVigente.tipoLicencia}: ${licenciaVigente.subtipoEtiqueta}`
+      : licenciaVigente.tipoLicencia;
     return {
       enLicencia: true,
-      tipoLicencia: licenciaVigente.tipoLicencia,
+      tipoLicencia: tipoLabel,
       fechaSalida: licenciaVigente.fechaSalida,
       fechaFinLicencia: licenciaVigente.fechaFinLicencia,
       fechaReanudacion: licenciaVigente.fechaReanudacion,

@@ -31,6 +31,7 @@ import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { CharlaModal, formatFechaDDMMAAAA } from './CharlaModal';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 
 interface CharlasPrevencionViewProps {
@@ -67,6 +68,10 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<string>('todos');
   const [filtroMes, setFiltroMes] = useState<string>('todos');
+  const [filtroLocalidad, setFiltroLocalidad] = useState<string>('todas');
+  const [filtroDisertante, setFiltroDisertante] = useState<string>('todos');
+  const [fechaDesde, setFechaDesde] = useState<string>('');
+  const [fechaHasta, setFechaHasta] = useState<string>('');
   const [soloProximas, setSoloProximas] = useState<boolean>(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -117,12 +122,32 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
     return { total, programadas, realizadas, proximas: charlasProximas.length, hoyCount };
   }, [charlasList, charlasProximas]);
 
+  const localidadesDisponibles = useMemo(() => {
+    const set = new Set<string>();
+    charlasList.forEach((c) => {
+      if (c.localidad?.trim()) set.add(c.localidad.trim());
+    });
+    return Array.from(set).sort();
+  }, [charlasList]);
+
+  const disertantesDisponibles = useMemo(() => {
+    const set = new Set<string>();
+    charlasList.forEach((c) => {
+      if (c.disertanteNombre?.trim()) set.add(c.disertanteNombre.trim());
+    });
+    return Array.from(set).sort();
+  }, [charlasList]);
+
   const filteredCharlas = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return charlasList
       .filter((c) => {
         if (filtroEstado !== 'todos' && c.estado !== filtroEstado) return false;
         if (filtroMes !== 'todos' && !c.fecha.startsWith(filtroMes)) return false;
+        if (filtroLocalidad !== 'todas' && c.localidad !== filtroLocalidad) return false;
+        if (filtroDisertante !== 'todos' && c.disertanteNombre !== filtroDisertante) return false;
+        if (fechaDesde && c.fecha < fechaDesde) return false;
+        if (fechaHasta && c.fecha > fechaHasta) return false;
         if (soloProximas) {
           const diff = getDiasHastaCharla(c.fecha);
           if (diff < 0 || diff > 7 || c.estado === 'Realizada' || c.estado === 'Suspendida') {
@@ -142,7 +167,31 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
         return true;
       })
       .sort((a, b) => `${b.fecha} ${b.hora}`.localeCompare(`${a.fecha} ${a.hora}`));
-  }, [charlasList, filtroEstado, filtroMes, soloProximas, searchTerm]);
+  }, [charlasList, filtroEstado, filtroMes, filtroLocalidad, filtroDisertante, fechaDesde, fechaHasta, soloProximas, searchTerm]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroEstado !== 'todos') count++;
+    if (filtroMes !== 'todos') count++;
+    if (filtroLocalidad !== 'todas') count++;
+    if (filtroDisertante !== 'todos') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    if (soloProximas) count++;
+    return count;
+  }, [searchTerm, filtroEstado, filtroMes, filtroLocalidad, filtroDisertante, fechaDesde, fechaHasta, soloProximas]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroEstado('todos');
+    setFiltroMes('todos');
+    setFiltroLocalidad('todas');
+    setFiltroDisertante('todos');
+    setFechaDesde('');
+    setFechaHasta('');
+    setSoloProximas(false);
+  };
 
   const handleExportPdf = () => {
     requestPdfExport({
@@ -324,54 +373,111 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
         </div>
       )}
 
-      {/* Barra de Búsqueda y Filtros */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por tema, institución, localidad, disertante o fecha (DD/MM/AAAA)..."
-            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
-          />
+      {/* Barra de Búsqueda y Filtros Plegable */}
+      <CollapsibleFilterBar
+        title="Filtros de Búsqueda de Charlas y Prevención"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span>
+            Mostrando <strong>{filteredCharlas.length}</strong> de {charlasList.length} jornadas
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs items-center">
+          <div className="relative lg:col-span-2">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar por tema, institución, localidad, disertante o fecha (DD/MM/AAAA)..."
+              className="w-full pl-8 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600"
+            />
+          </div>
+
+          <select
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+            className="px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700 text-xs"
+          >
+            <option value="todos">Todos los estados</option>
+            <option value="Programada">Programada</option>
+            <option value="Reprogramada">Reprogramada</option>
+            <option value="Realizada">Realizada</option>
+            <option value="Suspendida">Suspendida</option>
+          </select>
+
+          <select
+            value={filtroMes}
+            onChange={(e) => setFiltroMes(e.target.value)}
+            className="px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700 text-xs"
+          >
+            <option value="todos">Todos los meses</option>
+            {mesesDisponibles.map((m) => (
+              <option key={m} value={m}>
+                {m.split('-').reverse().join('/')}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroLocalidad}
+            onChange={(e) => setFiltroLocalidad(e.target.value)}
+            className="px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700 text-xs"
+          >
+            <option value="todas">Todas las localidades</option>
+            {localidadesDisponibles.map((loc) => (
+              <option key={loc} value={loc}>
+                {loc}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroDisertante}
+            onChange={(e) => setFiltroDisertante(e.target.value)}
+            className="px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700 text-xs"
+          >
+            <option value="todos">Todos los disertantes</option>
+            {disertantesDisponibles.map((dis) => (
+              <option key={dis} value={dis}>
+                {dis}
+              </option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold text-slate-600 shrink-0">Desde:</span>
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold text-slate-600 shrink-0">Hasta:</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+            />
+          </div>
+
+          <label className="inline-flex items-center gap-1.5 font-medium text-slate-700 cursor-pointer select-none lg:col-span-4">
+            <input
+              type="checkbox"
+              checked={soloProximas}
+              onChange={(e) => setSoloProximas(e.target.checked)}
+              className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+            />
+            <span>Solo próximos 7 días</span>
+          </label>
         </div>
-
-        <select
-          value={filtroEstado}
-          onChange={(e) => setFiltroEstado(e.target.value)}
-          className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700 text-xs"
-        >
-          <option value="todos">Todos los estados</option>
-          <option value="Programada">Programada</option>
-          <option value="Reprogramada">Reprogramada</option>
-          <option value="Realizada">Realizada</option>
-          <option value="Suspendida">Suspendida</option>
-        </select>
-
-        <select
-          value={filtroMes}
-          onChange={(e) => setFiltroMes(e.target.value)}
-          className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700 text-xs"
-        >
-          <option value="todos">Todos los meses</option>
-          {mesesDisponibles.map((m) => (
-            <option key={m} value={m}>
-              {m.split('-').reverse().join('/')}
-            </option>
-          ))}
-        </select>
-
-        <label className="inline-flex items-center gap-1.5 font-medium text-slate-700 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={soloProximas}
-            onChange={(e) => setSoloProximas(e.target.checked)}
-            className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
-          />
-          <span>Solo próximos 7 días</span>
-        </label>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Tabla / Listado Principal */}
       {filteredCharlas.length === 0 ? (

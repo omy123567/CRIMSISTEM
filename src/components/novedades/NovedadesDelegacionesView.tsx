@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 
 interface NovedadesDelegacionesViewProps {
@@ -59,6 +60,11 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
 
   // Filtros de visualización
   const [filtroPrioridad, setFiltroPrioridad] = useState<string>('todas');
+  const [filtroOrigen, setFiltroOrigen] = useState<string>('todas');
+  const [filtroDestino, setFiltroDestino] = useState<string>('todas');
+  const [filtroTipoAviso, setFiltroTipoAviso] = useState<string>('todos');
+  const [fechaDesde, setFechaDesde] = useState<string>('');
+  const [fechaHasta, setFechaHasta] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   // Confirmación de eliminación
@@ -159,12 +165,49 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
         // Prioridad
         if (filtroPrioridad !== 'todas' && n.prioridad !== filtroPrioridad) return false;
 
+        // Origen
+        if (filtroOrigen !== 'todas' && n.origenDelegacionId !== filtroOrigen) return false;
+
+        // Destino
+        const targetId = n.destinoDelegacionId || n.destinatarioDelegacionId;
+        if (filtroDestino !== 'todas' && targetId !== filtroDestino) return false;
+
+        // Tipo de aviso
+        if (filtroTipoAviso !== 'todos' && (n.tipo || 'comunicado') !== filtroTipoAviso) return false;
+
+        // Rango de fechas
+        const fechaYmd = (n.fechaHora || n.createdAt || '').slice(0, 10);
+        if (fechaDesde && (!fechaYmd || fechaYmd < fechaDesde)) return false;
+        if (fechaHasta && (!fechaYmd || fechaYmd > fechaHasta)) return false;
+
         return true;
       })
       .sort((a, b) =>
         (b.fechaHora || b.createdAt || '').localeCompare(a.fechaHora || a.createdAt || '')
       );
-  }, [novedadesList, searchTerm, filtroPrioridad]);
+  }, [novedadesList, searchTerm, filtroPrioridad, filtroOrigen, filtroDestino, filtroTipoAviso, fechaDesde, fechaHasta]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroPrioridad !== 'todas') count++;
+    if (filtroOrigen !== 'todas') count++;
+    if (filtroDestino !== 'todas') count++;
+    if (filtroTipoAviso !== 'todos') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    return count;
+  }, [searchTerm, filtroPrioridad, filtroOrigen, filtroDestino, filtroTipoAviso, fechaDesde, fechaHasta]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroPrioridad('todas');
+    setFiltroOrigen('todas');
+    setFiltroDestino('todas');
+    setFiltroTipoAviso('todos');
+    setFechaDesde('');
+    setFechaHasta('');
+  };
 
   const getPrioridadBadge = (prio: PrioridadNovedad) => {
     switch (prio) {
@@ -413,34 +456,99 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
 
         {/* Tablero / Feed de Novedades */}
         <div className="lg:col-span-7 space-y-3">
-          {/* Barra de Filtros del Feed */}
-          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs">
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar novedades..."
-                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-              />
-            </div>
+          {/* Barra de Filtros del Feed Plegable */}
+          <CollapsibleFilterBar
+            title="Filtros de Novedades y Comunicaciones"
+            activeFiltersCount={activeFiltersCount}
+            onClear={handleClearFilters}
+            summaryRight={
+              <span>
+                Mostrando <strong>{filteredNovedades.length}</strong> de {novedadesList.length} avisos
+              </span>
+            }
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs">
+              <div className="relative sm:col-span-2">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar por mensaje, emisor o delegación..."
+                  className="w-full pl-8 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-xs"
+                />
+              </div>
 
-            <div className="flex items-center gap-1.5 self-end sm:self-auto">
-              <span className="text-slate-500 font-medium">Prioridad:</span>
               <select
                 value={filtroPrioridad}
                 onChange={(e) => setFiltroPrioridad(e.target.value)}
-                className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-semibold text-slate-700 text-xs"
+                className="px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-semibold text-slate-700 text-xs"
               >
-                <option value="todas">Todas</option>
+                <option value="todas">Todas las Prioridades</option>
                 <option value="Urgente">Urgente</option>
                 <option value="Alta">Alta</option>
                 <option value="Normal">Normal</option>
                 <option value="Informativa">Informativa</option>
               </select>
+
+              <select
+                value={filtroOrigen}
+                onChange={(e) => setFiltroOrigen(e.target.value)}
+                className="px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700 text-xs"
+              >
+                <option value="todas">Origen: Todas las Delegaciones</option>
+                {delegacionesList.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    De: {d.siglas || d.ciudad}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filtroDestino}
+                onChange={(e) => setFiltroDestino(e.target.value)}
+                className="px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700 text-xs"
+              >
+                <option value="todas">Destino: Todos</option>
+                <option value="TODAS">General (Todas las Delegaciones)</option>
+                {delegacionesList.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    Para: {d.siglas || d.ciudad}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filtroTipoAviso}
+                onChange={(e) => setFiltroTipoAviso(e.target.value)}
+                className="px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700 text-xs"
+              >
+                <option value="todos">Tipo: Todos</option>
+                <option value="comunicado">Comunicado Operativo</option>
+                <option value="traslado_personal">Traslado de Personal</option>
+              </select>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold text-slate-600 shrink-0">Desde:</span>
+                <input
+                  type="date"
+                  value={fechaDesde}
+                  onChange={(e) => setFechaDesde(e.target.value)}
+                  className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold text-slate-600 shrink-0">Hasta:</span>
+                <input
+                  type="date"
+                  value={fechaHasta}
+                  onChange={(e) => setFechaHasta(e.target.value)}
+                  className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                />
+              </div>
             </div>
-          </div>
+          </CollapsibleFilterBar>
 
           {/* Listado de Tarjetas */}
           {filteredNovedades.length === 0 ? (

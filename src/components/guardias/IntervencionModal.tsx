@@ -41,11 +41,14 @@ import {
 } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { generarLaborCriminalisticaConIA } from '../../services/aiCriminalisticaService';
+import { getNextCorrelativoIntervencion } from '../../utils/numeracionUtils';
 
 interface IntervencionModalProps {
   intervencion?: IntervencionParte | null;
   tipoForzado?: TipoIntervencion | null;
   siguienteCorrelativo: number;
+  siguienteCorrelativoLC?: number;
+  siguienteCorrelativoAcc?: number;
   añoActual: number;
   parteId: string;
   config: ConfiguracionSistema;
@@ -64,6 +67,8 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
   intervencion,
   tipoForzado,
   siguienteCorrelativo,
+  siguienteCorrelativoLC,
+  siguienteCorrelativoAcc,
   añoActual,
   parteId,
   config,
@@ -82,6 +87,27 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
     ? intervencion.tipoIntervencion
     : (tipoForzado || 'Criminalística');
   const isTypeLocked = Boolean(tipoForzado || isEditing);
+
+  const correlativoPorTipo = useMemo(() => {
+    const lc =
+      siguienteCorrelativoLC ??
+      getNextCorrelativoIntervencion({
+        tipo: 'Criminalística',
+        partesGuardia: partesList,
+        config,
+      });
+    const acc =
+      siguienteCorrelativoAcc ??
+      getNextCorrelativoIntervencion({
+        tipo: 'Accidentológica',
+        partesGuardia: partesList,
+        config,
+      });
+    return {
+      Criminalística: tipoEfectivo === 'Criminalística' ? Math.max(siguienteCorrelativo, lc) : lc,
+      Accidentológica: tipoEfectivo === 'Accidentológica' ? Math.max(siguienteCorrelativo, acc) : acc,
+    };
+  }, [siguienteCorrelativo, siguienteCorrelativoLC, siguienteCorrelativoAcc, tipoEfectivo, partesList, config]);
 
   // Privilegios para modificar el código correlativo generado
   const esPrivilegiado = useMemo(() => {
@@ -160,8 +186,33 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
   }, [partesList]);
 
   const [formData, setFormData] = useState<IntervencionParte>(() => {
-    if (intervencion) return { ...intervencion };
-    const correlativo = siguienteCorrelativo;
+    if (intervencion) {
+      const baseInvs = [...(intervencion.involucrados || [])];
+      if (
+        intervencion.involucraPersonalPolicial &&
+        intervencion.personalPolicial &&
+        !baseInvs.some((i) => i.esPersonalPolicial)
+      ) {
+        baseInvs.push({
+          id: 'inv-pol-legacy-' + Date.now(),
+          apellidoYNombre: intervencion.personalPolicial.apellidoYNombre || 'Sin Consignar',
+          dni: intervencion.personalPolicial.dni || '',
+          edad: 'Mayor',
+          condicion: intervencion.personalPolicial.rol || 'Personal Policial',
+          funcionEnHecho: intervencion.personalPolicial.rol || 'Personal Policial',
+          tipoLesion: (intervencion.personalPolicial.tipoLesion as TipoLesionPolicial) || 'Sin Lesiones',
+          esPersonalPolicial: true,
+          jerarquia: intervencion.personalPolicial.jerarquia,
+          plaza: intervencion.personalPolicial.plaza,
+          destino: intervencion.personalPolicial.destino || intervencion.personalPolicial.dependenciaRevista,
+        });
+      }
+      return { ...intervencion, involucrados: baseInvs };
+    }
+    const correlativo =
+      tipoEfectivo === 'Accidentológica'
+        ? correlativoPorTipo.Accidentológica
+        : correlativoPorTipo.Criminalística;
     const siglas = config.siglasDependencia || 'DPC';
     const isVial = tipoEfectivo === 'Accidentológica';
 
@@ -227,7 +278,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
       personalTecnico: {
         peritoAuxiliar: peritoDefault,
         choferFotografo: choferDefault,
-        auxiliar: auxiliarDefault,
+        auxiliar: '',
       },
       vehiculosSiniestro: defaultVehiculos,
       sintesisHecho: '',
@@ -257,8 +308,11 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
   // Estados de búsqueda y mensajes
   const [msgPersonaEncontrada, setMsgPersonaEncontrada] = useState<string | null>(null);
   const [msgVehiculoEncontrado, setMsgVehiculoEncontrado] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [otroGrupoRolDestino, setOtroGrupoRolDestino] = useState<'peritoAuxiliar' | 'choferFotografo'>('peritoAuxiliar');
+  const [otroGrupoFiltroId, setOtroGrupoFiltroId] = useState<string>('todos');
 
-  // Estados de nuevo Involucrado con lesiones estrictas, asistencia médica y condición policial
+  // Estados de nuevo Involucrado con lesiones estrictas, fallecido, asistencia médica y condición policial
   const [nuevoInv, setNuevoInv] = useState<{
     apellidoYNombre: string;
     dni: string;
@@ -268,6 +322,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
     domicilio: string;
     telefono: string;
     tipoLesion: TipoLesionPolicial;
+    fallecido: boolean;
     asistenciaMedica: TipoAsistenciaMedica;
     nosocomioDestino: string;
     esPersonalPolicial: boolean;
@@ -285,6 +340,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
     domicilio: '',
     telefono: '',
     tipoLesion: 'Sin Lesiones',
+    fallecido: false,
     asistenciaMedica: 'Asistido en el lugar',
     nosocomioDestino: '',
     esPersonalPolicial: false,
@@ -365,13 +421,18 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
     'Otro',
   ];
 
-  // Si cambia el tipo entre Criminalística y Accidentológica
+  // Si cambia el tipo entre Criminalística y Accidentológica (numeraciones independientes)
   const handleCambioTipo = (tipo: TipoIntervencion) => {
     if (isTypeLocked && tipo !== tipoEfectivo) return;
     const siglas = config.siglasDependencia || 'DPC';
+    const correlativoIndep = isEditing
+      ? formData.nroCorrelativo
+      : tipo === 'Accidentológica'
+      ? correlativoPorTipo.Accidentológica
+      : correlativoPorTipo.Criminalística;
     const nuevoCodigo = tipo === 'Accidentológica'
-      ? `INTERVENCIÓN ACCIDENTOLÓGICA Nº    ${formData.nroCorrelativo}    /${añoActual}-${siglas}.`
-      : `INTERVENCIÓN CRIMINALÍSTICA Nº    ${formData.nroCorrelativo}    /${añoActual}-${siglas}.`;
+      ? `INTERVENCIÓN ACCIDENTOLÓGICA Nº    ${correlativoIndep}    /${añoActual}-${siglas}.`
+      : `INTERVENCIÓN CRIMINALÍSTICA Nº    ${correlativoIndep}    /${añoActual}-${siglas}.`;
 
     const nuevoHecho = tipo === 'Accidentológica'
       ? 'CONSTATACIÓN RELACIONADO A SINIESTRO VIAL'
@@ -404,6 +465,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
     setFormData((prev) => ({
       ...prev,
       tipoIntervencion: tipo,
+      nroCorrelativo: correlativoIndep,
       codigoIntervencion: nuevoCodigo,
       hecho: nuevoHecho,
       vehiculosSiniestro: nuevosVehiculos,
@@ -484,7 +546,6 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
         onSaveConfig({ ...config, tiposLesionCatalogo: updated });
       }
     }
-    setFormData((prev) => ({ ...prev, tipoLesionesLC: texto }));
     setNuevoInv((prev) => ({ ...prev, tipoLesion: texto as any }));
     setNuevoTipoLesionTexto('');
     setMostrarNuevoTipoLesionInput(false);
@@ -492,9 +553,20 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
 
   // Agregar involucrado a la intervención
   const handleAddInvolucrado = () => {
-    if (!nuevoInv.apellidoYNombre.trim()) return;
+    setFormError(null);
+    if (!nuevoInv.apellidoYNombre.trim()) {
+      setFormError('Debe completar el Apellido y Nombre de la persona involucrada antes de agregarla.');
+      return;
+    }
     const esPol = Boolean(nuevoInv.esPersonalPolicial);
-    const cond = esPol ? (nuevoInv.condicion || 'Personal Policial') : (nuevoInv.condicion || nuevoInv.funcionEnHecho || 'Demorado / Aprehendido');
+    if (esPol && (!nuevoInv.jerarquia?.trim() || !nuevoInv.plaza?.trim())) {
+      setFormError('Para Efectivo Policial involucrado debe completar Jerarquía y Plaza / Carnet Policial.');
+      return;
+    }
+
+    const cond = esPol
+      ? (nuevoInv.condicion || 'Personal Policial')
+      : (nuevoInv.condicion || nuevoInv.funcionEnHecho || 'Demorado / Aprehendido');
     const nuevo: InvolucradoIntervencion = {
       id: 'inv-' + Date.now(),
       apellidoYNombre: nuevoInv.apellidoYNombre.trim().toUpperCase(),
@@ -505,6 +577,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
       domicilio: nuevoInv.domicilio,
       telefono: nuevoInv.telefono,
       tipoLesion: nuevoInv.tipoLesion,
+      fallecido: Boolean(nuevoInv.fallecido),
       asistenciaMedica: nuevoInv.tipoLesion !== 'Sin Lesiones' ? nuevoInv.asistenciaMedica : undefined,
       nosocomioDestino:
         nuevoInv.tipoLesion !== 'Sin Lesiones' && nuevoInv.asistenciaMedica === 'Trasladado a nosocomio'
@@ -520,25 +593,28 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
 
     setFormData((prev) => {
       const updatedInvs = [...prev.involucrados, nuevo];
-      const hasPoliceInvolucrado = updatedInvs.some((i) => i.esPersonalPolicial) || prev.involucraPersonalPolicial;
-      const policeData = esPol
+      const polInvs = updatedInvs.filter((i) => i.esPersonalPolicial);
+      const hasPoliceInvolucrado = polInvs.length > 0;
+      const firstPol = polInvs[0];
+      const policeData = firstPol
         ? {
-            jerarquia: nuevoInv.jerarquia || config.jerarquias[0] || 'Oficial',
-            plaza: nuevoInv.plaza || 'S/D',
-            apellidoYNombre: nuevoInv.apellidoYNombre.trim().toUpperCase(),
-            dni: nuevoInv.dni.trim(),
-            rol: cond,
-            destino: nuevoInv.destino || config.destinosPoliciales?.[0] || config.dependencia || 'División Policía Científica',
-            tipoLesion: nuevoInv.tipoLesion || 'Sin Lesiones',
+            jerarquia: firstPol.jerarquia || config.jerarquias[0] || 'Oficial',
+            plaza: firstPol.plaza || 'S/D',
+            apellidoYNombre: firstPol.apellidoYNombre,
+            dni: firstPol.dni,
+            rol: firstPol.condicion || firstPol.funcionEnHecho || 'Personal Policial',
+            destino: firstPol.destino || config.destinosPoliciales?.[0] || config.dependencia || 'División Policía Científica',
+            dependenciaRevista: firstPol.destino || '',
+            tipoLesion: firstPol.tipoLesion || 'Sin Lesiones',
             tipoRodado: '',
           }
-        : prev.personalPolicial;
+        : undefined;
 
       return {
         ...prev,
         involucrados: updatedInvs,
         involucraPersonalPolicial: hasPoliceInvolucrado,
-        personalPolicial: policeData || prev.personalPolicial,
+        personalPolicial: policeData,
       };
     });
 
@@ -551,6 +627,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
       domicilio: '',
       telefono: '',
       tipoLesion: 'Sin Lesiones',
+      fallecido: false,
       asistenciaMedica: 'Asistido en el lugar',
       nosocomioDestino: '',
       esPersonalPolicial: false,
@@ -630,29 +707,43 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!formData.inspeccionLugar.trim()) {
-      alert('Indique el lugar donde ocurrió la inspección ocular');
+      setFormError('Indique el lugar donde ocurrió la inspección ocular.');
       return;
-    }
-    if (formData.involucraPersonalPolicial) {
-      if (
-        !formData.personalPolicial?.apellidoYNombre?.trim() ||
-        !formData.personalPolicial?.plaza?.trim() ||
-        !formData.personalPolicial?.jerarquia?.trim()
-      ) {
-        alert(
-          'Al indicar que el hecho involucra Personal Policial, es obligatorio especificar Jerarquía, Plaza, y Apellido y Nombre.'
-        );
-        return;
-      }
     }
 
     if (isReadOnly) {
-      alert('Actuación pericial bloqueada: Las intervenciones ya cargadas no pueden modificarse salvo que cuente con el permiso específico asignado.');
+      setFormError('Actuación pericial bloqueada: Las intervenciones ya cargadas no pueden modificarse salvo que cuente con el permiso específico asignado.');
       return;
     }
 
-    onSave(formData);
+    // Derivar automáticamente estadística de Personal Policial Involucrado desde DEMORADO / PERSONAS INVOLUCRADAS
+    const polInvs = formData.involucrados.filter((i) => i.esPersonalPolicial);
+    const firstPol = polInvs[0];
+    const finalPayload: IntervencionParte = {
+      ...formData,
+      involucraPersonalPolicial: polInvs.length > 0,
+      personalPolicial: firstPol
+        ? {
+            jerarquia: firstPol.jerarquia || config.jerarquias[0] || 'Oficial',
+            plaza: firstPol.plaza || 'S/D',
+            apellidoYNombre: firstPol.apellidoYNombre,
+            dni: firstPol.dni,
+            rol: firstPol.condicion || firstPol.funcionEnHecho || 'Personal Policial',
+            destino: firstPol.destino || '',
+            dependenciaRevista: firstPol.destino || '',
+            tipoLesion: firstPol.tipoLesion || 'Sin Lesiones',
+          }
+        : undefined,
+      personalTecnico: {
+        peritoAuxiliar: formData.personalTecnico.peritoAuxiliar,
+        choferFotografo: formData.personalTecnico.choferFotografo,
+        auxiliar: '',
+      },
+    };
+
+    onSave(finalPayload);
   };
 
   return (
@@ -684,6 +775,13 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
+          {formError && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-300 text-red-900 flex items-center gap-2 font-semibold">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
+
           {/* Banner si la intervención está bloqueada en modo solo consulta */}
           {isReadOnly && (
             <div className="bg-amber-50 border border-amber-300 p-3 rounded-xl flex items-center gap-2.5 text-amber-950 font-semibold text-xs shadow-2xs">
@@ -775,7 +873,17 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
               required
               readOnly={!esPrivilegiado}
               value={formData.codigoIntervencion}
-              onChange={(e) => setFormData({ ...formData, codigoIntervencion: e.target.value })}
+              onChange={(e) => {
+                const val = e.target.value;
+                const beforeSlash = val.split('/')[0] || '';
+                const nums = beforeSlash.match(/\d+/g);
+                const parsedNum = nums && nums.length > 0 ? parseInt(nums[nums.length - 1], 10) : formData.nroCorrelativo;
+                setFormData({
+                  ...formData,
+                  codigoIntervencion: val,
+                  nroCorrelativo: Number.isFinite(parsedNum) && parsedNum > 0 ? parsedNum : formData.nroCorrelativo,
+                });
+              }}
               className={`w-full px-3 py-2 rounded-lg font-mono font-bold text-xs border ${
                 esPrivilegiado
                   ? 'border-blue-400 bg-white text-blue-950 focus:ring-2 focus:ring-blue-500'
@@ -783,79 +891,6 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
               }`}
             />
           </div>
-
-          {/* Labor Criminalística (LC - Hechos no de Tránsito): Tipo de Lesiones con Checkbox */}
-          {formData.tipoIntervencion === 'Criminalística' && (
-            <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-slate-800 select-none">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(formData.presentaLesionesLC)}
-                    onChange={(e) => setFormData({ ...formData, presentaLesionesLC: e.target.checked })}
-                    className="w-4 h-4 text-red-600 rounded border-slate-300 focus:ring-red-500 cursor-pointer"
-                  />
-                  <Activity className="w-4 h-4 text-red-600" />
-                  <span>¿Presenta / Registrar Tipo de Lesiones en la Víctima / Demorado?</span>
-                </label>
-                {formData.presentaLesionesLC && (
-                  <button
-                    type="button"
-                    onClick={() => setMostrarNuevoTipoLesionInput(!mostrarNuevoTipoLesionInput)}
-                    className="text-[11px] text-blue-700 hover:text-blue-900 font-semibold cursor-pointer"
-                  >
-                    {mostrarNuevoTipoLesionInput ? 'Cancelar' : '+ Nuevo Tipo de Lesión'}
-                  </button>
-                )}
-              </div>
-
-              {formData.presentaLesionesLC && mostrarNuevoTipoLesionInput && (
-                <div className="flex gap-1.5 p-2 bg-red-50/60 rounded-lg border border-red-200 animate-in fade-in">
-                  <input
-                    type="text"
-                    value={nuevoTipoLesionTexto}
-                    onChange={(e) => setNuevoTipoLesionTexto(e.target.value)}
-                    placeholder="Nuevo tipo de lesión..."
-                    className="flex-1 px-2.5 py-1 text-xs border border-red-300 rounded bg-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleGuardarNuevoTipoLesion}
-                    className="bg-red-800 text-white px-3 py-1 rounded font-bold text-xs cursor-pointer hover:bg-red-900"
-                  >
-                    Guardar
-                  </button>
-                </div>
-              )}
-
-              {formData.presentaLesionesLC && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1.5 border-t border-slate-100 animate-in fade-in">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Tipo de Lesión (Normado)</label>
-                    <select
-                      value={formData.tipoLesionesLC || 'Leves'}
-                      onChange={(e) => setFormData({ ...formData, tipoLesionesLC: e.target.value })}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-semibold text-red-950"
-                    >
-                      {(config.tiposLesionCatalogo || ['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'Óbito']).map((tl) => (
-                        <option key={tl} value={tl}>{tl}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Detalle / Diagnóstico Médico de Lesiones</label>
-                    <input
-                      type="text"
-                      value={formData.detalleLesionesLC || ''}
-                      onChange={(e) => setFormData({ ...formData, detalleLesionesLC: e.target.value })}
-                      placeholder="Ej. Escoriaciones en rostro, TEC sin pérdida de conocimiento..."
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Fila 1: HECHO (Configurable / Catálogo) con opción de selección o agregado en línea */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1085,200 +1120,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
             </div>
           </div>
 
-          {/* HECHO CON PERSONAL POLICIAL INVOLUCRADO */}
-          <div className="p-3.5 rounded-xl border border-amber-300 bg-amber-50/70 space-y-2.5 shadow-2xs">
-            <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-950">
-              <input
-                type="checkbox"
-                checked={formData.involucraPersonalPolicial || false}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setFormData({
-                    ...formData,
-                    involucraPersonalPolicial: checked,
-                    personalPolicial: checked
-                      ? formData.personalPolicial || {
-                          jerarquia: config.jerarquias[0] || 'Oficial Subinspector',
-                          plaza: '',
-                          apellidoYNombre: '',
-                          rol: 'Imputado',
-                          dependenciaRevista: '',
-                        }
-                      : undefined,
-                  });
-                }}
-                className="w-4 h-4 text-amber-600 rounded"
-              />
-              <span className="flex items-center gap-1.5 text-xs">
-                <ShieldAlert className="w-4 h-4 text-amber-700" />
-                <span>¿Es un hecho con Personal Policial involucrado?</span>
-              </span>
-            </label>
-
-            {formData.involucraPersonalPolicial && (
-              <div className="p-3 bg-white rounded-lg border border-amber-200 space-y-3">
-                <div className="text-[11px] text-amber-900 font-medium">
-                  Indique los datos obligatorios del efectivo policial (Jerarquía, Plaza, Apellido y Nombre):
-                </div>
-
-                {personalList.length > 0 && (
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Seleccionar desde Nómina Policial (Opcional para autocompletar):
-                    </label>
-                    <select
-                      onChange={(e) => {
-                        const p = personalList.find((item) => item.id === e.target.value);
-                        if (p) {
-                          setFormData({
-                            ...formData,
-                            personalPolicial: {
-                              ...formData.personalPolicial,
-                              jerarquia: p.jerarquia,
-                              plaza: p.plaza || '',
-                              apellidoYNombre: p.apellidoYNombre,
-                              dni: p.dni,
-                              rol: formData.personalPolicial?.rol || 'Imputado',
-                              dependenciaRevista: p.seccionGrupo || '',
-                            },
-                          });
-                        }
-                      }}
-                      className="w-full text-xs px-2.5 py-1.5 rounded border border-slate-300 bg-slate-50"
-                    >
-                      <option value="">-- Seleccionar efectivo de la nómina --</option>
-                      {personalList.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.jerarquia} {p.apellidoYNombre} (Plaza: {p.plaza || 's/p'}) - DNI {p.dni}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Jerarquía *</label>
-                    <select
-                      value={formData.personalPolicial?.jerarquia || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          personalPolicial: {
-                            ...formData.personalPolicial!,
-                            jerarquia: e.target.value,
-                          },
-                        })
-                      }
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white"
-                    >
-                      {config.jerarquias.map((j) => (
-                        <option key={j} value={j}>{j}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Plaza N° *</label>
-                    <input
-                      type="text"
-                      required={formData.involucraPersonalPolicial}
-                      value={formData.personalPolicial?.plaza || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          personalPolicial: {
-                            ...formData.personalPolicial!,
-                            plaza: e.target.value,
-                          },
-                        })
-                      }
-                      placeholder="Ej. 1420"
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Apellido y Nombre *</label>
-                    <input
-                      type="text"
-                      required={formData.involucraPersonalPolicial}
-                      value={formData.personalPolicial?.apellidoYNombre || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          personalPolicial: {
-                            ...formData.personalPolicial!,
-                            apellidoYNombre: e.target.value,
-                          },
-                        })
-                      }
-                      placeholder="Ej. Gómez, Ramón Eduardo"
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 font-bold"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Condición / Rol en el Hecho</label>
-                    <input
-                      type="text"
-                      list="lista-condiciones-policiales-int"
-                      value={formData.personalPolicial?.rol || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          personalPolicial: {
-                            ...formData.personalPolicial!,
-                            rol: e.target.value,
-                          },
-                        })
-                      }
-                      placeholder="Seleccione o escriba condición..."
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-semibold text-slate-800"
-                    />
-                    <datalist id="lista-condiciones-policiales-int">
-                      <option value="Imputado" />
-                      <option value="Damnificado / Víctima" />
-                      <option value="Aprehendido / Demorado" />
-                      <option value="Conductor Siniestro" />
-                      <option value="Acompañante" />
-                      <option value="Testigo" />
-                      <option value="Denunciante" />
-                      <option value="Involucrado" />
-                      <option value="Sumariado Administrativo" />
-                      <option value="Franco de Servicio" />
-                      <option value="En Acto de Servicio" />
-                      <option value="Personal en Disponibilidad / Pasiva" />
-                      <option value="Personal Retirado" />
-                    </datalist>
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Dependencia de Revista</label>
-                    <input
-                      type="text"
-                      value={formData.personalPolicial?.dependenciaRevista || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          personalPolicial: {
-                            ...formData.personalPolicial!,
-                            dependenciaRevista: e.target.value,
-                          },
-                        })
-                      }
-                      placeholder="Ej. Comisaría Laguna Blanca / Comando"
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* DEMORADO / PERSONAS INVOLUCRADAS (Con selección de CONDICIÓN prepargada) */}
+          {/* DEMORADO / PERSONAS INVOLUCRADAS (Incluye personal policial involucrado para estadísticas) */}
           <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-900 block">
@@ -1517,28 +1359,28 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                 </div>
               )}
 
-              {/* Fila 1: DNI con botón Buscar en Registros, Apellido y Nombre, Edad, Condición */}
+              {/* Fila 1: DNI con botón Buscar en Registros sin solapamiento, Apellido y Nombre, Edad, Condición */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                <div className="sm:col-span-4 flex gap-1">
+                <div className="sm:col-span-3 flex gap-1 min-w-0">
                   <input
                     type="text"
                     placeholder="DNI"
                     value={nuevoInv.dni}
                     onChange={(e) => setNuevoInv({ ...nuevoInv, dni: e.target.value })}
-                    className="flex-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono text-xs"
+                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono text-xs"
                   />
                   <button
                     type="button"
                     onClick={handleBuscarPersonaPorDNI}
-                    className="px-2.5 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors shrink-0 shadow-2xs"
+                    className="px-2 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors shrink-0 shadow-2xs"
                     title="Buscar en registros de personas por DNI y autocompletar"
                   >
                     <Search className="w-3.5 h-3.5" />
-                    <span>Buscar en registros</span>
+                    <span>Buscar</span>
                   </button>
                 </div>
 
-                <div className="sm:col-span-4">
+                <div className="sm:col-span-4 min-w-0">
                   <input
                     type="text"
                     placeholder="Apellido y Nombre *"
@@ -1548,7 +1390,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                   />
                 </div>
 
-                <div className="sm:col-span-1">
+                <div className="sm:col-span-2 min-w-0">
                   <input
                     type="text"
                     placeholder="Edad"
@@ -1558,7 +1400,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                   />
                 </div>
 
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-3 min-w-0">
                   <select
                     value={nuevoInv.condicion}
                     onChange={(e) =>
@@ -1578,9 +1420,9 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                 </div>
               </div>
 
-              {/* Fila 2: Clasificación Estricta de Lesiones y Asistencia Médica */}
-              <div className="p-2.5 bg-white rounded-lg border border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
-                <div>
+              {/* Fila 2: Clasificación Estricta de Lesiones, Check Fallecido y Asistencia Médica */}
+              <div className="p-2.5 bg-white rounded-lg border border-slate-200 grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                <div className="sm:col-span-4">
                   <label className="block font-bold text-slate-700 text-[11px] mb-1 flex items-center gap-1">
                     <Activity className="w-3.5 h-3.5 text-red-600" />
                     <span>Tipo de Lesión (Normado) *</span>
@@ -1599,9 +1441,23 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                   </select>
                 </div>
 
+                <div className="sm:col-span-2 pb-1">
+                  <label className="flex items-center gap-1.5 cursor-pointer px-2.5 py-1.5 rounded-lg border border-slate-300 bg-slate-50 hover:bg-rose-50 hover:border-rose-300 transition-colors select-none">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(nuevoInv.fallecido)}
+                      onChange={(e) => setNuevoInv({ ...nuevoInv, fallecido: e.target.checked })}
+                      className="w-4 h-4 text-rose-700 rounded border-slate-300 cursor-pointer"
+                    />
+                    <span className={`text-xs font-bold ${nuevoInv.fallecido ? 'text-rose-800' : 'text-slate-700'}`}>
+                      Fallecido
+                    </span>
+                  </label>
+                </div>
+
                 {nuevoInv.tipoLesion !== 'Sin Lesiones' ? (
                   <>
-                    <div>
+                    <div className="sm:col-span-3">
                       <label className="block font-bold text-amber-900 text-[11px] mb-1">
                         Asistencia Médica *
                       </label>
@@ -1617,7 +1473,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                       </select>
                     </div>
 
-                    <div>
+                    <div className="sm:col-span-3">
                       <label className="block font-semibold text-slate-700 text-[11px] mb-1">
                         {nuevoInv.asistenciaMedica === 'Trasladado a nosocomio'
                           ? 'Nosocomio de Traslado *'
@@ -1629,15 +1485,15 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                         onChange={(e) => setNuevoInv({ ...nuevoInv, nosocomioDestino: e.target.value })}
                         placeholder={
                           nuevoInv.asistenciaMedica === 'Trasladado a nosocomio'
-                            ? 'Ej. Hospital Distrital Laguna Blanca'
-                            : 'Ej. Personal de Salud en el lugar / SIPEC'
+                            ? 'Ej. Hospital Distrital'
+                            : 'Ej. Salud / SIPEC'
                         }
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-xs"
                       />
                     </div>
                   </>
                 ) : (
-                  <div className="sm:col-span-2 flex items-center justify-end">
+                  <div className="sm:col-span-6 flex items-center justify-end">
                     <button
                       type="button"
                       onClick={handleAddInvolucrado}
@@ -1698,6 +1554,11 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                         }`}>
                           Lesión: {inv.tipoLesion || 'Sin Lesiones'}
                         </span>
+                        {inv.fallecido && (
+                          <span className="bg-slate-900 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">
+                            FALLECIDO
+                          </span>
+                        )}
                       </div>
 
                       {inv.esPersonalPolicial && (
@@ -1713,10 +1574,28 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                     <button
                       type="button"
                       onClick={() =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          involucrados: prev.involucrados.filter((i) => i.id !== inv.id),
-                        }))
+                        setFormData((prev) => {
+                          const updatedInvs = prev.involucrados.filter((i) => i.id !== inv.id);
+                          const polInvs = updatedInvs.filter((i) => i.esPersonalPolicial);
+                          const firstPol = polInvs[0];
+                          return {
+                            ...prev,
+                            involucrados: updatedInvs,
+                            involucraPersonalPolicial: polInvs.length > 0,
+                            personalPolicial: firstPol
+                              ? {
+                                  jerarquia: firstPol.jerarquia || config.jerarquias[0] || 'Oficial',
+                                  plaza: firstPol.plaza || 'S/D',
+                                  apellidoYNombre: firstPol.apellidoYNombre,
+                                  dni: firstPol.dni,
+                                  rol: firstPol.condicion || firstPol.funcionEnHecho || 'Personal Policial',
+                                  destino: firstPol.destino || '',
+                                  dependenciaRevista: firstPol.destino || '',
+                                  tipoLesion: firstPol.tipoLesion || 'Sin Lesiones',
+                                }
+                              : undefined,
+                          };
+                        })
                       }
                       className="text-red-500 hover:text-red-700 cursor-pointer p-1 rounded hover:bg-red-50"
                       title="Eliminar involucrado"
@@ -1786,8 +1665,11 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                           const list = [...formData.testigos];
                           list[0] = { ...list[0], apellidoYNombre: found.apellidoYNombre, edad: String(found.edad) };
                           setFormData({ ...formData, testigos: list });
+                          setMsgPersonaEncontrada(`Testigo 1 completado desde registros (DNI ${dni}).`);
+                          setTimeout(() => setMsgPersonaEncontrada(null), 4000);
                         } else {
-                          alert(`No se encontró persona previa con DNI ${dni}. Complete nombre y edad.`);
+                          setMsgPersonaEncontrada(`No se encontró persona previa con DNI ${dni}. Complete nombre y edad manualmente.`);
+                          setTimeout(() => setMsgPersonaEncontrada(null), 5000);
                         }
                       }}
                       className="px-2 py-1 bg-blue-900 text-white rounded text-[10px] font-bold cursor-pointer hover:bg-blue-950"
@@ -1863,8 +1745,11 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                           const list = [...formData.testigos];
                           list[1] = { ...list[1], apellidoYNombre: found.apellidoYNombre, edad: String(found.edad) };
                           setFormData({ ...formData, testigos: list });
+                          setMsgPersonaEncontrada(`Testigo 2 completado desde registros (DNI ${dni}).`);
+                          setTimeout(() => setMsgPersonaEncontrada(null), 4000);
                         } else {
-                          alert(`No se encontró persona previa con DNI ${dni}. Complete nombre y edad.`);
+                          setMsgPersonaEncontrada(`No se encontró persona previa con DNI ${dni}. Complete nombre y edad manualmente.`);
+                          setTimeout(() => setMsgPersonaEncontrada(null), 5000);
                         }
                       }}
                       className="px-2 py-1 bg-blue-900 text-white rounded text-[10px] font-bold cursor-pointer hover:bg-blue-950"
@@ -1889,18 +1774,18 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
             </div>
           </div>
 
-          {/* PERSONAL TÉCNICO INTERVINIENTE (Con opciones de la guardia y opción de agregar de otra sección) */}
-          <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2.5">
-            <div className="flex items-center justify-between">
+          {/* PERSONAL TÉCNICO INTERVINIENTE (2 roles: Perito - Auxiliar y Chofer / Fotógrafo, con selección de guardia o de otro grupo) */}
+          <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-bold text-slate-900 block">
                 PERSONAL TÉCNICO INTERVINIENTE (De la Guardia o Sección)
               </span>
               <span className="text-[11px] text-slate-500">
-                Seleccione efectivos del turno o agregue de otra sección
+                Seleccione o escriba efectivos de esta guardia o sume de otro grupo
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <SearchableSelect
                   label="PERITO - AUXILIAR"
@@ -1912,7 +1797,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                     })
                   }
                   options={personalOptions}
-                  placeholder="Buscar o escribir Perito..."
+                  placeholder="Seleccionar o escribir Perito - Auxiliar..."
                   allowCustom={true}
                 />
               </div>
@@ -1928,59 +1813,77 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                     })
                   }
                   options={personalOptions}
-                  placeholder="Buscar o escribir Chofer/Fotógrafo..."
-                  allowCustom={true}
-                />
-              </div>
-
-              <div>
-                <SearchableSelect
-                  label="AUXILIAR DE GUARDIA"
-                  value={formData.personalTecnico.auxiliar}
-                  onChange={(val) =>
-                    setFormData({
-                      ...formData,
-                      personalTecnico: { ...formData.personalTecnico, auxiliar: val },
-                    })
-                  }
-                  options={personalOptions}
-                  placeholder="Buscar o escribir Auxiliar..."
+                  placeholder="Seleccionar o escribir Chofer / Fotógrafo..."
                   allowCustom={true}
                 />
               </div>
             </div>
 
-            {/* Opción de agregar personal de otra sección o grupo */}
-            <div className="pt-1.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[11px] text-slate-600 font-medium flex items-center gap-1">
-                <UserPlus className="w-3.5 h-3.5 text-blue-700" />
-                <span>¿Requiere sumar personal de otra sección o grupo policial?</span>
-              </span>
-              <div className="flex items-center gap-2">
+            {/* Sumar / seleccionar efectivo de otro grupo o nómina general hacia Perito o Chofer/Fotógrafo */}
+            <div className="pt-2 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+              <div className="sm:col-span-4 text-[11px] text-slate-700 font-semibold flex items-center gap-1.5">
+                <UserPlus className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                <span>Seleccionar de otro grupo / nómina:</span>
+              </div>
+
+              <div className="sm:col-span-2">
+                <select
+                  value={otroGrupoRolDestino}
+                  onChange={(e) => setOtroGrupoRolDestino(e.target.value as 'peritoAuxiliar' | 'choferFotografo')}
+                  className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-[11px] font-bold text-blue-950"
+                >
+                  <option value="peritoAuxiliar">P/ Perito - Auxiliar</option>
+                  <option value="choferFotografo">P/ Chofer / Fotóg.</option>
+                </select>
+              </div>
+
+              <div className="sm:col-span-3">
+                <select
+                  value={otroGrupoFiltroId}
+                  onChange={(e) => setOtroGrupoFiltroId(e.target.value)}
+                  className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-[11px] text-slate-700"
+                >
+                  <option value="todos">Todos los Grupos ({personalList.length})</option>
+                  {gruposList.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sm:col-span-3">
                 <select
                   onChange={(e) => {
                     const sel = e.target.value;
                     if (!sel) return;
-                    // Agregar al auxiliar o sugerir
                     setFormData((prev) => ({
                       ...prev,
                       personalTecnico: {
                         ...prev.personalTecnico,
-                        auxiliar: prev.personalTecnico.auxiliar
-                          ? `${prev.personalTecnico.auxiliar} / ${sel}`
-                          : sel,
+                        [otroGrupoRolDestino]: sel,
                       },
                     }));
                     e.target.value = '';
                   }}
-                  className="px-2 py-1 bg-white border border-slate-300 rounded text-xs text-slate-700"
+                  className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-[11px] text-slate-800 font-medium"
                 >
-                  <option value="">+ Seleccionar de Nómina General (Otra Sección)</option>
-                  {personalList.map((p) => (
-                    <option key={p.id} value={`${p.jerarquia} ${p.apellidoYNombre} (${p.seccionGrupo})`}>
-                      {p.jerarquia} {p.apellidoYNombre} - {p.seccionGrupo}
-                    </option>
-                  ))}
+                  <option value="">+ Asignar efectivo...</option>
+                  {personalList
+                    .filter((p) => {
+                      if (otroGrupoFiltroId === 'todos') return true;
+                      const gObj = gruposList.find((g) => g.id === otroGrupoFiltroId);
+                      if (!gObj) return true;
+                      return (
+                        gObj.personalIds.includes(p.id) ||
+                        (p.seccionGrupo && p.seccionGrupo.toLowerCase() === gObj.nombre.toLowerCase())
+                      );
+                    })
+                    .map((p) => (
+                      <option key={p.id} value={`${p.jerarquia} ${p.apellidoYNombre}`}>
+                        {p.jerarquia} {p.apellidoYNombre} ({p.seccionGrupo || 'Nómina'})
+                      </option>
+                    ))}
                 </select>
               </div>
             </div>
@@ -2015,6 +1918,13 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                   <span>Añadir Móvil / Rodado</span>
                 </button>
               </div>
+
+              {msgVehiculoEncontrado && (
+                <div className="flex items-center gap-1.5 p-2 bg-white border border-amber-300 text-amber-950 rounded-lg text-xs font-semibold">
+                  <Sparkles className="w-4 h-4 text-amber-700 shrink-0" />
+                  <span>{msgVehiculoEncontrado}</span>
+                </div>
+              )}
 
               <div className="space-y-3">
                 {formData.vehiculosSiniestro?.map((v, idx) => (
@@ -2079,7 +1989,8 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                             onClick={() => {
                               const dom = v.dominio?.trim().toUpperCase();
                               if (!dom) {
-                                alert('Ingrese un dominio/patente para buscar en los registros');
+                                setMsgVehiculoEncontrado('Ingrese un dominio/patente para buscar en los registros.');
+                                setTimeout(() => setMsgVehiculoEncontrado(null), 4000);
                                 return;
                               }
                               const found = poolVehiculos.get(dom);
@@ -2092,8 +2003,11 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                                   circulacion: found.circulacion || list[idx].circulacion,
                                 };
                                 setFormData({ ...formData, vehiculosSiniestro: list });
+                                setMsgVehiculoEncontrado(`Antecedentes de vehículo ${dom} autocompletados.`);
+                                setTimeout(() => setMsgVehiculoEncontrado(null), 4000);
                               } else {
-                                alert(`No se registraron antecedentes para el dominio ${dom}.`);
+                                setMsgVehiculoEncontrado(`No se registraron antecedentes para el dominio ${dom}.`);
+                                setTimeout(() => setMsgVehiculoEncontrado(null), 4000);
                               }
                             }}
                             className="px-2 py-1 bg-amber-800 hover:bg-amber-900 text-white rounded text-[10px] font-bold shrink-0 flex items-center gap-0.5"

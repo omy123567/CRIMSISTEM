@@ -9,6 +9,7 @@ import {
   DEFAULT_CONFIG,
 } from '../src/db/database';
 import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from '../src/services/licenciaService';
+import { DEFAULT_TIPOS_MEMO } from '../src/utils/memosCatalogUtils';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,6 +45,7 @@ export interface SispolDatabase {
   licenciasPoliciales: any[];
   saldosLicencias: any[];
   feriados: any[];
+  memosNotas: any[];
 }
 
 function getInitialDatabase(): SispolDatabase {
@@ -76,6 +78,7 @@ function getInitialDatabase(): SispolDatabase {
     licenciasPoliciales: [],
     saldosLicencias: [],
     feriados: DEFAULT_FERIADOS_ARGENTINA.map((f) => ({ ...f })),
+    memosNotas: [],
   };
 }
 
@@ -125,13 +128,17 @@ export function initDatabase(): SispolDatabase {
       }
     }
 
-    // Migración incremental: asegurar módulo 'licencias' y catálogo de licencias en configuraciones existentes
+    // Migración incremental: asegurar módulos 'licencias' y 'memos-notas' y sus catálogos en configuraciones existentes
     if (Array.isArray(parsed.configuracion)) {
       parsed.configuracion = parsed.configuracion.map((cfg: any) => {
         let cfgMod = false;
         const copy = { ...cfg };
         if (!Array.isArray(copy.tiposLicenciaCatalogo) || copy.tiposLicenciaCatalogo.length === 0) {
           copy.tiposLicenciaCatalogo = DEFAULT_TIPOS_LICENCIA;
+          cfgMod = true;
+        }
+        if (!Array.isArray(copy.tiposMemoCatalogo) || copy.tiposMemoCatalogo.length === 0) {
+          copy.tiposMemoCatalogo = DEFAULT_TIPOS_MEMO;
           cfgMod = true;
         }
         if (Array.isArray(copy.estructuraModulos) && !copy.estructuraModulos.some((m: any) => m.id === 'licencias')) {
@@ -141,16 +148,41 @@ export function initDatabase(): SispolDatabase {
           ];
           cfgMod = true;
         }
+        if (Array.isArray(copy.estructuraModulos) && !copy.estructuraModulos.some((m: any) => m.id === 'memos-notas')) {
+          copy.estructuraModulos = [
+            ...copy.estructuraModulos,
+            { id: 'memos-notas', label: 'Memos y Notas', desc: 'Memorándums, Nota V, Notas & Anexos', orden: copy.estructuraModulos.length + 1, padreId: null, visible: true },
+          ];
+          cfgMod = true;
+        }
         if (cfgMod) modified = true;
         return copy;
       });
     }
 
     if (Array.isArray(parsed.roles)) {
-      parsed.roles = parsed.roles.map((r: any) => {
-        if ((r.id === 'rol-superusuario' || r.id === 'rol-admin') && Array.isArray(r.modulosPermitidos) && !r.modulosPermitidos.includes('licencias')) {
+      for (const defRol of DEFAULT_ROLES) {
+        if (!parsed.roles.some((r: any) => r.id === defRol.id)) {
+          parsed.roles.push({ ...defRol });
           modified = true;
-          return { ...r, modulosPermitidos: [...r.modulosPermitidos, 'licencias'] };
+        }
+      }
+      parsed.roles = parsed.roles.map((r: any) => {
+        if ((r.id === 'rol-superusuario' || r.id === 'rol-admin') && Array.isArray(r.modulosPermitidos)) {
+          let updatedMods = [...r.modulosPermitidos];
+          let changed = false;
+          if (!updatedMods.includes('licencias')) {
+            updatedMods.push('licencias');
+            changed = true;
+          }
+          if (!updatedMods.includes('memos-notas')) {
+            updatedMods.push('memos-notas');
+            changed = true;
+          }
+          if (changed) {
+            modified = true;
+            return { ...r, modulosPermitidos: updatedMods };
+          }
         }
         return r;
       });
@@ -158,9 +190,21 @@ export function initDatabase(): SispolDatabase {
 
     if (Array.isArray(parsed.usuarios)) {
       parsed.usuarios = parsed.usuarios.map((u: any) => {
-        if ((u.rol === 'superusuario' || u.rol === 'Administrador') && Array.isArray(u.modulosPermitidos) && !u.modulosPermitidos.includes('licencias')) {
-          modified = true;
-          return { ...u, modulosPermitidos: [...u.modulosPermitidos, 'licencias'] };
+        if ((u.rol === 'superusuario' || u.rol === 'Administrador') && Array.isArray(u.modulosPermitidos)) {
+          let updatedMods = [...u.modulosPermitidos];
+          let changed = false;
+          if (!updatedMods.includes('licencias')) {
+            updatedMods.push('licencias');
+            changed = true;
+          }
+          if (!updatedMods.includes('memos-notas')) {
+            updatedMods.push('memos-notas');
+            changed = true;
+          }
+          if (changed) {
+            modified = true;
+            return { ...u, modulosPermitidos: updatedMods };
+          }
         }
         return u;
       });
@@ -257,6 +301,7 @@ export function wipeOperationalData(): SispolDatabase {
   db.charlasPrevencion = [];
   db.licenciasPoliciales = [];
   db.saldosLicencias = [];
+  db.memosNotas = [];
 
   saveDatabase(db);
   return db;

@@ -21,6 +21,7 @@ export interface OpcionesImpresion {
   orientacion: OrientacionPapel;
   tamano: TamanoPapel;
   incluirFirmaJefe: boolean;
+  incluirFirmaOficial?: boolean;
   secciones: SeccionesImpresion;
   esVistaPrevia?: boolean;
 }
@@ -28,6 +29,7 @@ export interface OpcionesImpresion {
 interface ModalOpcionesImpresionProps {
   isOpen: boolean;
   titulo?: string;
+  firmaLabel?: string;
   orientacionDefault?: OrientacionPapel;
   tamanoDefault?: TamanoPapel;
   previewUrl?: string | null;
@@ -38,6 +40,7 @@ interface ModalOpcionesImpresionProps {
 export const ModalOpcionesImpresion: React.FC<ModalOpcionesImpresionProps> = ({
   isOpen,
   titulo = 'Configuración de Impresión / Exportación PDF',
+  firmaLabel = 'Bloque de Firma de Autoridad / Oficial',
   orientacionDefault = 'portrait',
   tamanoDefault = 'a4',
   previewUrl,
@@ -46,7 +49,6 @@ export const ModalOpcionesImpresion: React.FC<ModalOpcionesImpresionProps> = ({
 }) => {
   const [orientacion, setOrientacion] = useState<OrientacionPapel>(orientacionDefault);
   const [tamano, setTamano] = useState<TamanoPapel>(tamanoDefault);
-  const [incluirFirmaJefe, setIncluirFirmaJefe] = useState<boolean>(true);
 
   // Selección de qué datos ver en el reporte
   const [secciones, setSecciones] = useState<SeccionesImpresion>({
@@ -94,6 +96,7 @@ export const ModalOpcionesImpresion: React.FC<ModalOpcionesImpresionProps> = ({
       orientacion,
       tamano,
       incluirFirmaJefe: secciones.firmaJefe,
+      incluirFirmaOficial: secciones.firmaJefe,
       secciones,
       esVistaPrevia: false,
     });
@@ -105,6 +108,7 @@ export const ModalOpcionesImpresion: React.FC<ModalOpcionesImpresionProps> = ({
       orientacion,
       tamano,
       incluirFirmaJefe: secciones.firmaJefe,
+      incluirFirmaOficial: secciones.firmaJefe,
       secciones,
       esVistaPrevia: true,
     });
@@ -264,7 +268,7 @@ export const ModalOpcionesImpresion: React.FC<ModalOpcionesImpresionProps> = ({
                       onChange={() => toggleSeccion('firmaJefe')}
                       className="w-4 h-4 text-blue-900 rounded"
                     />
-                    <span className="font-semibold">Bloque de Firma de Jefatura y Oficial</span>
+                    <span className="font-semibold">{firmaLabel}</span>
                   </label>
                 </div>
               </div>

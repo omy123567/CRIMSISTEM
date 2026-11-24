@@ -35,6 +35,7 @@ import {
 import { AccidentologiaModal, calcularCodigoMensual } from './AccidentologiaModal';
 import { AccidentologiaReportesView } from './AccidentologiaReportesView';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { generarPdfReporteAccidentologia } from '../../services/pdfService';
 
 interface AccidentologiaViewProps {
@@ -73,7 +74,13 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
   const [filtroVia, setFiltroVia] = useState('todas');
   const [filtroDelegacion, setFiltroDelegacion] = useState<string>('activa');
   const [filtroResultado, setFiltroResultado] = useState('todos');
+  const [filtroTipoLesion, setFiltroTipoLesion] = useState('todas');
+  const [soloFallecidos, setSoloFallecidos] = useState(false);
+  const [filtroLocalidad, setFiltroLocalidad] = useState('todas');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
   const [filtroSoloPendientes, setFiltroSoloPendientes] = useState(false);
+  const [noticeMsg, setNoticeMsg] = useState<string | null>(null);
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -198,6 +205,64 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
     });
   }, [intervencionesList, activeDelegacionId]);
 
+  const localidadesUnicas = useMemo(() => {
+    const set = new Set<string>();
+    accidentologiaList.forEach((r) => {
+      if (r.localidad) set.add(r.localidad);
+    });
+    return Array.from(set).sort();
+  }, [accidentologiaList]);
+
+  const lesionesUnicas = useMemo(() => {
+    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'Fallecido', 'Pendiente de registrar']);
+    accidentologiaList.forEach((r) => {
+      if (r.tipoLesiones) set.add(r.tipoLesiones);
+    });
+    return Array.from(set);
+  }, [accidentologiaList]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroMes !== 'todos') count++;
+    if (filtroVia !== 'todas') count++;
+    if (filtroDelegacion !== 'activa') count++;
+    if (filtroResultado !== 'todos') count++;
+    if (filtroTipoLesion !== 'todas') count++;
+    if (soloFallecidos) count++;
+    if (filtroLocalidad !== 'todas') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    if (filtroSoloPendientes) count++;
+    return count;
+  }, [
+    searchTerm,
+    filtroMes,
+    filtroVia,
+    filtroDelegacion,
+    filtroResultado,
+    filtroTipoLesion,
+    soloFallecidos,
+    filtroLocalidad,
+    fechaDesde,
+    fechaHasta,
+    filtroSoloPendientes,
+  ]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroMes('todos');
+    setFiltroVia('todas');
+    setFiltroDelegacion('activa');
+    setFiltroResultado('todos');
+    setFiltroTipoLesion('todas');
+    setSoloFallecidos(false);
+    setFiltroLocalidad('todas');
+    setFechaDesde('');
+    setFechaHasta('');
+    setFiltroSoloPendientes(false);
+  };
+
   // Filtrado reactivo en tiempo real
   const filteredRegistros = useMemo(() => {
     return accidentologiaList.filter((r) => {
@@ -224,6 +289,32 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
       // Filtro por rol (Embestido vs Embistente)
       if (filtroResultado !== 'todos' && r.resultadoPolicial !== filtroResultado) return false;
 
+      // Filtro por localidad
+      if (filtroLocalidad !== 'todas' && r.localidad !== filtroLocalidad) return false;
+
+      // Filtro por fechas
+      if (fechaDesde && r.fecha && r.fecha < fechaDesde) return false;
+      if (fechaHasta && r.fecha && r.fecha > fechaHasta) return false;
+
+      // Filtro por tipo de lesiones
+      if (filtroTipoLesion !== 'todas') {
+        const les = (r.tipoLesiones || '').toLowerCase();
+        if (!les.includes(filtroTipoLesion.toLowerCase())) return false;
+      }
+
+      // Filtro solo fallecidos
+      if (soloFallecidos) {
+        const les = (r.tipoLesiones || '').toLowerCase();
+        const obs = (r.observacionesSiniestro || '').toLowerCase() + ' ' + (r.observacionesPersonal || '').toLowerCase();
+        const esFallec =
+          les.includes('fallec') ||
+          les.includes('óbito') ||
+          les.includes('obito') ||
+          les.includes('muert') ||
+          obs.includes('fallec');
+        if (!esFallec) return false;
+      }
+
       // Buscador por texto
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase();
@@ -242,7 +333,21 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
 
       return true;
     });
-  }, [accidentologiaList, filtroDelegacion, activeDelegacionId, filtroSoloPendientes, filtroMes, filtroVia, filtroResultado, searchTerm]);
+  }, [
+    accidentologiaList,
+    filtroDelegacion,
+    activeDelegacionId,
+    filtroSoloPendientes,
+    filtroMes,
+    filtroVia,
+    filtroResultado,
+    filtroLocalidad,
+    fechaDesde,
+    fechaHasta,
+    filtroTipoLesion,
+    soloFallecidos,
+    searchTerm,
+  ]);
 
   // Sincronización automática de intervenciones accidentológicas
   const handleAutoSync = () => {
@@ -312,16 +417,16 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
     });
 
     if (agregados > 0) {
-      alert(`Se sincronizaron con éxito ${agregados} intervención/es viales al módulo de Accidentología.`);
+      setNoticeMsg(`Se sincronizaron con éxito ${agregados} intervención/es viales al módulo de Accidentología.`);
     } else {
-      alert('Todas las intervenciones viales registradas ya se encuentran cargadas en Accidentología.');
+      setNoticeMsg('Todas las intervenciones viales registradas ya se encuentran cargadas en Accidentología.');
     }
   };
 
   // Exportar a CSV
   const handleExportCsv = () => {
     if (filteredRegistros.length === 0) {
-      alert('No hay registros para exportar');
+      setNoticeMsg('No hay registros filtrados para exportar a CSV.');
       return;
     }
     const headers = [
@@ -453,6 +558,19 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
         </div>
       </div>
 
+      {noticeMsg && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-900 text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center justify-between gap-2">
+          <span>{noticeMsg}</span>
+          <button
+            type="button"
+            onClick={() => setNoticeMsg(null)}
+            className="text-blue-700 hover:text-blue-950 font-bold cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* SELECTOR DE SUBMÓDULOS / PESTAÑAS (1, 2, 3, Consolidado y 4: Reportes) */}
       <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 gap-1">
@@ -522,109 +640,165 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
         </button>
       </div>
 
-      {/* BARRA DE BÚSQUEDA Y FILTROS EN TIEMPO REAL */}
+      {/* BARRA DE BÚSQUEDA Y FILTROS COLAPSABLE */}
       {activeTab !== 'reportes' && (
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 text-xs">
-          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+        <CollapsibleFilterBar
+          title="Búsqueda y Filtros de Accidentología Vial"
+          activeFiltersCount={activeFiltersCount}
+          onClear={handleClearFilters}
+          summaryRight={
+            <span className="text-slate-500 text-[11px]">
+              Mostrando <strong>{filteredRegistros.length}</strong> de {accidentologiaList.length} registros
+            </span>
+          }
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {/* Buscador */}
-            <div className="relative flex-1">
+            <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar por código (ej. Ene-01), efectivo, jerarquía, lugar, tipo rodado..."
-                className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900 text-xs"
+                placeholder="Código, efectivo, lugar, rodado..."
+                className="w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900 text-xs"
               />
             </div>
 
-            {/* Filtros */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Filtro Delegación */}
-              {puedeVerOtras && delegacionesList.length > 0 && (
-                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
-                  <Building2 className="w-3.5 h-3.5 text-slate-500" />
-                  <select
-                    value={filtroDelegacion}
-                    onChange={(e) => setFiltroDelegacion(e.target.value)}
-                    className="bg-transparent font-medium text-slate-700 focus:outline-none cursor-pointer"
-                  >
-                    <option value="activa">Delegación Activa</option>
-                    <option value="todas">Todas las Delegaciones (Módulo General)</option>
-                    {delegacionesList.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Filtro Mes */}
+            {puedeVerOtras && delegacionesList.length > 0 && (
               <select
-                value={filtroMes}
-                onChange={(e) => setFiltroMes(e.target.value)}
+                value={filtroDelegacion}
+                onChange={(e) => setFiltroDelegacion(e.target.value)}
                 className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 focus:outline-none"
               >
-                <option value="todos">Todos los Meses</option>
-                <option value="Ene">Enero (Ene-)</option>
-                <option value="Feb">Febrero (Feb-)</option>
-                <option value="Mar">Marzo (Mar-)</option>
-                <option value="Abr">Abril (Abr-)</option>
-                <option value="May">Mayo (May-)</option>
-                <option value="Jun">Junio (Jun-)</option>
-                <option value="Jul">Julio (Jul-)</option>
-                <option value="Ago">Agosto (Ago-)</option>
-                <option value="Sep">Septiembre (Sep-)</option>
-                <option value="Oct">Octubre (Oct-)</option>
-                <option value="Nov">Noviembre (Nov-)</option>
-                <option value="Dic">Diciembre (Dic-)</option>
+                <option value="activa">Delegación Activa</option>
+                <option value="todas">Todas las Delegaciones</option>
+                {delegacionesList.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nombre}
+                  </option>
+                ))}
               </select>
+            )}
 
-              {/* Filtro Vía */}
-              <select
-                value={filtroVia}
-                onChange={(e) => setFiltroVia(e.target.value)}
-                className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 focus:outline-none"
-              >
-                <option value="todas">Tipo de Vía: Todas</option>
-                <option value="RECTA">RECTA</option>
-                <option value="INTERSECCIÓN">INTERSECCIÓN</option>
-                <option value="ROTONDA">ROTONDA</option>
-              </select>
+            <select
+              value={filtroMes}
+              onChange={(e) => setFiltroMes(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 focus:outline-none"
+            >
+              <option value="todos">Todos los Meses</option>
+              <option value="Ene">Enero (Ene-)</option>
+              <option value="Feb">Febrero (Feb-)</option>
+              <option value="Mar">Marzo (Mar-)</option>
+              <option value="Abr">Abril (Abr-)</option>
+              <option value="May">Mayo (May-)</option>
+              <option value="Jun">Junio (Jun-)</option>
+              <option value="Jul">Julio (Jul-)</option>
+              <option value="Ago">Agosto (Ago-)</option>
+              <option value="Sep">Septiembre (Sep-)</option>
+              <option value="Oct">Octubre (Oct-)</option>
+              <option value="Nov">Noviembre (Nov-)</option>
+              <option value="Dic">Diciembre (Dic-)</option>
+            </select>
 
-              {/* Filtro Rol */}
-              <select
-                value={filtroResultado}
-                onChange={(e) => setFiltroResultado(e.target.value)}
-                className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 focus:outline-none"
-              >
-                <option value="todos">Rol Policial: Todos</option>
-                <option value="EMBESTIDO">EMBESTIDO</option>
-                <option value="EMBISTENTE">EMBISTENTE</option>
-              </select>
+            <select
+              value={filtroLocalidad}
+              onChange={(e) => setFiltroLocalidad(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 focus:outline-none"
+            >
+              <option value="todas">Todas las Localidades</option>
+              {localidadesUnicas.map((loc) => (
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
+              ))}
+            </select>
 
-              {/* Botón Filtro Solo Pendientes */}
-              <button
-                type="button"
-                onClick={() => setFiltroSoloPendientes(!filtroSoloPendientes)}
-                className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
-                  filtroSoloPendientes
-                    ? 'bg-amber-800 text-white shadow-xs'
-                    : registrosConDatosPendientes.length > 0
-                    ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-                title="Filtrar siniestros que tienen pendientes Tipo de Lesiones o Alcohotest"
-              >
-                <AlertTriangle className={`w-3.5 h-3.5 ${registrosConDatosPendientes.length > 0 ? 'text-amber-700' : 'text-slate-400'}`} />
-                <span>
-                  {filtroSoloPendientes ? '✓ Mostrando Pendientes' : `Pendientes Lesiones/Alcohotest (${registrosConDatosPendientes.length})`}
-                </span>
-              </button>
+            <select
+              value={filtroVia}
+              onChange={(e) => setFiltroVia(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 focus:outline-none"
+            >
+              <option value="todas">Tipo de Vía: Todas</option>
+              <option value="RECTA">RECTA</option>
+              <option value="INTERSECCIÓN">INTERSECCIÓN</option>
+              <option value="ROTONDA">ROTONDA</option>
+            </select>
+
+            <select
+              value={filtroResultado}
+              onChange={(e) => setFiltroResultado(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 focus:outline-none"
+            >
+              <option value="todos">Rol Policial: Todos</option>
+              <option value="EMBESTIDO">EMBESTIDO</option>
+              <option value="EMBISTENTE">EMBISTENTE</option>
+            </select>
+
+            <select
+              value={filtroTipoLesion}
+              onChange={(e) => setFiltroTipoLesion(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 focus:outline-none"
+            >
+              <option value="todas">Tipo de Lesiones: Todas</option>
+              {lesionesUnicas.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={fechaDesde}
+                onChange={(e) => setFechaDesde(e.target.value)}
+                title="Fecha Desde"
+                className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded-lg text-slate-700"
+              />
+              <span className="text-slate-400 text-[11px]">a</span>
+              <input
+                type="date"
+                value={fechaHasta}
+                onChange={(e) => setFechaHasta(e.target.value)}
+                title="Fecha Hasta"
+                className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded-lg text-slate-700"
+              />
             </div>
           </div>
-        </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setFiltroSoloPendientes(!filtroSoloPendientes)}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                filtroSoloPendientes
+                  ? 'bg-amber-800 text-white shadow-xs'
+                  : registrosConDatosPendientes.length > 0
+                  ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+              title="Filtrar siniestros que tienen pendientes Tipo de Lesiones o Alcohotest"
+            >
+              <AlertTriangle className={`w-3.5 h-3.5 ${registrosConDatosPendientes.length > 0 ? 'text-amber-700' : 'text-slate-400'}`} />
+              <span>
+                {filtroSoloPendientes ? '✓ Mostrando Pendientes' : `Pendientes Lesiones/Alcohotest (${registrosConDatosPendientes.length})`}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSoloFallecidos(!soloFallecidos)}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition-colors cursor-pointer ${
+                soloFallecidos
+                  ? 'bg-rose-700 text-white border-rose-800'
+                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              Solo Fallecidos
+            </button>
+          </div>
+        </CollapsibleFilterBar>
       )}
 
       {/* Banner de Aviso de Datos Pendientes */}

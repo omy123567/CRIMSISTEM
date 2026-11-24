@@ -21,6 +21,7 @@ import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 
 interface GruposViewProps {
   gruposList: GrupoPersonal[];
@@ -41,12 +42,21 @@ export const GruposView: React.FC<GruposViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'todos' | 'activos' | 'inactivos'>('todos');
+  const [filtroJefe, setFiltroJefe] = useState('todos');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedGrupo, setSelectedGrupo] = useState<GrupoPersonal | null>(null);
   const [deleteGrupoConfirm, setDeleteGrupoConfirm] = useState<{
     isOpen: boolean;
     grupo: GrupoPersonal | null;
   }>({ isOpen: false, grupo: null });
+
+  const jefesUnicos = useMemo(() => {
+    const set = new Set<string>();
+    gruposList.forEach((g) => {
+      if (g.jefeGrupo?.trim()) set.add(g.jefeGrupo.trim());
+    });
+    return Array.from(set).sort();
+  }, [gruposList]);
 
   // Filtrado reactivo en tiempo real
   const filteredGrupos = useMemo(() => {
@@ -72,9 +82,25 @@ export const GruposView: React.FC<GruposViewProps> = ({
         (filtroEstado === 'activos' && g.activo) ||
         (filtroEstado === 'inactivos' && !g.activo);
 
-      return (matchName || matchDesc || matchJefe || matchPersonal) && matchEstado;
+      const matchJefeSelect = filtroJefe === 'todos' || (g.jefeGrupo || '').trim() === filtroJefe;
+
+      return (matchName || matchDesc || matchJefe || matchPersonal) && matchEstado && matchJefeSelect;
     });
-  }, [gruposList, searchTerm, filtroEstado, personalList]);
+  }, [gruposList, searchTerm, filtroEstado, filtroJefe, personalList]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroEstado !== 'todos') count++;
+    if (filtroJefe !== 'todos') count++;
+    return count;
+  }, [searchTerm, filtroEstado, filtroJefe]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroEstado('todos');
+    setFiltroJefe('todos');
+  };
 
   // Exportar PDF de nómina de grupos
   const handleExportPdf = () => {
@@ -183,9 +209,18 @@ export const GruposView: React.FC<GruposViewProps> = ({
         </div>
       </div>
 
-      {/* Barra de Filtros y Búsqueda */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 text-xs">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      {/* Barra de Filtros y Búsqueda Plegable */}
+      <CollapsibleFilterBar
+        title="Filtros de Búsqueda de Grupos y Guardias"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span>
+            Mostrando <strong>{filteredGrupos.length}</strong> de {gruposList.length} grupos
+          </span>
+        }
+      >
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs">
           <div className="flex-1 relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
@@ -193,9 +228,22 @@ export const GruposView: React.FC<GruposViewProps> = ({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Buscar por nombre de grupo, especialidad, jefe o efectivo asignado..."
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white text-xs text-slate-800"
+              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs text-slate-800"
             />
           </div>
+
+          <select
+            value={filtroJefe}
+            onChange={(e) => setFiltroJefe(e.target.value)}
+            className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-700"
+          >
+            <option value="todos">Todos los Jefes a Cargo</option>
+            {jefesUnicos.map((jefe) => (
+              <option key={jefe} value={jefe}>
+                {jefe}
+              </option>
+            ))}
+          </select>
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
@@ -232,7 +280,7 @@ export const GruposView: React.FC<GruposViewProps> = ({
             </div>
           </div>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Grilla de Grupos */}
       {filteredGrupos.length === 0 ? (

@@ -67,6 +67,7 @@ export const MODULOS_BASE_CATALOGO: Array<{ id: string; label: string; desc: str
   { id: 'informes-tecnicos', label: 'Informes Técnicos', desc: 'Oficios, Dictámenes & Elevación' },
   { id: 'accidentologia', label: 'Accidentología Policial', desc: 'Siniestros con Personal Policial' },
   { id: 'numerario', label: 'Control de Folios', desc: 'Numerario oficial y folios' },
+  { id: 'memos-notas', label: 'Memos y Notas', desc: 'Memorándums, Nota V, Notas & Anexos' },
   { id: 'auditoria', label: 'Auditoría del Sistema', desc: 'Trazabilidad y Log de Acciones' },
   { id: 'usuarios', label: 'Gestión de Usuarios', desc: 'Roles, Permisos & Cuentas' },
   { id: 'config', label: 'Configuración & Membrete', desc: 'Ajustes, Membrete & Backups' },

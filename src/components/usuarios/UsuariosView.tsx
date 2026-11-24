@@ -5,7 +5,19 @@ import {
   RolUsuario,
   RolSistema,
   AccionesRol,
+  SerieNumerario,
+  ConfiguracionSistema,
+  PerfilAccesoFolio,
 } from '../../types/police';
+import {
+  PERFILES_ACCESO_FOLIO_INFO,
+  buildUnifiedTiposMemosOptions,
+  getPerfilFolioLabel,
+  isTipoMemoHiddenForUser,
+  normalizeTipoKey,
+  resolveUserFolioPerfil,
+} from '../../utils/memosCatalogUtils';
+import { DEFAULT_CONFIG } from '../../db/database';
 import {
   Users,
   UserPlus,
@@ -39,6 +51,7 @@ import {
   Smartphone,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { RolModal } from './RolModal';
 import { AdminChangePasswordModal, AdminUser2faModal } from './AdminUserSecurityModals';
 import { evaluarFortalezaPassword } from '../../services/securityClient';
@@ -47,6 +60,8 @@ interface UsuariosViewProps {
   usuariosList: UsuarioSistema[];
   delegacionesList: DelegacionPolicial[];
   rolesList?: RolSistema[];
+  seriesNumerarioList?: SerieNumerario[];
+  config?: ConfiguracionSistema;
   currentUser: UsuarioSistema;
   onSaveUsuario: (user: UsuarioSistema) => Promise<void> | void;
   onDeleteUsuario: (id: string) => Promise<void> | void;
@@ -78,6 +93,7 @@ export const MODULOS_DISPONIBLES = [
   { id: 'licenciados', label: 'Licenciado', desc: 'Personal Licenciado y Peritos' },
   { id: 'informes-tecnicos', label: 'Informes Técnicos', desc: 'Oficios y Pericias Técnicas' },
   { id: 'numerario', label: 'Control de Folios', desc: 'Numerario y Asignación de Folios' },
+  { id: 'memos-notas', label: 'Memos y Notas', desc: 'Memorándums, Nota V, Notas & Anexos' },
   { id: 'usuarios', label: 'Gestión de Usuarios', desc: 'Administración de Cuentas' },
   { id: 'auditoria', label: 'Auditoría del Sistema', desc: 'Trazabilidad y registro de eventos (Superusuario)' },
   { id: 'config', label: 'Configuración & Membrete', desc: 'Ajustes de Delegación' },
@@ -109,6 +125,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   usuariosList,
   delegacionesList,
   rolesList = [],
+  seriesNumerarioList = [],
+  config,
   currentUser,
   onSaveUsuario,
   onDeleteUsuario,
@@ -144,6 +162,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroRol, setFiltroRol] = useState<string>('todos');
   const [filtroDelegacion, setFiltroDelegacion] = useState<string>('todas');
+  const [filtroEstadoUsuario, setFiltroEstadoUsuario] = useState<string>('todos');
+  const [filtro2fa, setFiltro2fa] = useState<string>('todos');
 
   // Filtros Roles
   const [searchRolTerm, setSearchRolTerm] = useState('');
@@ -200,6 +220,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   const [formPuedeConfirmarFotografias, setFormPuedeConfirmarFotografias] = useState(false);
   const [formPuedeCambiarPasswordOtros, setFormPuedeCambiarPasswordOtros] = useState(false);
   const [formPuedeGestionar2faOtros, setFormPuedeGestionar2faOtros] = useState(false);
+  const [formTiposMemosOcultos, setFormTiposMemosOcultos] = useState<string[]>([]);
+  const [formPerfilFolio, setFormPerfilFolio] = useState<'' | PerfilAccesoFolio>('');
   const [formActivo, setFormActivo] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -224,10 +246,34 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
 
       const matchRol = filtroRol === 'todos' || u.rol === filtroRol;
       const matchDel = filtroDelegacion === 'todas' || u.delegacionId === filtroDelegacion;
+      const matchEst =
+        filtroEstadoUsuario === 'todos' ||
+        (filtroEstadoUsuario === 'activo' ? u.activo : !u.activo);
+      const match2fa =
+        filtro2fa === 'todos' ||
+        (filtro2fa === 'con2fa' ? Boolean(u.totpEnabled) : !u.totpEnabled);
 
-      return matchSearch && matchRol && matchDel;
+      return matchSearch && matchRol && matchDel && matchEst && match2fa;
     });
-  }, [usuariosList, currentUser, searchTerm, filtroRol, filtroDelegacion]);
+  }, [usuariosList, currentUser, searchTerm, filtroRol, filtroDelegacion, filtroEstadoUsuario, filtro2fa]);
+
+  const activeUserFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroRol !== 'todos') count++;
+    if (filtroDelegacion !== 'todas') count++;
+    if (filtroEstadoUsuario !== 'todos') count++;
+    if (filtro2fa !== 'todos') count++;
+    return count;
+  }, [searchTerm, filtroRol, filtroDelegacion, filtroEstadoUsuario, filtro2fa]);
+
+  const handleClearUserFilters = () => {
+    setSearchTerm('');
+    setFiltroRol('todos');
+    setFiltroDelegacion('todas');
+    setFiltroEstadoUsuario('todos');
+    setFiltro2fa('todos');
+  };
 
   // Filtrado de Roles
   const visibleRoles = useMemo(() => {
@@ -286,6 +332,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
       setFormPuedeGestionar2faOtros(false);
     }
 
+    setFormTiposMemosOcultos([]);
+    setFormPerfilFolio('');
     setFormActivo(true);
     setShowPassword(false);
     setFormError(null);
@@ -324,6 +372,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     setFormPuedeConfirmarFotografias(Boolean(user.puedeConfirmarFotografias || user.accionesPersonalizadas?.puedeConfirmarFotografias));
     setFormPuedeCambiarPasswordOtros(Boolean(user.puedeCambiarPasswordOtros || user.accionesPersonalizadas?.puedeCambiarPasswordOtros));
     setFormPuedeGestionar2faOtros(Boolean(user.puedeGestionar2faOtros || user.accionesPersonalizadas?.puedeGestionar2faOtros));
+    setFormTiposMemosOcultos(Array.isArray(user.tiposMemosOcultos) ? [...user.tiposMemosOcultos] : []);
+    setFormPerfilFolio(user.perfilFolio || '');
     setFormActivo(user.activo);
     setIsModalOpen(true);
   };
@@ -464,6 +514,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
         puedeCambiarPasswordOtros: formRol === 'superusuario' ? true : formPuedeCambiarPasswordOtros,
         puedeGestionar2faOtros: formRol === 'superusuario' ? true : formPuedeGestionar2faOtros,
       },
+      tiposMemosOcultos: formRol === 'superusuario' ? [] : formTiposMemosOcultos,
+      perfilFolio: formRol === 'superusuario' ? undefined : formPerfilFolio || undefined,
       activo: formActivo,
       createdAt: editingUser?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -609,49 +661,82 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
       {/* VISTA 1: USUARIOS DEL SISTEMA */}
       {activeSubTab === 'usuarios' && (
         <div className="space-y-4">
-          {/* Barra de Filtros y Búsqueda */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar usuario por apellido, nombre, correo o login..."
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white"
-              />
-            </div>
+          {/* Barra de Filtros y Búsqueda Plegable */}
+          <CollapsibleFilterBar
+            title="Filtros de Búsqueda de Usuarios"
+            activeFiltersCount={activeUserFiltersCount}
+            onClear={handleClearUserFilters}
+            summaryRight={
+              <span>
+                Mostrando <strong>{visibleUsuarios.length}</strong> de {usuariosList.length} usuarios
+              </span>
+            }
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+              <div className="relative lg:col-span-2">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar usuario por apellido, nombre, correo o login..."
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
 
-            <div>
-              <select
-                value={filtroRol}
-                onChange={(e) => setFiltroRol(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 text-xs"
-              >
-                <option value="todos">Todos los Roles</option>
-                {rolesList.map((r) => (
-                  <option key={r.id} value={r.nombre}>
-                    {r.nombre}
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div>
+                <select
+                  value={filtroRol}
+                  onChange={(e) => setFiltroRol(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs"
+                >
+                  <option value="todos">Todos los Roles</option>
+                  {rolesList.map((r) => (
+                    <option key={r.id} value={r.nombre}>
+                      {r.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <div>
-              <select
-                value={filtroDelegacion}
-                onChange={(e) => setFiltroDelegacion(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 text-xs"
-              >
-                <option value="todas">Todas las Delegaciones</option>
-                {delegacionesList.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nombre} ({d.ciudad})
-                  </option>
-                ))}
-              </select>
+              <div>
+                <select
+                  value={filtroDelegacion}
+                  onChange={(e) => setFiltroDelegacion(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs"
+                >
+                  <option value="todas">Todas las Delegaciones</option>
+                  {delegacionesList.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nombre} ({d.ciudad})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={filtroEstadoUsuario}
+                  onChange={(e) => setFiltroEstadoUsuario(e.target.value)}
+                  className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs"
+                >
+                  <option value="todos">Estado: Todos</option>
+                  <option value="activo">Activos</option>
+                  <option value="inactivo">Inactivos</option>
+                </select>
+
+                <select
+                  value={filtro2fa}
+                  onChange={(e) => setFiltro2fa(e.target.value)}
+                  className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs"
+                >
+                  <option value="todos">2FA: Todos</option>
+                  <option value="con2fa">2FA Activo</option>
+                  <option value="sin2fa">Sin 2FA</option>
+                </select>
+              </div>
             </div>
-          </div>
+          </CollapsibleFilterBar>
 
           {/* Tabla de Usuarios */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
@@ -743,11 +828,18 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
 
                           {/* Rol */}
                           <td className="px-4 py-3 text-center">
-                            <span
-                              className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold border ${roleBadgeClass}`}
-                            >
-                              {user.rol}
-                            </span>
+                            <div className="flex flex-col items-center gap-1">
+                              <span
+                                className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold border ${roleBadgeClass}`}
+                              >
+                                {user.rol}
+                              </span>
+                              {user.rol !== 'superusuario' && (
+                                <span className="text-[10px] font-semibold text-slate-500">
+                                  Folios: {getPerfilFolioLabel(resolveUserFolioPerfil(user))}
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           {/* Permiso Otras Delegaciones */}
@@ -920,23 +1012,28 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
       {/* VISTA 2: ROLES Y PERMISOS POR ACCIONES */}
       {activeSubTab === 'roles' && (
         <div className="space-y-4">
-          {/* Barra de Filtro de Roles */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-            <div className="relative w-full sm:w-80">
+          {/* Barra de Filtro de Roles Plegable */}
+          <CollapsibleFilterBar
+            title="Filtros de Búsqueda de Roles"
+            activeFiltersCount={searchRolTerm.trim() ? 1 : 0}
+            onClear={() => setSearchRolTerm('')}
+            summaryRight={
+              <span>
+                Mostrando <strong>{visibleRoles.length}</strong> de <strong>{rolesList.length}</strong> roles
+              </span>
+            }
+          >
+            <div className="relative w-full sm:w-96 text-xs">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={searchRolTerm}
                 onChange={(e) => setSearchRolTerm(e.target.value)}
                 placeholder="Buscar roles por nombre o descripción..."
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white"
+                className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs focus:ring-2 focus:ring-blue-600"
               />
             </div>
-
-            <div className="text-xs text-slate-500 font-medium">
-              Mostrando <strong>{visibleRoles.length}</strong> de <strong>{rolesList.length}</strong> roles configurados en la institución
-            </div>
-          </div>
+          </CollapsibleFilterBar>
 
           {/* Grid de Roles */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1335,6 +1432,34 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                 </div>
               </div>
 
+              {/* Perfil de Acceso a Tipos / Series de Folio */}
+              {formRol !== 'superusuario' && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="font-bold text-slate-800 text-xs">
+                      Perfil de Acceso a Tipos / Series de Folio (Control de Folios y Memos)
+                    </label>
+                    <span className="text-[10px] text-slate-500">
+                      Determina qué series puede ver
+                    </span>
+                  </div>
+                  <select
+                    value={formPerfilFolio}
+                    onChange={(e) => setFormPerfilFolio(e.target.value as '' | PerfilAccesoFolio)}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-semibold text-slate-800 text-xs focus:ring-2 focus:ring-blue-600"
+                  >
+                    <option value="">
+                      Automático según Rol ({getPerfilFolioLabel(resolveUserFolioPerfil({ ...currentUser, rol: formRol, perfilFolio: undefined }))})
+                    </option>
+                    {PERFILES_ACCESO_FOLIO_INFO.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label} — {p.desc}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Banner Informativo de Rol Seleccionado */}
               <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-blue-900 text-[11px] flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
@@ -1730,6 +1855,92 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                   })}
                 </div>
               </div>
+
+              {/* Visibilidad de Tipos y Series de Control de Folios en Memos y Notas */}
+              {formRol !== 'superusuario' && (
+                <div className="p-3.5 bg-cyan-50/70 border border-cyan-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <span className="font-bold text-cyan-950 text-xs flex items-center gap-1.5">
+                        <EyeOff className="w-3.5 h-3.5 text-cyan-800" />
+                        <span>Memos y Notas: Ocultar Tipos / Series de Control de Folios</span>
+                      </span>
+                      <span className="text-[11px] text-cyan-900 block mt-0.5">
+                        Marque los tipos de Memos/Notas o series de Control de Folios que desea ocultar o quitar para este usuario.
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-cyan-900 bg-cyan-100 px-2 py-0.5 rounded">
+                      {formTiposMemosOcultos.length} oculto(s)
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pt-1">
+                    {buildUnifiedTiposMemosOptions(
+                      config || DEFAULT_CONFIG,
+                      seriesNumerarioList
+                    ).map((opt) => {
+                      const simUser: UsuarioSistema = {
+                        ...currentUser,
+                        rol: formRol,
+                        perfilFolio: formPerfilFolio || undefined,
+                        tiposMemosOcultos: formTiposMemosOcultos,
+                      };
+                      const effectivePerfil = resolveUserFolioPerfil(simUser);
+                      const hiddenByProfile = !opt.perfilesVisibles.includes(effectivePerfil);
+                      const isHidden = isTipoMemoHiddenForUser(
+                        opt,
+                        simUser,
+                        undefined,
+                        seriesNumerarioList,
+                        config || DEFAULT_CONFIG
+                      );
+                      return (
+                        <label
+                          key={opt.key}
+                          className={`p-2 rounded-lg border flex items-center justify-between gap-2 text-[11px] ${
+                            hiddenByProfile
+                              ? 'bg-amber-50 border-amber-300 text-amber-950 font-semibold cursor-not-allowed opacity-85'
+                              : isHidden
+                              ? 'bg-red-50 border-red-300 text-red-950 font-bold cursor-pointer'
+                              : 'bg-white border-slate-200 text-slate-700 cursor-pointer'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isHidden}
+                              disabled={hiddenByProfile}
+                              onChange={() => {
+                                setFormTiposMemosOcultos((prev) => {
+                                  if (isHidden) {
+                                    return prev.filter(
+                                      (h) =>
+                                        h !== opt.key &&
+                                        h !== opt.serieFolioId &&
+                                        h !== `serie:${opt.serieFolioId}` &&
+                                        normalizeTipoKey(h) !== normalizeTipoKey(opt.nombre) &&
+                                        normalizeTipoKey(h) !== `tipo:${normalizeTipoKey(opt.nombre)}`
+                                    );
+                                  }
+                                  return [...prev, opt.key];
+                                });
+                              }}
+                              className="w-3.5 h-3.5 accent-red-600 shrink-0"
+                            />
+                            <span className="truncate">{opt.nombre}</span>
+                          </div>
+                          <span className="text-[9px] text-slate-500 shrink-0">
+                            {hiddenByProfile
+                              ? `Por perfil (${getPerfilFolioLabel(effectivePerfil)})`
+                              : opt.esDeControlFolios
+                              ? 'Folio'
+                              : 'Tipo'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Footer Modal */}
               <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2.5">

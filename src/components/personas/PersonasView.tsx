@@ -25,6 +25,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 
 export interface PersonaRegistroConsolidado {
   id: string;
@@ -33,6 +34,8 @@ export interface PersonaRegistroConsolidado {
   edad: string | number;
   tipoRegistro: 'Involucrado' | 'Testigo de Acta';
   condicion: string;
+  tipoLesion?: string;
+  fallecido?: boolean;
   intervencionCodigo: string;
   intervencionTipo: string;
   intervencionHecho: string;
@@ -51,6 +54,8 @@ export interface PersonaAgrupada {
   totalHechos: number;
   condicionesDistintas: string[];
   tiposDistintos: string[];
+  lesionesDistintas: string[];
+  tieneFallecido: boolean;
   hechos: PersonaRegistroConsolidado[];
 }
 
@@ -68,6 +73,8 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipoRegistro, setFiltroTipoRegistro] = useState('todos');
   const [filtroCondicion, setFiltroCondicion] = useState('todas');
+  const [filtroTipoLesion, setFiltroTipoLesion] = useState('todas');
+  const [soloFallecidos, setSoloFallecidos] = useState<boolean>(false);
   const [filtroAnio, setFiltroAnio] = useState<string>('todos');
   const [soloMultiples, setSoloMultiples] = useState<boolean>(false);
   const [modoOrganizacion, setModoOrganizacion] = useState<'agrupado' | 'detallado'>('agrupado');
@@ -110,6 +117,8 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
             edad: inv.edad || 'Mayor',
             tipoRegistro: 'Involucrado',
             condicion: inv.condicion || inv.funcionEnHecho || 'Involucrado',
+            tipoLesion: inv.tipoLesion || 'Sin Lesiones',
+            fallecido: !!inv.fallecido,
             intervencionCodigo: interv.codigoIntervencion,
             intervencionTipo: interv.tipoIntervencion,
             intervencionHecho: interv.hecho,
@@ -131,6 +140,8 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
               edad: testigo.edad || 'Mayor',
               tipoRegistro: 'Testigo de Acta',
               condicion: `Testigo de Acta Nº ${idx + 1}`,
+              tipoLesion: 'Sin Lesiones',
+              fallecido: false,
               intervencionCodigo: interv.codigoIntervencion,
               intervencionTipo: interv.tipoIntervencion,
               intervencionHecho: interv.hecho,
@@ -166,6 +177,8 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
           totalHechos: 0,
           condicionesDistintas: [],
           tiposDistintos: [],
+          lesionesDistintas: [],
+          tieneFallecido: false,
           hechos: [],
         });
       }
@@ -179,6 +192,12 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
       }
       if (p.tipoRegistro && !item.tiposDistintos.includes(p.tipoRegistro)) {
         item.tiposDistintos.push(p.tipoRegistro);
+      }
+      if (p.tipoLesion && !item.lesionesDistintas.includes(p.tipoLesion)) {
+        item.lesionesDistintas.push(p.tipoLesion);
+      }
+      if (p.fallecido) {
+        item.tieneFallecido = true;
       }
     });
 
@@ -194,10 +213,45 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
     return Array.from(set);
   }, [personasConsolidadas]);
 
-  // Conteo de personas con múltiples hechos
+  // Lista única de tipos de lesiones
+  const lesionesUnicas = useMemo(() => {
+    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas']);
+    personasConsolidadas.forEach((p) => {
+      if (p.tipoLesion) set.add(p.tipoLesion);
+    });
+    return Array.from(set);
+  }, [personasConsolidadas]);
+
+  // Conteo de personas con múltiples hechos y fallecidos
   const totalConMultiplesHechos = useMemo(() => {
     return personasAgrupadas.filter((p) => p.totalHechos > 1).length;
   }, [personasAgrupadas]);
+
+  const totalFallecidos = useMemo(() => {
+    return personasAgrupadas.filter((p) => p.tieneFallecido).length;
+  }, [personasAgrupadas]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroTipoRegistro !== 'todos') count++;
+    if (filtroCondicion !== 'todas') count++;
+    if (filtroTipoLesion !== 'todas') count++;
+    if (filtroAnio !== 'todos') count++;
+    if (soloFallecidos) count++;
+    if (soloMultiples) count++;
+    return count;
+  }, [searchTerm, filtroTipoRegistro, filtroCondicion, filtroTipoLesion, filtroAnio, soloFallecidos, soloMultiples]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroTipoRegistro('todos');
+    setFiltroCondicion('todas');
+    setFiltroTipoLesion('todas');
+    setFiltroAnio('todos');
+    setSoloFallecidos(false);
+    setSoloMultiples(false);
+  };
 
   // Filtrado de agrupados
   const filteredAgrupados = useMemo(() => {
@@ -211,7 +265,8 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
             h.intervencionHecho.toLowerCase().includes(term) ||
             h.inspeccionLugar.toLowerCase().includes(term) ||
             h.intervencionCodigo.toLowerCase().includes(term) ||
-            h.condicion.toLowerCase().includes(term)
+            h.condicion.toLowerCase().includes(term) ||
+            (h.tipoLesion || '').toLowerCase().includes(term)
         );
 
       const matchTipo =
@@ -220,15 +275,20 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
       const matchCond =
         filtroCondicion === 'todas' || p.condicionesDistintas.includes(filtroCondicion);
 
+      const matchLesion =
+        filtroTipoLesion === 'todas' || p.lesionesDistintas.includes(filtroTipoLesion);
+
+      const matchFallecido = !soloFallecidos || p.tieneFallecido;
+
       const matchAnio =
         filtroAnio === 'todos' ||
         p.hechos.some((h) => h.inspeccionFecha && h.inspeccionFecha.startsWith(filtroAnio));
 
       const matchMultiples = !soloMultiples || p.totalHechos > 1;
 
-      return matchSearch && matchTipo && matchCond && matchAnio && matchMultiples;
+      return matchSearch && matchTipo && matchCond && matchLesion && matchFallecido && matchAnio && matchMultiples;
     });
-  }, [personasAgrupadas, searchTerm, filtroTipoRegistro, filtroCondicion, filtroAnio, soloMultiples]);
+  }, [personasAgrupadas, searchTerm, filtroTipoRegistro, filtroCondicion, filtroTipoLesion, soloFallecidos, filtroAnio, soloMultiples]);
 
   // Filtrado de lista detallada
   const filteredListDetallada = useMemo(() => {
@@ -238,6 +298,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
         p.apellidoYNombre.toLowerCase().includes(term) ||
         p.dni.toLowerCase().includes(term) ||
         p.condicion.toLowerCase().includes(term) ||
+        (p.tipoLesion || '').toLowerCase().includes(term) ||
         p.intervencionHecho.toLowerCase().includes(term) ||
         p.inspeccionLugar.toLowerCase().includes(term) ||
         p.intervencionCodigo.toLowerCase().includes(term);
@@ -248,12 +309,17 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
       const matchCond =
         filtroCondicion === 'todas' || p.condicion === filtroCondicion;
 
+      const matchLesion =
+        filtroTipoLesion === 'todas' || (p.tipoLesion || 'Sin Lesiones') === filtroTipoLesion;
+
+      const matchFallecido = !soloFallecidos || !!p.fallecido;
+
       const matchAnio =
         filtroAnio === 'todos' || (p.inspeccionFecha && p.inspeccionFecha.startsWith(filtroAnio));
 
-      return matchSearch && matchTipo && matchCond && matchAnio;
+      return matchSearch && matchTipo && matchCond && matchLesion && matchFallecido && matchAnio;
     });
-  }, [personasConsolidadas, searchTerm, filtroTipoRegistro, filtroCondicion, filtroAnio]);
+  }, [personasConsolidadas, searchTerm, filtroTipoRegistro, filtroCondicion, filtroTipoLesion, soloFallecidos, filtroAnio]);
 
   // Exportar a PDF oficial
   const handleExportPdf = () => {
@@ -278,8 +344,8 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
             p.dni,
             p.edadMasReciente,
             `${p.totalHechos} intervención(es)`,
-            p.condicionesDistintas.join(', '),
-            p.hechos.map((h) => `${h.inspeccionFecha}: ${h.intervencionHecho} (${h.condicion})`).join('\n'),
+            `${p.condicionesDistintas.join(', ')}${p.tieneFallecido ? ' [FALLECIDO]' : ''}`,
+            p.hechos.map((h) => `${h.inspeccionFecha}: ${h.intervencionHecho} (${h.condicion} - ${h.tipoLesion || 'Sin Lesiones'}${h.fallecido ? ' / FALLECIDO' : ''})`).join('\n'),
           ]);
 
           autoTable(doc, {
@@ -304,8 +370,8 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
             p.apellidoYNombre,
             p.dni,
             p.edad,
-            p.condicion,
-            p.tipoRegistro,
+            `${p.condicion}${p.fallecido ? ' [FALLECIDO]' : ''}`,
+            p.tipoLesion || 'Sin Lesiones',
             p.intervencionHecho,
             p.inspeccionFecha,
             p.intervencionCodigo,
@@ -313,7 +379,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
 
           autoTable(doc, {
             startY: startY + 5,
-            head: [['#', 'Apellido y Nombre', 'DNI', 'Edad', 'Condición', 'Tipo', 'Hecho Caratulado', 'Fecha', 'Nº Intervención']],
+            head: [['#', 'Apellido y Nombre', 'DNI', 'Edad', 'Condición', 'Lesión', 'Hecho Caratulado', 'Fecha', 'Nº Intervención']],
             body: rows,
             styles: { fontSize: 7.5, cellPadding: 2 },
             headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
@@ -410,9 +476,22 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
         </div>
       </div>
 
-      {/* Barra de Filtros y Búsqueda */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 text-xs">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Barra de Filtros y Búsqueda Colapsable */}
+      <CollapsibleFilterBar
+        title="Búsqueda y Filtros de Personas, Lesiones y Fallecidos"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span className="text-slate-500 text-[11px]">
+            Mostrando{' '}
+            <strong className="text-slate-800">
+              {modoOrganizacion === 'agrupado' ? filteredAgrupados.length : filteredListDetallada.length}
+            </strong>{' '}
+            {modoOrganizacion === 'agrupado' ? 'personas' : 'registros'}
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* Buscador */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -420,7 +499,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por DNI, Nombre, Hecho o Dirección..."
+              placeholder="Buscar DNI, Nombre, Hecho o Dirección..."
               className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
@@ -454,6 +533,22 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
             </select>
           </div>
 
+          {/* Filtro Tipo de Lesiones */}
+          <div>
+            <select
+              value={filtroTipoLesion}
+              onChange={(e) => setFiltroTipoLesion(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            >
+              <option value="todas">Tipo de Lesiones: Todas</option>
+              {lesionesUnicas.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Filtro Año */}
           <div>
             <select
@@ -469,9 +564,9 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
           </div>
         </div>
 
-        {/* Acciones y Filtro Rápido de Múltiples Hechos */}
+        {/* Acciones y Filtros Rápidos */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setSoloMultiples(!soloMultiples)}
@@ -482,7 +577,19 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
               }`}
             >
               <AlertTriangle className={`w-3.5 h-3.5 ${soloMultiples ? 'text-white' : 'text-amber-600'}`} />
-              <span>Solo personas en múltiples hechos ({totalConMultiplesHechos})</span>
+              <span>Múltiples hechos ({totalConMultiplesHechos})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSoloFallecidos(!soloFallecidos)}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                soloFallecidos
+                  ? 'bg-rose-700 text-white border-rose-800 shadow-xs'
+                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <span>Solo Fallecidos ({totalFallecidos})</span>
             </button>
 
             {modoOrganizacion === 'agrupado' && (
@@ -505,16 +612,8 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
               </div>
             )}
           </div>
-
-          <span className="text-slate-500 text-[11px]">
-            Mostrando{' '}
-            <strong className="text-slate-800">
-              {modoOrganizacion === 'agrupado' ? filteredAgrupados.length : filteredListDetallada.length}
-            </strong>{' '}
-            {modoOrganizacion === 'agrupado' ? 'personas' : 'registros'}
-          </span>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Contenido: MODO HISTORIAL AGRUPADO POR PERSONA */}
       {modoOrganizacion === 'agrupado' && (
@@ -580,7 +679,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Roles / Condiciones */}
+                    {/* Roles / Condiciones y Lesiones */}
                     <div className="px-4 py-2.5 bg-slate-50/50 border-b border-slate-100 flex flex-wrap items-center gap-1.5 text-[11px]">
                       <span className="text-slate-400 font-medium">Condición(es):</span>
                       {p.condicionesDistintas.map((cond, idx) => (
@@ -591,6 +690,21 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
                           {cond}
                         </span>
                       ))}
+                      {p.lesionesDistintas
+                        .filter((l) => l && l !== 'Sin Lesiones')
+                        .map((les, idx) => (
+                          <span
+                            key={`les-${idx}`}
+                            className="bg-rose-50 text-rose-800 border border-rose-200 px-2 py-0.5 rounded-md font-bold text-[10px]"
+                          >
+                            Lesión: {les}
+                          </span>
+                        ))}
+                      {p.tieneFallecido && (
+                        <span className="bg-slate-900 text-rose-200 border border-rose-500 px-2 py-0.5 rounded-md font-extrabold text-[10px]">
+                          FALLECIDO
+                        </span>
+                      )}
                     </div>
 
                     {/* Historial Desplegable */}
@@ -638,6 +752,16 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
                               <span className="font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
                                 Rol: {h.condicion}
                               </span>
+                              {h.tipoLesion && (
+                                <span className={`font-bold px-1.5 py-0.2 rounded border ${h.tipoLesion === 'Sin Lesiones' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
+                                  {h.tipoLesion}
+                                </span>
+                              )}
+                              {h.fallecido && (
+                                <span className="font-extrabold bg-slate-900 text-rose-200 px-1.5 py-0.2 rounded border border-rose-500">
+                                  FALLECIDO
+                                </span>
+                              )}
                               <span className="flex items-center gap-0.5 truncate max-w-[200px]" title={h.inspeccionLugar}>
                                 <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
                                 <span>{h.inspeccionLugar}</span>
@@ -793,11 +917,21 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
                     </div>
 
                     <div className="space-y-1 text-slate-600">
-                      <div>
-                        <span className="font-semibold text-slate-500">Condición:</span>{' '}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-semibold text-slate-500">Condición:</span>
                         <strong className="text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">
                           {p.condicion}
                         </strong>
+                        {p.tipoLesion && (
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${p.tipoLesion === 'Sin Lesiones' ? 'bg-slate-50 text-slate-600 border-slate-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
+                            {p.tipoLesion}
+                          </span>
+                        )}
+                        {p.fallecido && (
+                          <span className="bg-slate-900 text-rose-200 border border-rose-500 px-1.5 py-0.5 rounded text-[10px] font-extrabold">
+                            FALLECIDO
+                          </span>
+                        )}
                       </div>
                       <div className="line-clamp-2">
                         <span className="font-semibold text-slate-500">Hecho:</span>{' '}

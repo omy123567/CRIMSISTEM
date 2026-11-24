@@ -23,6 +23,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 
 export interface VehiculoSiniestroConsolidado {
   id: string;
@@ -68,6 +69,8 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
   const [filtroLesion, setFiltroLesion] = useState('todas');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroAnio, setFiltroAnio] = useState<string>('todos');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
   const [soloMultiples, setSoloMultiples] = useState<boolean>(false);
   const [modoOrganizacion, setModoOrganizacion] = useState<'agrupado' | 'detallado'>('agrupado');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
@@ -171,11 +174,34 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
     return Array.from(set);
   }, [vehiculosConsolidados]);
 
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroLesion !== 'todas') count++;
+    if (filtroTipo !== 'todos') count++;
+    if (filtroAnio !== 'todos') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    if (soloMultiples) count++;
+    return count;
+  }, [searchTerm, filtroLesion, filtroTipo, filtroAnio, fechaDesde, fechaHasta, soloMultiples]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroLesion('todas');
+    setFiltroTipo('todos');
+    setFiltroAnio('todos');
+    setFechaDesde('');
+    setFechaHasta('');
+    setSoloMultiples(false);
+  };
+
   // Filtrado agrupado
   const filteredAgrupados = useMemo(() => {
     return vehiculosAgrupados.filter((v) => {
       const term = searchTerm.toLowerCase();
       const matchSearch =
+        !term ||
         v.dominio.toLowerCase().includes(term) ||
         v.tipo.toLowerCase().includes(term) ||
         v.propietarioHabitual.toLowerCase().includes(term) ||
@@ -197,17 +223,23 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
         filtroAnio === 'todos' ||
         v.siniestros.some((s) => s.inspeccionFecha && s.inspeccionFecha.startsWith(filtroAnio));
 
+      const matchDesde =
+        !fechaDesde || v.siniestros.some((s) => s.inspeccionFecha && s.inspeccionFecha >= fechaDesde);
+      const matchHasta =
+        !fechaHasta || v.siniestros.some((s) => s.inspeccionFecha && s.inspeccionFecha <= fechaHasta);
+
       const matchMultiples = !soloMultiples || v.totalSiniestros > 1;
 
-      return matchSearch && matchTipo && matchLesion && matchAnio && matchMultiples;
+      return matchSearch && matchTipo && matchLesion && matchAnio && matchDesde && matchHasta && matchMultiples;
     });
-  }, [vehiculosAgrupados, searchTerm, filtroTipo, filtroLesion, filtroAnio, soloMultiples]);
+  }, [vehiculosAgrupados, searchTerm, filtroTipo, filtroLesion, filtroAnio, fechaDesde, fechaHasta, soloMultiples]);
 
   // Filtrado de lista detallada
   const filteredListDetallada = useMemo(() => {
     return vehiculosConsolidados.filter((v) => {
       const term = searchTerm.toLowerCase();
       const matchSearch =
+        !term ||
         v.dominio.toLowerCase().includes(term) ||
         v.identificador.toLowerCase().includes(term) ||
         v.tipo.toLowerCase().includes(term) ||
@@ -221,14 +253,18 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
       const matchLesion =
         filtroLesion === 'todas' ||
         (filtroLesion === 'ileso' && v.lesiones.toLowerCase().includes('ileso')) ||
+        (filtroLesion === 'fallec' && (v.lesiones.toLowerCase().includes('fallec') || v.lesiones.toLowerCase().includes('óbito'))) ||
         (filtroLesion === 'lesionado' && !v.lesiones.toLowerCase().includes('ileso'));
 
       const matchAnio =
         filtroAnio === 'todos' || (v.inspeccionFecha && v.inspeccionFecha.startsWith(filtroAnio));
 
-      return matchSearch && matchTipo && matchLesion && matchAnio;
+      const matchDesde = !fechaDesde || (v.inspeccionFecha && v.inspeccionFecha >= fechaDesde);
+      const matchHasta = !fechaHasta || (v.inspeccionFecha && v.inspeccionFecha <= fechaHasta);
+
+      return matchSearch && matchTipo && matchLesion && matchAnio && matchDesde && matchHasta;
     });
-  }, [vehiculosConsolidados, searchTerm, filtroTipo, filtroLesion, filtroAnio]);
+  }, [vehiculosConsolidados, searchTerm, filtroTipo, filtroLesion, filtroAnio, fechaDesde, fechaHasta]);
 
   // Exportar a PDF
   const handleExportPdf = () => {
@@ -383,9 +419,22 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
         </div>
       </div>
 
-      {/* Barra de Filtros y Búsqueda */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 text-xs">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Barra de Filtros y Búsqueda Colapsable */}
+      <CollapsibleFilterBar
+        title="Búsqueda y Filtros de Vehículos y Rodados"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span className="text-slate-500 text-[11px]">
+            Mostrando{' '}
+            <strong className="text-slate-800">
+              {modoOrganizacion === 'agrupado' ? filteredAgrupados.length : filteredListDetallada.length}
+            </strong>{' '}
+            {modoOrganizacion === 'agrupado' ? 'vehículos' : 'siniestros'}
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* Buscador */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -393,56 +442,65 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por Dominio/Patente, Tipo, Titular o Dirección..."
+              placeholder="Dominio/Patente, Tipo, Titular o Lugar..."
               className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-600"
             />
           </div>
 
-          {/* Filtro Tipo de Vehículo */}
-          <div>
-            <select
-              value={filtroTipo}
-              onChange={(e) => setFiltroTipo(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-600"
-            >
-              <option value="todos">Todos los Tipos de Rodado</option>
-              {tiposUnicos.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={filtroTipo}
+            onChange={(e) => setFiltroTipo(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-600"
+          >
+            <option value="todos">Todos los Tipos de Rodado</option>
+            {tiposUnicos.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
 
-          {/* Filtro Lesión */}
-          <div>
-            <select
-              value={filtroLesion}
-              onChange={(e) => setFiltroLesion(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-600"
-            >
-              <option value="todas">Todas las Lesiones</option>
-              <option value="ileso">Ileso / Sin Lesiones</option>
-              <option value="lesionado">Con Lesiones / Hospitalizados</option>
-            </select>
-          </div>
+          <select
+            value={filtroLesion}
+            onChange={(e) => setFiltroLesion(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-600"
+          >
+            <option value="todas">Todas las Lesiones</option>
+            <option value="ileso">Ileso / Sin Lesiones</option>
+            <option value="lesionado">Con Lesiones / Hospitalizados</option>
+            <option value="fallec">Con Fallecido</option>
+          </select>
 
-          {/* Filtro Año */}
-          <div>
-            <select
-              value={filtroAnio}
-              onChange={(e) => setFiltroAnio(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-600"
-            >
-              <option value="todos">Todos los Años</option>
-              <option value="2026">Año 2026</option>
-              <option value="2025">Año 2025</option>
-              <option value="2024">Año 2024</option>
-            </select>
+          <select
+            value={filtroAnio}
+            onChange={(e) => setFiltroAnio(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-600"
+          >
+            <option value="todos">Todos los Años</option>
+            <option value="2026">Año 2026</option>
+            <option value="2025">Año 2025</option>
+            <option value="2024">Año 2024</option>
+          </select>
+
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              title="Fecha Siniestro Desde"
+              className="w-full text-xs px-2 py-2 rounded-lg border border-slate-300 text-slate-700"
+            />
+            <span className="text-slate-400 text-[11px]">a</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              title="Fecha Siniestro Hasta"
+              className="w-full text-xs px-2 py-2 rounded-lg border border-slate-300 text-slate-700"
+            />
           </div>
         </div>
 
-        {/* Acciones Rápidas */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
           <div className="flex items-center gap-2">
             <button
@@ -478,16 +536,8 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
               </div>
             )}
           </div>
-
-          <span className="text-slate-500 text-[11px]">
-            Mostrando{' '}
-            <strong className="text-slate-800">
-              {modoOrganizacion === 'agrupado' ? filteredAgrupados.length : filteredListDetallada.length}
-            </strong>{' '}
-            {modoOrganizacion === 'agrupado' ? 'vehículos' : 'siniestros'}
-          </span>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Contenido: MODO HISTORIAL AGRUPADO POR VEHÍCULO */}
       {modoOrganizacion === 'agrupado' && (

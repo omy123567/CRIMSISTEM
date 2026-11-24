@@ -28,10 +28,54 @@ export interface DatabaseCounts {
   grupos: number;
   delegaciones: number;
   usuarios: number;
+  roles: number;
   auditoria: number;
   seriesNumerario: number;
   folios: number;
+  novedadesDelegaciones: number;
+  charlasPrevencion: number;
+  licenciasPoliciales: number;
+  saldosLicencias: number;
+  feriados: number;
+  memosNotas: number;
 }
+
+export interface BackupModuleCatalogItem {
+  id: string;
+  label: string;
+  category: 'Operativo' | 'Licencias' | 'Administración' | 'Sistema';
+  supportsDelegacionFilter?: boolean;
+}
+
+export const BACKUP_MODULES_CATALOG: BackupModuleCatalogItem[] = [
+  { id: 'personal', label: 'Personal y Legajos', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'grupos', label: 'Grupos de Guardia', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'licenciasPoliciales', label: 'Licencias Policiales', category: 'Licencias', supportsDelegacionFilter: true },
+  { id: 'saldosLicencias', label: 'Saldos Licencias (Art. 7)', category: 'Licencias', supportsDelegacionFilter: true },
+  { id: 'feriados', label: 'Feriados y Días No Lab.', category: 'Licencias', supportsDelegacionFilter: false },
+  { id: 'partesGuardia', label: 'Partes de Guardia', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'intervenciones', label: 'Intervenciones Periciales', category: 'Operativo', supportsDelegacionFilter: false },
+  { id: 'inspeccionesOculares', label: 'Inspecciones Oculares (I.O.)', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'expedientes', label: 'Expedientes Judiciales', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'casosFaltaOficio', label: 'Casos Falta de Oficio', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'informesTecnicos', label: 'Informes Técnicos', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'accidentologia', label: 'Accidentología Vial', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'moviles', label: 'Móviles Policiales', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'reparaciones', label: 'Reparaciones Taller', category: 'Operativo', supportsDelegacionFilter: false },
+  { id: 'recargos', label: 'Recargos Operativos', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'forenses', label: 'Forenses Policiales', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'licenciados', label: 'Licenciados de Turno', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'seriesNumerario', label: 'Series de Folios', category: 'Administración', supportsDelegacionFilter: true },
+  { id: 'folios', label: 'Folios Asignados', category: 'Administración', supportsDelegacionFilter: true },
+  { id: 'memosNotas', label: 'Memos y Notas', category: 'Administración', supportsDelegacionFilter: true },
+  { id: 'novedadesDelegaciones', label: 'Novedades Inter-Delegaciones', category: 'Administración', supportsDelegacionFilter: true },
+  { id: 'charlasPrevencion', label: 'Charlas de Prevención', category: 'Operativo', supportsDelegacionFilter: true },
+  { id: 'delegaciones', label: 'Delegaciones Policiales', category: 'Sistema', supportsDelegacionFilter: false },
+  { id: 'roles', label: 'Roles y Permisos', category: 'Sistema', supportsDelegacionFilter: false },
+  { id: 'usuarios', label: 'Usuarios del Sistema', category: 'Sistema', supportsDelegacionFilter: true },
+  { id: 'configuracion', label: 'Configuración y Membretes', category: 'Sistema', supportsDelegacionFilter: true },
+  { id: 'auditoria', label: 'Auditoría Forense', category: 'Sistema', supportsDelegacionFilter: true },
+];
 
 export type TipoPeriodoFiltro = 'semana' | 'mes' | 'año' | 'personalizado';
 
@@ -50,14 +94,68 @@ export const MODULOS_OPERATIVOS_PERIODO: ModuloPeriodoInfo[] = [
   { id: 'partesGuardia', label: 'Libros y Partes de Guardia', dateFields: ['fechaInicio', 'createdAt'] },
   { id: 'intervenciones', label: 'Intervenciones Periciales', dateFields: ['inspeccionFecha', 'fecha', 'createdAt'] },
   { id: 'inspeccionesOculares', label: 'Inspecciones Oculares (I.O.)', dateFields: ['fecha', 'createdAt'] },
+  { id: 'licenciasPoliciales', label: 'Licencias Policiales', dateFields: ['fechaSalida', 'createdAt'] },
   { id: 'expedientes', label: 'Expedientes Judiciales', dateFields: ['fechaRegistro', 'createdAt'] },
   { id: 'casosFaltaOficio', label: 'Casos Falta de Oficio', dateFields: ['fechaRegistro', 'createdAt'] },
   { id: 'recargos', label: 'Recargos Operativos de Servicio', dateFields: ['fecha', 'createdAt'] },
   { id: 'informesTecnicos', label: 'Informes Técnicos Periciales', dateFields: ['fecha', 'fechaRecepcion', 'createdAt'] },
   { id: 'accidentologia', label: 'Accidentología y Siniestros Viales', dateFields: ['fecha', 'createdAt'] },
+  { id: 'charlasPrevencion', label: 'Charlas de Prevención', dateFields: ['fecha', 'createdAt'] },
+  { id: 'memosNotas', label: 'Memos y Notas', dateFields: ['fecha', 'createdAt'] },
   { id: 'reparaciones', label: 'Reparaciones Mecánicas de Móviles', dateFields: ['fecha', 'createdAt'] },
   { id: 'auditoria', label: 'Registros de Auditoría del Sistema', dateFields: ['fechaHora'] },
 ];
+
+export interface SelectiveBackupOptions {
+  delegacionId?: string; // 'todas' | undefined o ID específico
+  modulos?: string[]; // lista de IDs de BACKUP_MODULES_CATALOG
+}
+
+export interface BackupInspectionResult {
+  valid: boolean;
+  needsPassword?: boolean;
+  error?: string;
+  format: 'json' | 'zip' | 'encrypted-json' | 'encrypted-zip';
+  version?: string;
+  exportDate?: string;
+  delegacionFiltro?: string;
+  checksumStatus: 'valid' | 'invalid' | 'legacy-none';
+  checksumExpected?: string;
+  checksumActual?: string;
+  recordCounts: Record<string, number>;
+  totalRecords: number;
+  delegacionesDetectadas: string[];
+  parsedData?: Record<string, any>;
+  rawJson?: string;
+  zipFile?: File;
+}
+
+/**
+ * Calcula hash SHA-256 hexadecimal usando Web Crypto API
+ */
+export async function computeSha256Hex(text: string): Promise<string> {
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    return '';
+  }
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function buildCanonicalCollectionPayload(
+  source: Record<string, any>,
+  moduleIds: string[]
+): Record<string, any[]> {
+  const canonical: Record<string, any[]> = {};
+  for (const id of [...moduleIds].sort()) {
+    if (Array.isArray(source[id])) {
+      canonical[id] = source[id];
+    }
+  }
+  return canonical;
+}
 
 /**
  * Calcula las fechas desde/hasta según el período seleccionado
@@ -87,22 +185,28 @@ export function calcularRangoPeriodo(
     return { desde: inicioAnio, hasta: hastaHoy };
   }
 
-  // Personalizado
   return {
     desde: customDesde && customDesde.trim() ? customDesde.trim() : hastaHoy,
     hasta: customHasta && customHasta.trim() ? customHasta.trim() : hastaHoy,
   };
 }
 
-/**
- * Extrae la fecha en formato YYYY-MM-DD de un registro evaluando sus campos de fecha
- */
 export function extraerFechaRegistro(item: any, dateFields?: string[]): string | null {
   if (!item || typeof item !== 'object') return null;
 
-  const fieldsToCheck = dateFields && dateFields.length > 0
-    ? dateFields
-    : ['fecha', 'fechaInicio', 'fechaRegistro', 'fechaRecepcion', 'inspeccionFecha', 'fechaHora', 'createdAt'];
+  const fieldsToCheck =
+    dateFields && dateFields.length > 0
+      ? dateFields
+      : [
+          'fecha',
+          'fechaInicio',
+          'fechaSalida',
+          'fechaRegistro',
+          'fechaRecepcion',
+          'inspeccionFecha',
+          'fechaHora',
+          'createdAt',
+        ];
 
   for (const field of fieldsToCheck) {
     const val = item[field];
@@ -115,9 +219,6 @@ export function extraerFechaRegistro(item: any, dateFields?: string[]): string |
   return null;
 }
 
-/**
- * Verifica si un registro pertenece al rango de fechas dado
- */
 export function registroEstaEnRango(item: any, rango: RangoFechas, dateFields?: string[]): boolean {
   const f = extraerFechaRegistro(item, dateFields);
   if (!f) return false;
@@ -125,38 +226,98 @@ export function registroEstaEnRango(item: any, rango: RangoFechas, dateFields?: 
 }
 
 export async function getDatabaseCounts(): Promise<DatabaseCounts> {
+  const [
+    personal,
+    expedientes,
+    casosFaltaOficio,
+    moviles,
+    reparaciones,
+    recargos,
+    partesGuardia,
+    intervenciones,
+    inspeccionesOculares,
+    informesTecnicos,
+    accidentologia,
+    forenses,
+    licenciados,
+    grupos,
+    delegaciones,
+    usuarios,
+    roles,
+    auditoria,
+    seriesNumerario,
+    folios,
+    novedadesDelegaciones,
+    charlasPrevencion,
+    licenciasPoliciales,
+    saldosLicencias,
+    feriados,
+    memosNotas,
+  ] = await Promise.all([
+    db.personal.count(),
+    db.expedientes.count(),
+    db.casosFaltaOficio.count(),
+    db.moviles.count(),
+    db.reparaciones.count(),
+    db.recargos.count(),
+    db.partesGuardia.count(),
+    db.intervenciones.count(),
+    db.inspeccionesOculares.count(),
+    db.informesTecnicos.count(),
+    db.accidentologia.count(),
+    db.forenses.count(),
+    db.licenciados.count(),
+    db.grupos.count(),
+    db.delegaciones.count(),
+    db.usuarios.count(),
+    db.roles.count(),
+    db.auditoria.count(),
+    db.seriesNumerario.count(),
+    db.folios.count(),
+    db.novedadesDelegaciones.count(),
+    db.charlasPrevencion.count(),
+    db.licenciasPoliciales.count(),
+    db.saldosLicencias.count(),
+    db.feriados.count(),
+    db.memosNotas.count(),
+  ]);
+
   return {
-    personal: await db.personal.count(),
-    expedientes: await db.expedientes.count(),
-    casosFaltaOficio: await db.casosFaltaOficio.count(),
-    moviles: await db.moviles.count(),
-    reparaciones: await db.reparaciones.count(),
-    recargos: await db.recargos.count(),
-    partesGuardia: await db.partesGuardia.count(),
-    intervenciones: await db.intervenciones.count(),
-    inspeccionesOculares: await db.inspeccionesOculares.count(),
-    informesTecnicos: await db.informesTecnicos.count(),
-    accidentologia: await db.accidentologia.count(),
-    forenses: await db.forenses.count(),
-    licenciados: await db.licenciados.count(),
-    grupos: await db.grupos.count(),
-    delegaciones: await db.delegaciones.count(),
-    usuarios: await db.usuarios.count(),
-    auditoria: await db.auditoria.count(),
-    seriesNumerario: await db.seriesNumerario.count(),
-    folios: await db.folios.count(),
+    personal,
+    expedientes,
+    casosFaltaOficio,
+    moviles,
+    reparaciones,
+    recargos,
+    partesGuardia,
+    intervenciones,
+    inspeccionesOculares,
+    informesTecnicos,
+    accidentologia,
+    forenses,
+    licenciados,
+    grupos,
+    delegaciones,
+    usuarios,
+    roles,
+    auditoria,
+    seriesNumerario,
+    folios,
+    novedadesDelegaciones,
+    charlasPrevencion,
+    licenciasPoliciales,
+    saldosLicencias,
+    feriados,
+    memosNotas,
   };
 }
 
-/**
- * Previsualiza la cantidad de registros que coinciden con un período
- */
 export async function previsualizarConteoPeriodo(
   rango: RangoFechas,
   modulosSeleccionados?: string[]
 ): Promise<{ conteos: Record<string, number>; total: number }> {
-  const modulos = MODULOS_OPERATIVOS_PERIODO.filter((m) =>
-    !modulosSeleccionados || modulosSeleccionados.includes(m.id)
+  const modulos = MODULOS_OPERATIVOS_PERIODO.filter(
+    (m) => !modulosSeleccionados || modulosSeleccionados.includes(m.id)
   );
 
   const conteos: Record<string, number> = {};
@@ -179,9 +340,6 @@ export async function previsualizarConteoPeriodo(
   return { conteos, total };
 }
 
-/**
- * Elimina registros que caen dentro del período especificado
- */
 export async function eliminarDatosPeriodo(
   rango: RangoFechas,
   modulosSeleccionados: string[],
@@ -220,7 +378,6 @@ export async function eliminarDatosPeriodo(
     }
   }
 
-  // Registrar auditoría de la eliminación por período
   try {
     await db.auditoria.add({
       id: 'aud-' + Date.now(),
@@ -242,9 +399,6 @@ export async function eliminarDatosPeriodo(
   return { eliminadosPorModulo, totalEliminados };
 }
 
-/**
- * Exporta exclusivamente los datos de un período a formato JSON
- */
 export async function exportarJsonPeriodo(
   rango: RangoFechas,
   modulosSeleccionados: string[]
@@ -254,7 +408,7 @@ export async function exportarJsonPeriodo(
   );
 
   const exportData: Record<string, any> = {
-    version: '2.0',
+    version: '3.0',
     exportType: 'period_backup',
     periodo: {
       desde: rango.desde,
@@ -270,19 +424,24 @@ export async function exportarJsonPeriodo(
       const table = (db as any)[mod.id];
       if (!table) continue;
       const allItems = await table.toArray();
-      exportData[mod.id] = allItems.filter((it: any) => registroEstaEnRango(it, rango, mod.dateFields));
+      exportData[mod.id] = allItems.filter((it: any) =>
+        registroEstaEnRango(it, rango, mod.dateFields)
+      );
     } catch (e) {
       console.error(`Error exportando período en ${mod.id}:`, e);
       exportData[mod.id] = [];
     }
   }
 
+  const canonical = buildCanonicalCollectionPayload(
+    exportData,
+    modulos.map((m) => m.id)
+  );
+  exportData.checksumSha256 = await computeSha256Hex(JSON.stringify(canonical));
+
   return JSON.stringify(exportData, null, 2);
 }
 
-/**
- * Restaura datos desde un JSON, opcionalmente filtrando por un período
- */
 export async function restaurarJsonPeriodo(
   jsonString: string,
   rangoFiltro?: RangoFechas,
@@ -335,7 +494,6 @@ export async function restaurarJsonPeriodo(
       }
     }
 
-    // Registrar en auditoría
     try {
       await db.auditoria.add({
         id: 'aud-' + Date.now(),
@@ -347,7 +505,9 @@ export async function restaurarJsonPeriodo(
         delegacionId: 'sistema',
         modulo: 'Configuración / Restauración',
         accion: 'CREAR',
-        descripcion: `Restauración de respaldo${rangoFiltro ? ` filtrado por período (${rangoFiltro.desde} a ${rangoFiltro.hasta})` : ''}: ${totalRestaurados} registros restaurados.`,
+        descripcion: `Restauración de respaldo${
+          rangoFiltro ? ` filtrado por período (${rangoFiltro.desde} a ${rangoFiltro.hasta})` : ''
+        }: ${totalRestaurados} registros restaurados.`,
         detalles: JSON.stringify({ rangoFiltro, restauradosPorModulo, totalRestaurados }),
       });
     } catch (e) {
@@ -356,7 +516,9 @@ export async function restaurarJsonPeriodo(
 
     return {
       success: true,
-      message: `Restauración exitosa: se cargaron/actualizaron ${totalRestaurados} registros${rangoFiltro ? ` dentro del período ${rangoFiltro.desde} al ${rangoFiltro.hasta}` : ''}.`,
+      message: `Restauración exitosa: se cargaron/actualizaron ${totalRestaurados} registros${
+        rangoFiltro ? ` dentro del período ${rangoFiltro.desde} al ${rangoFiltro.hasta}` : ''
+      }.`,
       restauradosPorModulo,
       totalRestaurados,
     };
@@ -370,81 +532,268 @@ export async function restaurarJsonPeriodo(
   }
 }
 
-export async function exportGeneralJsonBackup(): Promise<string> {
-  const rawUsuarios = await db.usuarios.toArray();
-  const sanitizedUsuarios = rawUsuarios.map(({ passwordHash: _ph, offlineVerifier: _ov, ...rest }) => ({
-    ...rest,
-    password: '',
-  }));
+async function collectSelectiveTables(options?: SelectiveBackupOptions): Promise<{
+  collections: Record<string, any[]>;
+  recordCounts: Record<string, number>;
+  selectedModuleIds: string[];
+}> {
+  const delegacionFilter =
+    options?.delegacionId && options.delegacionId !== 'todas'
+      ? options.delegacionId
+      : undefined;
 
-  const data = {
-    version: '2.1',
+  const selectedModuleIds =
+    options?.modulos && options.modulos.length > 0
+      ? options.modulos
+      : BACKUP_MODULES_CATALOG.map((m) => m.id);
+
+  const collections: Record<string, any[]> = {};
+  const recordCounts: Record<string, number> = {};
+
+  for (const modId of selectedModuleIds) {
+    const table = (db as any)[modId];
+    if (!table) continue;
+    let items: any[] = await table.toArray();
+
+    if (modId === 'usuarios') {
+      items = items.map(({ passwordHash: _ph, offlineVerifier: _ov, ...rest }) => ({
+        ...rest,
+        password: '',
+      }));
+    }
+
+    if (delegacionFilter) {
+      if (modId === 'novedadesDelegaciones') {
+        items = items.filter(
+          (x) =>
+            x.origenDelegacionId === delegacionFilter ||
+            x.destinatarioDelegacionId === delegacionFilter ||
+            x.destinatarioDelegacionId === 'TODAS'
+        );
+      } else if (modId === 'reparaciones') {
+        const movs = collections['moviles'] || (await db.moviles.toArray());
+        const movIds = new Set(
+          movs.filter((m: any) => !m.delegacionId || m.delegacionId === delegacionFilter).map((m: any) => m.id)
+        );
+        items = items.filter((r) => movIds.has(r.movilId));
+      } else if (modId === 'intervenciones') {
+        const partes = collections['partesGuardia'] || (await db.partesGuardia.toArray());
+        const parteIds = new Set(
+          partes.filter((p: any) => !p.delegacionId || p.delegacionId === delegacionFilter).map((p: any) => p.id)
+        );
+        items = items.filter((it) => !it.parteId || parteIds.has(it.parteId));
+      } else {
+        const meta = BACKUP_MODULES_CATALOG.find((m) => m.id === modId);
+        if (meta?.supportsDelegacionFilter) {
+          items = items.filter(
+            (x) => !x.delegacionId || x.delegacionId === delegacionFilter || x.delegacionId === 'sistema'
+          );
+        }
+      }
+    }
+
+    collections[modId] = items;
+    recordCounts[modId] = items.length;
+  }
+
+  return { collections, recordCounts, selectedModuleIds };
+}
+
+export async function exportGeneralJsonBackup(options?: SelectiveBackupOptions): Promise<string> {
+  const { collections, recordCounts, selectedModuleIds } = await collectSelectiveTables(options);
+  const canonical = buildCanonicalCollectionPayload(collections, selectedModuleIds);
+  const checksumSha256 = await computeSha256Hex(JSON.stringify(canonical));
+  const totalRegistros = Object.values(recordCounts).reduce((a, b) => a + b, 0);
+
+  const data: Record<string, any> = {
+    version: '3.0',
     exportDate: new Date().toISOString(),
     system: 'Sis.Pol. - Sistema de Gestión Policial y Operativa',
-    configuracion: await db.configuracion.toArray(),
-    personal: await db.personal.toArray(),
-    expedientes: await db.expedientes.toArray(),
-    casosFaltaOficio: await db.casosFaltaOficio.toArray(),
-    moviles: await db.moviles.toArray(),
-    reparaciones: await db.reparaciones.toArray(),
-    recargos: await db.recargos.toArray(),
-    partesGuardia: await db.partesGuardia.toArray(),
-    intervenciones: await db.intervenciones.toArray(),
-    inspeccionesOculares: await db.inspeccionesOculares.toArray(),
-    informesTecnicos: await db.informesTecnicos.toArray(),
-    accidentologia: await db.accidentologia.toArray(),
-    forenses: await db.forenses.toArray(),
-    licenciados: await db.licenciados.toArray(),
-    grupos: await db.grupos.toArray(),
-    delegaciones: await db.delegaciones.toArray(),
-    roles: await db.roles.toArray(),
-    usuarios: sanitizedUsuarios,
-    auditoria: await db.auditoria.toArray(),
-    seriesNumerario: await db.seriesNumerario.toArray(),
-    folios: await db.folios.toArray(),
-    novedadesDelegaciones: await db.novedadesDelegaciones.toArray(),
-    charlasPrevencion: await db.charlasPrevencion.toArray(),
+    delegacionFiltro: options?.delegacionId && options.delegacionId !== 'todas' ? options.delegacionId : 'TODAS',
+    modulosIncluidos: selectedModuleIds,
+    totalRegistros,
+    recordCounts,
+    checksumSha256,
+    ...collections,
   };
 
   return JSON.stringify(data, null, 2);
 }
 
-export async function exportEncryptedJsonBackup(password: string): Promise<string> {
-  const plainJson = await exportGeneralJsonBackup();
+export async function exportEncryptedJsonBackup(
+  password: string,
+  options?: SelectiveBackupOptions
+): Promise<string> {
+  const plainJson = await exportGeneralJsonBackup(options);
   return encryptBackupPayload(plainJson, password);
 }
 
-export async function exportModuleJson(moduleName: string): Promise<string> {
-  const table = (db as any)[moduleName];
-  if (!table) {
-    throw new Error(`Módulo no reconocido: ${moduleName}`);
-  }
-  const tableData = await table.toArray();
-  return JSON.stringify({ module: moduleName, exportDate: new Date().toISOString(), data: tableData }, null, 2);
+export async function exportModuleJson(
+  moduleName: string,
+  delegacionId?: string
+): Promise<string> {
+  const { collections } = await collectSelectiveTables({
+    delegacionId,
+    modulos: [moduleName],
+  });
+  const tableData = collections[moduleName] || [];
+  const checksumSha256 = await computeSha256Hex(JSON.stringify(tableData));
+  return JSON.stringify(
+    {
+      module: moduleName,
+      exportDate: new Date().toISOString(),
+      delegacionFiltro: delegacionId && delegacionId !== 'todas' ? delegacionId : 'TODAS',
+      totalRegistros: tableData.length,
+      checksumSha256,
+      data: tableData,
+    },
+    null,
+    2
+  );
 }
 
-export async function exportZipBackup(): Promise<Blob> {
+function escapeCsvCell(val: any): string {
+  if (val === null || val === undefined) return '';
+  let str: string;
+  if (typeof val === 'object') {
+    if (Array.isArray(val)) {
+      if (val.length === 0) return '';
+      if (typeof val[0] === 'string' && val[0].startsWith('data:image')) {
+        return `"[${val.length} archivo(s) adjunto(s)]"`;
+      }
+      str = JSON.stringify(val);
+    } else {
+      str = JSON.stringify(val);
+    }
+  } else {
+    str = String(val);
+    if (str.startsWith('data:image')) {
+      return '"[Imagen adjunta]"';
+    }
+  }
+  const clean = str.replace(/\r?\n/g, ' ');
+  if (clean.includes(',') || clean.includes('"') || clean.includes(';')) {
+    return `"${clean.replace(/"/g, '""')}"`;
+  }
+  return clean;
+}
+
+function recordsToUtf8BomCsv(items: any[]): string {
+  const BOM = '\uFEFF';
+  if (!items || items.length === 0) {
+    return `${BOM}Sin registros`;
+  }
+
+  const keySet = new Set<string>();
+  items.forEach((item) => {
+    if (item && typeof item === 'object') {
+      Object.keys(item).forEach((k) => {
+        if (k !== 'passwordHash' && k !== 'offlineVerifier' && k !== 'totpSecret') {
+          keySet.add(k);
+        }
+      });
+    }
+  });
+  const headers = Array.from(keySet);
+  const lines = [
+    headers.map((h) => escapeCsvCell(h)).join(','),
+    ...items.map((row) => headers.map((h) => escapeCsvCell(row?.[h])).join(',')),
+  ];
+  return BOM + lines.join('\r\n');
+}
+
+export async function exportModuleCsv(
+  moduleName: string,
+  delegacionId?: string
+): Promise<{ csv: string; count: number }> {
+  const { collections } = await collectSelectiveTables({
+    delegacionId,
+    modulos: [moduleName],
+  });
+  const items = collections[moduleName] || [];
+  return {
+    csv: recordsToUtf8BomCsv(items),
+    count: items.length,
+  };
+}
+
+export async function exportCsvBundleZip(options?: SelectiveBackupOptions): Promise<{
+  blob: Blob;
+  totalRecords: number;
+  moduleCount: number;
+}> {
   const zip = new JSZip();
-  const jsonContent = await exportGeneralJsonBackup();
+  const { collections, recordCounts, selectedModuleIds } = await collectSelectiveTables(options);
+
+  let moduleCount = 0;
+  for (const modId of selectedModuleIds) {
+    const items = collections[modId] || [];
+    if (items.length === 0) continue;
+    zip.file(`${modId}.csv`, recordsToUtf8BomCsv(items));
+    moduleCount++;
+  }
+
+  zip.file(
+    'RESUMEN_EXPORTACION.txt',
+    [
+      'Sis.Pol. - Exportación de Planillas CSV (UTF-8 con BOM para Excel)',
+      `Fecha: ${new Date().toLocaleString('es-AR')}`,
+      `Filtro Delegación: ${options?.delegacionId || 'TODAS'}`,
+      '',
+      'Registros por módulo:',
+      ...selectedModuleIds.map((id) => `- ${id}: ${recordCounts[id] || 0}`),
+    ].join('\r\n')
+  );
+
+  const totalRecords = Object.values(recordCounts).reduce((a, b) => a + b, 0);
+  const blob = await zip.generateAsync({ type: 'blob' });
+  return { blob, totalRecords, moduleCount };
+}
+
+export async function exportZipBackup(options?: SelectiveBackupOptions): Promise<Blob> {
+  const zip = new JSZip();
+  const jsonContent = await exportGeneralJsonBackup(options);
   zip.file('database_dump.json', jsonContent);
 
-  // Guardar manifiesto de integridad
-  const counts = await getDatabaseCounts();
-  zip.file('manifest.json', JSON.stringify({
-    appName: 'Sis.Pol.',
-    createdAt: new Date().toISOString(),
-    recordCounts: counts,
-    checksumValid: true,
-  }, null, 2));
+  const parsed = JSON.parse(jsonContent);
+  zip.file(
+    'manifest.json',
+    JSON.stringify(
+      {
+        appName: 'Sis.Pol.',
+        version: '3.0',
+        createdAt: parsed.exportDate,
+        delegacionFiltro: parsed.delegacionFiltro,
+        modulosIncluidos: parsed.modulosIncluidos,
+        totalRegistros: parsed.totalRegistros,
+        recordCounts: parsed.recordCounts,
+        checksumSha256: parsed.checksumSha256,
+        checksumValid: true,
+      },
+      null,
+      2
+    )
+  );
+
+  // Incluir CSVs listos para Excel dentro del paquete integral
+  const csvFolder = zip.folder('csv_excel');
+  if (csvFolder) {
+    for (const modId of parsed.modulosIncluidos || []) {
+      const items = parsed[modId];
+      if (Array.isArray(items) && items.length > 0) {
+        csvFolder.file(`${modId}.csv`, recordsToUtf8BomCsv(items));
+      }
+    }
+  }
 
   // Carpeta de adjuntos (imágenes de oficios y recibos)
-  const expedientes = await db.expedientes.toArray();
+  const expedientes: any[] = Array.isArray(parsed.expedientes) ? parsed.expedientes : [];
   const folderAdjuntos = zip.folder('adjuntos_expedientes');
 
   if (folderAdjuntos) {
     expedientes.forEach((exp) => {
       if (exp.adjuntosOficio) {
-        exp.adjuntosOficio.forEach((imgBase64, idx) => {
+        exp.adjuntosOficio.forEach((imgBase64: string, idx: number) => {
           if (imgBase64 && imgBase64.includes('base64,')) {
             const dataOnly = imgBase64.split('base64,')[1];
             folderAdjuntos.file(`exp_${exp.id}_oficio_${idx + 1}.png`, dataOnly, { base64: true });
@@ -452,7 +801,7 @@ export async function exportZipBackup(): Promise<Blob> {
         });
       }
       if (exp.adjuntosRecibo) {
-        exp.adjuntosRecibo.forEach((imgBase64, idx) => {
+        exp.adjuntosRecibo.forEach((imgBase64: string, idx: number) => {
           if (imgBase64 && imgBase64.includes('base64,')) {
             const dataOnly = imgBase64.split('base64,')[1];
             folderAdjuntos.file(`exp_${exp.id}_recibo_${idx + 1}.png`, dataOnly, { base64: true });
@@ -465,119 +814,278 @@ export async function exportZipBackup(): Promise<Blob> {
   return await zip.generateAsync({ type: 'blob' });
 }
 
+/**
+ * Inspecciona un respaldo JSON o ZIP (incluso cifrado con AES-256-GCM),
+ * verifica su integridad SHA-256 y devuelve conteos detallados antes de aplicar la restauración.
+ */
+export async function inspectBackupFile(params: {
+  rawJson?: string;
+  zipFile?: File;
+  decryptionPassword?: string;
+}): Promise<BackupInspectionResult> {
+  try {
+    let workingJson = params.rawJson || '';
+    const isZip = Boolean(params.zipFile);
+
+    if (params.zipFile) {
+      const zip = await JSZip.loadAsync(params.zipFile);
+      const dumpFile = zip.file('database_dump.json');
+      if (!dumpFile) {
+        return {
+          valid: false,
+          format: 'zip',
+          checksumStatus: 'legacy-none',
+          recordCounts: {},
+          totalRecords: 0,
+          delegacionesDetectadas: [],
+          error: 'El archivo ZIP no contiene database_dump.json válido.',
+        };
+      }
+      workingJson = await dumpFile.async('text');
+    }
+
+    const encrypted = isEncryptedBackup(workingJson);
+    const detectedFormat: BackupInspectionResult['format'] = encrypted
+      ? isZip
+        ? 'encrypted-zip'
+        : 'encrypted-json'
+      : isZip
+      ? 'zip'
+      : 'json';
+
+    if (encrypted) {
+      if (!params.decryptionPassword || !params.decryptionPassword.trim()) {
+        return {
+          valid: false,
+          needsPassword: true,
+          format: detectedFormat,
+          checksumStatus: 'legacy-none',
+          recordCounts: {},
+          totalRecords: 0,
+          delegacionesDetectadas: [],
+          rawJson: params.rawJson,
+          zipFile: params.zipFile,
+          error: 'El respaldo está cifrado con AES-256-GCM. Ingrese la contraseña para descifrarlo.',
+        };
+      }
+      workingJson = await decryptBackupPayload(workingJson, params.decryptionPassword);
+    }
+
+    const data = JSON.parse(workingJson);
+    if (
+      !data ||
+      typeof data !== 'object' ||
+      (!data.system && !data.personal && !data.expedientes && !data.partesGuardia && !data.licenciasPoliciales)
+    ) {
+      return {
+        valid: false,
+        format: detectedFormat,
+        checksumStatus: 'legacy-none',
+        recordCounts: {},
+        totalRecords: 0,
+        delegacionesDetectadas: [],
+        error: 'El archivo no posee la estructura válida de respaldo Sis.Pol.',
+      };
+    }
+
+    const recordCounts: Record<string, number> = {};
+    const delegacionesSet = new Set<string>();
+    const presentModuleIds: string[] = [];
+
+    for (const mod of BACKUP_MODULES_CATALOG) {
+      if (Array.isArray(data[mod.id])) {
+        presentModuleIds.push(mod.id);
+        recordCounts[mod.id] = data[mod.id].length;
+        for (const item of data[mod.id]) {
+          if (item?.delegacionId && item.delegacionId !== 'sistema') {
+            delegacionesSet.add(item.delegacionId);
+          }
+        }
+      }
+    }
+
+    const totalRecords = Object.values(recordCounts).reduce((a, b) => a + b, 0);
+
+    let checksumStatus: BackupInspectionResult['checksumStatus'] = 'legacy-none';
+    let checksumActual: string | undefined;
+    const checksumExpected: string | undefined =
+      typeof data.checksumSha256 === 'string' && data.checksumSha256.trim()
+        ? data.checksumSha256.trim()
+        : undefined;
+
+    if (checksumExpected) {
+      const modOrder = Array.isArray(data.modulosIncluidos)
+        ? data.modulosIncluidos
+        : presentModuleIds;
+      const canonical = buildCanonicalCollectionPayload(data, modOrder);
+      checksumActual = await computeSha256Hex(JSON.stringify(canonical));
+      checksumStatus = checksumActual === checksumExpected ? 'valid' : 'invalid';
+    }
+
+    return {
+      valid: true,
+      format: detectedFormat,
+      version: String(data.version || '1.0'),
+      exportDate: data.exportDate,
+      delegacionFiltro: data.delegacionFiltro || 'TODAS',
+      checksumStatus,
+      checksumExpected,
+      checksumActual,
+      recordCounts,
+      totalRecords,
+      delegacionesDetectadas: Array.from(delegacionesSet),
+      parsedData: data,
+    };
+  } catch (err: any) {
+    return {
+      valid: false,
+      format: params.zipFile ? 'zip' : 'json',
+      checksumStatus: 'legacy-none',
+      recordCounts: {},
+      totalRecords: 0,
+      delegacionesDetectadas: [],
+      error: `Error analizando el respaldo: ${err?.message || 'Formato inválido o contraseña incorrecta'}`,
+    };
+  }
+}
+
+/**
+ * Aplica la restauración previamente inspeccionada en modo 'merge' o 'replace'.
+ */
+export async function applyInspectedBackup(
+  data: Record<string, any>,
+  options?: {
+    mode?: 'merge' | 'replace';
+    modulosARestaurar?: string[];
+    usuarioNombre?: string;
+  }
+): Promise<{ success: boolean; message: string; totalRestaurados: number }> {
+  const mode = options?.mode || 'merge';
+  const modulosObjetivo =
+    options?.modulosARestaurar && options.modulosARestaurar.length > 0
+      ? options.modulosARestaurar
+      : BACKUP_MODULES_CATALOG.map((m) => m.id).filter((id) => Array.isArray(data[id]));
+
+  let totalRestaurados = 0;
+
+  const tables = modulosObjetivo
+    .map((id) => (db as any)[id])
+    .filter(Boolean);
+
+  await db.transaction('rw', tables, async () => {
+    for (const modId of modulosObjetivo) {
+      const table = (db as any)[modId];
+      const items = data[modId];
+      if (!table || !Array.isArray(items)) continue;
+
+      if (mode === 'replace') {
+        await table.clear();
+      }
+
+      if (items.length > 0) {
+        if (modId === 'usuarios') {
+          const cleanUsers = items.map((u: any) => ({ ...u, password: '' }));
+          await table.bulkPut(cleanUsers);
+        } else {
+          await table.bulkPut(items);
+        }
+        totalRestaurados += items.length;
+      }
+    }
+  });
+
+  try {
+    await db.auditoria.add({
+      id: `aud-restore-${Date.now()}`,
+      fechaHora: new Date().toISOString(),
+      usuarioId: 'admin',
+      username: options?.usuarioNombre || 'Administrador',
+      apellidoYNombre: options?.usuarioNombre || 'Administrador',
+      rol: 'superusuario',
+      delegacionId: 'sistema',
+      modulo: 'Configuración / Restauración',
+      accion: 'CREAR',
+      descripcion: `Restauración de respaldo (${mode === 'replace' ? 'Reemplazo selectivo' : 'Combinación segura'}): ${totalRestaurados} registros aplicados en ${modulosObjetivo.length} módulos.`,
+    });
+  } catch {
+    // ignore
+  }
+
+  try {
+    const ok = await restoreDatabaseOnServer(data);
+    if (!ok) {
+      await pushAllLocalDataToServer();
+    }
+  } catch (e) {
+    console.warn('No se pudo replicar restauración al servidor central:', e);
+  }
+
+  return {
+    success: true,
+    totalRestaurados,
+    message: `Restauración (${mode === 'replace' ? 'Reemplazo' : 'Combinación'}) completada: ${totalRestaurados} registros aplicados y sincronizados.`,
+  };
+}
+
 export async function importGeneralJsonBackup(
   jsonString: string,
   decryptionPassword?: string
 ): Promise<{ success: boolean; message: string; needsPassword?: boolean }> {
-  try {
-    let workingJson = jsonString;
-    if (isEncryptedBackup(workingJson)) {
-      if (!decryptionPassword || !decryptionPassword.trim()) {
-        return {
-          success: false,
-          needsPassword: true,
-          message: 'El respaldo está cifrado con AES-256-GCM. Ingrese la contraseña para descifrarlo.',
-        };
-      }
-      workingJson = await decryptBackupPayload(workingJson, decryptionPassword);
-    }
+  const inspection = await inspectBackupFile({
+    rawJson: jsonString,
+    decryptionPassword,
+  });
 
-    const data = JSON.parse(workingJson);
-
-    if (!data.system || (!data.personal && !data.expedientes && !data.partesGuardia)) {
-      return { success: false, message: 'El archivo JSON no posee la estructura válida del sistema Sis.Pol.' };
-    }
-
-    await db.transaction('rw', [
-      db.configuracion,
-      db.personal,
-      db.expedientes,
-      db.casosFaltaOficio,
-      db.moviles,
-      db.reparaciones,
-      db.recargos,
-      db.partesGuardia,
-      db.intervenciones,
-      db.inspeccionesOculares,
-      db.informesTecnicos,
-      db.accidentologia,
-      db.forenses,
-      db.licenciados,
-      db.grupos,
-      db.delegaciones,
-      db.roles,
-      db.usuarios,
-      db.auditoria,
-      db.seriesNumerario,
-      db.folios,
-      db.novedadesDelegaciones,
-      db.charlasPrevencion,
-    ], async () => {
-      if (data.configuracion?.length) await db.configuracion.bulkPut(data.configuracion);
-      if (data.personal?.length) await db.personal.bulkPut(data.personal);
-      if (data.expedientes?.length) await db.expedientes.bulkPut(data.expedientes);
-      if (data.casosFaltaOficio?.length) await db.casosFaltaOficio.bulkPut(data.casosFaltaOficio);
-      if (data.moviles?.length) await db.moviles.bulkPut(data.moviles);
-      if (data.reparaciones?.length) await db.reparaciones.bulkPut(data.reparaciones);
-      if (data.recargos?.length) await db.recargos.bulkPut(data.recargos);
-      if (data.partesGuardia?.length) await db.partesGuardia.bulkPut(data.partesGuardia);
-      if (data.intervenciones?.length) await db.intervenciones.bulkPut(data.intervenciones);
-      if (data.inspeccionesOculares?.length) await db.inspeccionesOculares.bulkPut(data.inspeccionesOculares);
-      if (data.informesTecnicos?.length) await db.informesTecnicos.bulkPut(data.informesTecnicos);
-      if (data.accidentologia?.length) await db.accidentologia.bulkPut(data.accidentologia);
-      if (data.forenses?.length) await db.forenses.bulkPut(data.forenses);
-      if (data.licenciados?.length) await db.licenciados.bulkPut(data.licenciados);
-      if (data.grupos?.length) await db.grupos.bulkPut(data.grupos);
-      if (data.delegaciones?.length) await db.delegaciones.bulkPut(data.delegaciones);
-      if (data.roles?.length) await db.roles.bulkPut(data.roles);
-      if (data.usuarios?.length) {
-        const cleanUsers = data.usuarios.map((u: any) => ({ ...u, password: '' }));
-        await db.usuarios.bulkPut(cleanUsers);
-      }
-      if (data.auditoria?.length) await db.auditoria.bulkPut(data.auditoria);
-      if (data.seriesNumerario?.length) await db.seriesNumerario.bulkPut(data.seriesNumerario);
-      if (data.folios?.length) await db.folios.bulkPut(data.folios);
-      if (data.novedadesDelegaciones?.length) await db.novedadesDelegaciones.bulkPut(data.novedadesDelegaciones);
-      if (data.charlasPrevencion?.length) await db.charlasPrevencion.bulkPut(data.charlasPrevencion);
-    });
-
-    try {
-      const ok = await restoreDatabaseOnServer(data);
-      if (!ok) {
-        await pushAllLocalDataToServer();
-      }
-    } catch (e) {
-      console.warn('No se pudo replicar restauración al servidor central:', e);
-    }
-
-    return { success: true, message: 'Base de datos restaurada correctamente y sincronizada con el servidor.' };
-  } catch (error: any) {
-    return { success: false, message: `Error al procesar el archivo: ${error?.message || 'Error desconocido'}` };
+  if (inspection.needsPassword) {
+    return {
+      success: false,
+      needsPassword: true,
+      message: inspection.error || 'Se requiere contraseña para descifrar el respaldo.',
+    };
   }
+
+  if (!inspection.valid || !inspection.parsedData) {
+    return {
+      success: false,
+      message: inspection.error || 'El archivo no posee una estructura válida.',
+    };
+  }
+
+  const res = await applyInspectedBackup(inspection.parsedData, { mode: 'merge' });
+  return { success: res.success, message: res.message };
 }
 
 export async function importZipBackup(
   file: File,
   decryptionPassword?: string
 ): Promise<{ success: boolean; message: string; needsPassword?: boolean }> {
-  try {
-    const zip = await JSZip.loadAsync(file);
-    const dumpFile = zip.file('database_dump.json');
-    if (!dumpFile) {
-      return { success: false, message: 'El archivo ZIP no contiene database_dump.json válido.' };
-    }
+  const inspection = await inspectBackupFile({
+    zipFile: file,
+    decryptionPassword,
+  });
 
-    const jsonText = await dumpFile.async('text');
-    return await importGeneralJsonBackup(jsonText, decryptionPassword);
-  } catch (error: any) {
-    return { success: false, message: `Error leyendo el paquete ZIP: ${error?.message || 'Archivo corrupto'}` };
+  if (inspection.needsPassword) {
+    return {
+      success: false,
+      needsPassword: true,
+      message: inspection.error || 'Se requiere contraseña para descifrar el respaldo.',
+    };
   }
+
+  if (!inspection.valid || !inspection.parsedData) {
+    return {
+      success: false,
+      message: inspection.error || 'Archivo ZIP inválido.',
+    };
+  }
+
+  const res = await applyInspectedBackup(inspection.parsedData, { mode: 'merge' });
+  return { success: res.success, message: res.message };
 }
 
 /**
  * Vacía todos los datos operativos y registros de prueba/demo para permitir
  * la carga de datos propios institucionales desde cero.
- * Permite generar y descargar una copia de seguridad JSON previa.
  */
 export async function vaciarBaseDeDatosCompleta(
   crearBackupPrevio: boolean = true,
@@ -605,6 +1113,9 @@ export async function vaciarBaseDeDatosCompleta(
   let totalEliminados = 0;
   const tablasOperativas = [
     db.personal,
+    db.grupos,
+    db.licenciasPoliciales,
+    db.saldosLicencias,
     db.expedientes,
     db.casosFaltaOficio,
     db.moviles,
@@ -619,6 +1130,9 @@ export async function vaciarBaseDeDatosCompleta(
     db.licenciados,
     db.seriesNumerario,
     db.folios,
+    db.novedadesDelegaciones,
+    db.charlasPrevencion,
+    db.memosNotas,
   ];
 
   for (const table of tablasOperativas) {
@@ -631,7 +1145,6 @@ export async function vaciarBaseDeDatosCompleta(
     }
   }
 
-  // Reiniciar numeradores en la configuración
   try {
     const configActual = await db.configuracion.toCollection().first();
     if (configActual) {
@@ -648,7 +1161,6 @@ export async function vaciarBaseDeDatosCompleta(
     console.error('Error al reiniciar numeradores:', err);
   }
 
-  // Registrar auditoría del vaciado del sistema
   try {
     await db.auditoria.add({
       id: 'aud-' + Date.now(),
@@ -661,13 +1173,16 @@ export async function vaciarBaseDeDatosCompleta(
       modulo: 'Configuración / Vaciado Integral',
       accion: 'ELIMINAR',
       descripcion: `Vaciado total de registros operativos para inicio de datos propios (${totalEliminados} registros eliminados). Copia previa generada: ${crearBackupPrevio ? 'SÍ' : 'NO'}.`,
-      detalles: JSON.stringify({ totalEliminados, backupGenerado: crearBackupPrevio, fecha: new Date().toISOString() }),
+      detalles: JSON.stringify({
+        totalEliminados,
+        backupGenerado: crearBackupPrevio,
+        fecha: new Date().toISOString(),
+      }),
     });
   } catch (e) {
     console.error('Error registrando auditoría:', e);
   }
 
-  // Notificar y vaciar en el servidor Ubuntu central
   try {
     await wipeAllDataFromServer();
   } catch (e) {
@@ -676,4 +1191,3 @@ export async function vaciarBaseDeDatosCompleta(
 
   return { success: true, backupJson, totalEliminados };
 }
-

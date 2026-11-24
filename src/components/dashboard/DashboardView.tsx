@@ -131,7 +131,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   ).length;
 
   const casosFaltaOficioPendientes = casosFaltaOficioList.filter((c) => c.estado === 'Pendiente').length;
-  const causasConPPI = expedientesFiltrados.filter((e) => e.ppi?.tienePPI).length;
+  const causasExpPPI = expedientesFiltrados.filter((e) => e.ppi?.tienePPI || e.involucraPersonalPolicial).length;
+
+  const causasIntervencionesPoliciales = useMemo(() => {
+    let count = 0;
+    partesFiltrados.forEach((parte) => {
+      (parte.intervenciones || []).forEach((interv) => {
+        const tienePolicial =
+          !!interv.involucraPersonalPolicial ||
+          (interv.involucrados || []).some((inv) => !!inv.esPersonalPolicial);
+        if (tienePolicial) count++;
+      });
+    });
+    return count;
+  }, [partesFiltrados]);
+
+  const causasInspeccionesPoliciales = useMemo(() => {
+    return (inspeccionesList || []).filter((io) => {
+      if (anioFiltro !== 'todos' && io.fecha && !io.fecha.startsWith(anioFiltro)) {
+        return false;
+      }
+      return !!io.involucraPersonalPolicial;
+    }).length;
+  }, [inspeccionesList, anioFiltro]);
+
+  const causasConPPI = causasExpPPI + causasIntervencionesPoliciales + causasInspeccionesPoliciales;
+
+  const totalFallecidosIntervenciones = useMemo(() => {
+    let count = 0;
+    partesFiltrados.forEach((parte) => {
+      (parte.intervenciones || []).forEach((interv) => {
+        (interv.involucrados || []).forEach((inv) => {
+          if (inv.fallecido) count++;
+        });
+      });
+    });
+    return count;
+  }, [partesFiltrados]);
 
   const movilesOperativos = movilesList.filter((m) => m.estadoOperativo === 'En Servicio').length;
   const movilesTaller = movilesList.filter(
@@ -434,9 +470,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
             <span className="text-xs text-slate-500">casos urgentes preliminares</span>
           </div>
-          <div className="mt-2 text-[11px] font-medium text-purple-700 flex items-center gap-1">
-            <AlertTriangle className="w-3 h-3 text-purple-600" />
-            <span>{causasConPPI} causas con Personal Involucrado (PPI)</span>
+          <div className="mt-2 text-[11px] font-medium text-purple-700 flex flex-wrap items-center gap-1">
+            <AlertTriangle className="w-3 h-3 text-purple-600 shrink-0" />
+            <span>
+              {causasConPPI} causas con Personal Policial ({causasExpPPI} exp. / {causasIntervencionesPoliciales + causasInspeccionesPoliciales} act.)
+            </span>
+            {totalFallecidosIntervenciones > 0 && (
+              <span className="text-rose-700 font-bold ml-1">
+                • {totalFallecidosIntervenciones} fallec.
+              </span>
+            )}
           </div>
         </div>
 

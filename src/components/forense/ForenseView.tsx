@@ -17,6 +17,7 @@ import {
   Download,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { GestionForenseGuardiaModal } from '../guardias/GestionForenseGuardiaModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -43,6 +44,10 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
   onSaveParte,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtroMedico, setFiltroMedico] = useState('todos');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [soloConExaminados, setSoloConExaminados] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedForense, setSelectedForense] = useState<ForenseTurno | null>(null);
   const [forenseToDelete, setForenseToDelete] = useState<ForenseTurno | null>(null);
@@ -81,8 +86,12 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
 
         return { parte: p, medicos, totalExaminados };
       })
-      .filter(({ parte, medicos }) => {
+      .filter(({ parte, medicos, totalExaminados }) => {
         if (medicos.length === 0) return false;
+        if (filtroMedico !== 'todos' && !medicos.some((m) => m.medicoNombre === filtroMedico)) return false;
+        if (fechaDesde && parte.fechaInicio && parte.fechaInicio < fechaDesde) return false;
+        if (fechaHasta && parte.fechaInicio && parte.fechaInicio > fechaHasta) return false;
+        if (soloConExaminados && totalExaminados <= 0) return false;
         if (!q) return true;
         const matchDoc = medicos.some((m) => m.medicoNombre.toLowerCase().includes(q));
         const matchGuardia =
@@ -92,12 +101,14 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
         return matchDoc || matchGuardia;
       })
       .sort((a, b) => (b.parte.fechaInicio || '').localeCompare(a.parte.fechaInicio || ''));
-  }, [partesGuardiaList, searchTerm]);
+  }, [partesGuardiaList, searchTerm, filtroMedico, fechaDesde, fechaHasta, soloConExaminados]);
 
   // Registros directos filtrados
   const filteredForenses = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return forensesList.filter((f) => {
+      if (filtroMedico !== 'todos' && f.nombreMedico !== filtroMedico) return false;
+      if (soloConExaminados && (Number(f.totalExaminados) || 0) <= 0) return false;
       if (!q) return true;
       return (
         f.nombreMedico.toLowerCase().includes(q) ||
@@ -105,7 +116,39 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
         (f.observaciones || '').toLowerCase().includes(q)
       );
     });
-  }, [forensesList, searchTerm]);
+  }, [forensesList, searchTerm, filtroMedico, soloConExaminados]);
+
+  const medicosFiltroOpciones = useMemo(() => {
+    const set = new Set<string>(medicosCatalogo);
+    forensesList.forEach((f) => {
+      if (f.nombreMedico) set.add(f.nombreMedico);
+    });
+    partesGuardiaList.forEach((p) => {
+      (p.forensesTurno || []).forEach((m) => {
+        if (m.medicoNombre) set.add(m.medicoNombre);
+      });
+      if (p.forense?.medicoNombre) set.add(p.forense.medicoNombre);
+    });
+    return Array.from(set).sort();
+  }, [medicosCatalogo, forensesList, partesGuardiaList]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroMedico !== 'todos') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    if (soloConExaminados) count++;
+    return count;
+  }, [searchTerm, filtroMedico, fechaDesde, fechaHasta, soloConExaminados]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroMedico('todos');
+    setFechaDesde('');
+    setFechaHasta('');
+    setSoloConExaminados(false);
+  };
 
   const totalExaminadosGlobal =
     guardiasConForense.reduce((acc, g) => acc + g.totalExaminados, 0) +
@@ -273,22 +316,73 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
         </div>
       </div>
 
-      {/* Barra de Búsqueda */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Buscar por médico de turno, guardia o fecha..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white text-xs text-slate-800 focus:outline-none focus:border-teal-600"
-          />
+      {/* Barra de Búsqueda Colapsable */}
+      <CollapsibleFilterBar
+        title="Búsqueda y Filtros de Médicos Forenses"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span className="text-xs font-bold text-slate-500 whitespace-nowrap px-2 tabular-nums">
+            {guardiasConForense.length + filteredForenses.length} registros
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Buscar médico, guardia o fecha..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white text-xs text-slate-800 focus:outline-none focus:border-teal-600"
+            />
+          </div>
+
+          <select
+            value={filtroMedico}
+            onChange={(e) => setFiltroMedico(e.target.value)}
+            className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700"
+          >
+            <option value="todos">Todos los Médicos de Turno</option>
+            {medicosFiltroOpciones.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              title="Fecha Guardia Desde"
+              className="w-full text-xs px-2 py-1.5 rounded-lg border border-slate-300 text-slate-700"
+            />
+            <span className="text-slate-400 text-[11px]">a</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              title="Fecha Guardia Hasta"
+              className="w-full text-xs px-2 py-1.5 rounded-lg border border-slate-300 text-slate-700"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSoloConExaminados(!soloConExaminados)}
+            className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition-colors cursor-pointer ${
+              soloConExaminados
+                ? 'bg-teal-700 text-white border-teal-800'
+                : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            Solo con Examinados (&gt; 0)
+          </button>
         </div>
-        <span className="text-xs font-bold text-slate-500 whitespace-nowrap px-2 tabular-nums">
-          {guardiasConForense.length + filteredForenses.length} registros
-        </span>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Forenses asignados desde Partes de Novedades */}
       {guardiasConForense.length > 0 && (

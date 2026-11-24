@@ -52,7 +52,7 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
       orientacion: opciones.orientacion,
       tamano: opciones.tamano,
       secciones: opciones.secciones,
-      incluirFirmaJefe: opciones.incluirFirmaJefe,
+      incluirFirmaOficial: opciones.incluirFirmaOficial ?? opciones.incluirFirmaJefe,
       previewOnly: opciones.esVistaPrevia,
       personalList,
       licenciasPoliciales,
@@ -593,6 +593,20 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
           </div>
         )}
 
+        {/* Firma oficial del Oficial de Servicio / Oficial de Guardia */}
+        <div className="pt-10 pb-2 flex justify-end">
+          <div className="w-72 text-center">
+            <div className="border-t border-slate-800 pt-1.5">
+              <p className="font-bold text-[11px] text-slate-900 uppercase tracking-wide">
+                OFICIAL DE SERVICIO / OFICIAL DE GUARDIA
+              </p>
+              <p className="text-[10px] text-slate-600 mt-0.5">
+                Firma, Aclaración y Sello Oficial
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Botón de cierre inferior */}
         {onClose && (
           <div className="flex justify-end pt-4 border-t border-slate-200 print:hidden">
@@ -680,6 +694,7 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
       <ModalOpcionesImpresion
         isOpen={isOpcionesModalOpen}
         titulo={`Opciones PDF - ${parte.grupoGuardia} (${parte.fechaInicio})`}
+        firmaLabel="Bloque de Firma (Oficial de Servicio / Oficial de Guardia)"
         previewUrl={pdfPreviewUrl}
         onGenerar={handleGenerarPdfConOpciones}
         onClose={() => setIsOpcionesModalOpen(false)}

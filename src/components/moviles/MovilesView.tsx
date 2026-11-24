@@ -27,6 +27,7 @@ import { ReparacionModal } from './ReparacionModal';
 import { FichaTecnicaPdfModal } from './FichaTecnicaPdfModal';
 import { ReporteMovilesModal } from './ReporteMovilesModal';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { DelegacionPolicial, UsuarioSistema } from '../../types/police';
 
 interface MovilesViewProps {
@@ -58,6 +59,8 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroEstado, setFiltroEstado] = useState('todos');
+  const [filtroDependencia, setFiltroDependencia] = useState('todas');
+  const [soloConAlerta, setSoloConAlerta] = useState(false);
 
   // Modales
   const [isMovilModalOpen, setIsMovilModalOpen] = useState(false);
@@ -76,6 +79,18 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
 
   const [movilHistorialId, setMovilHistorialId] = useState<string | null>(null);
 
+  const dependenciasUnicas = useMemo(() => {
+    const set = new Set<string>();
+    movilesList.forEach((m) => {
+      if (m.dependenciaAsignada?.trim()) set.add(m.dependenciaAsignada.trim());
+    });
+    return Array.from(set).sort();
+  }, [movilesList]);
+
+  const diasAvisoRto = config.recordatorioRtoDias ?? 30;
+  const kmAvisoService = config.recordatorioServiceKm ?? 500;
+  const intervaloServiceKm = config.intervaloServiceKm ?? 10000;
+
   // Filtrado reactivo
   const filteredList = useMemo(() => {
     return movilesList.filter((m) => {
@@ -88,14 +103,41 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
 
       const matchTipo = filtroTipo === 'todos' || m.tipo === filtroTipo;
       const matchEstado = filtroEstado === 'todos' || m.estadoOperativo === filtroEstado;
+      const matchDep = filtroDependencia === 'todas' || m.dependenciaAsignada === filtroDependencia;
 
-      return matchSearch && matchTipo && matchEstado;
+      let matchAlerta = true;
+      if (soloConAlerta) {
+        const esMoto = m.tipo === 'Motovehículo' || (m.tipo as any) === 'Motocicleta';
+        const rtoAlert =
+          !esMoto &&
+          Boolean(m.vencimientoRTO) &&
+          Math.ceil((new Date(m.vencimientoRTO).getTime() - Date.now()) / (1000 * 3600 * 24)) <= diasAvisoRto;
+        const prox = m.proximoServiceKm || (m.ultimoServiceKm ? m.ultimoServiceKm + intervaloServiceKm : 10000);
+        const servAlert = prox - m.kilometrajeActual <= kmAvisoService;
+        matchAlerta = rtoAlert || servAlert;
+      }
+
+      return matchSearch && matchTipo && matchEstado && matchDep && matchAlerta;
     });
-  }, [movilesList, searchTerm, filtroTipo, filtroEstado]);
+  }, [movilesList, searchTerm, filtroTipo, filtroEstado, filtroDependencia, soloConAlerta, diasAvisoRto, kmAvisoService, intervaloServiceKm]);
 
-  const diasAvisoRto = config.recordatorioRtoDias ?? 30;
-  const kmAvisoService = config.recordatorioServiceKm ?? 500;
-  const intervaloServiceKm = config.intervaloServiceKm ?? 10000;
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroTipo !== 'todos') count++;
+    if (filtroEstado !== 'todos') count++;
+    if (filtroDependencia !== 'todas') count++;
+    if (soloConAlerta) count++;
+    return count;
+  }, [searchTerm, filtroTipo, filtroEstado, filtroDependencia, soloConAlerta]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroTipo('todos');
+    setFiltroEstado('todos');
+    setFiltroDependencia('todas');
+    setSoloConAlerta(false);
+  };
 
   // Semáforo de documentación: calcula si está vigente, por vencer (<diasAvisoRto días) o vencido
   const getDocumentStatus = (fechaStr?: string, tipoVehiculo?: string) => {
@@ -269,47 +311,83 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
           </div>
         )}
 
-      {/* Barra de Filtros */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por N° Móvil, Patente, Marca..."
-            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
-          />
-        </div>
+      {/* Barra de Filtros Plegable */}
+      <CollapsibleFilterBar
+        title="Filtros de Búsqueda de Móviles"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span>
+            Mostrando <strong>{filteredList.length}</strong> de {movilesList.length} móviles
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs items-center">
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar por N° Móvil, Patente, Marca..."
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            />
+          </div>
 
-        <div>
-          <select
-            value={filtroTipo}
-            onChange={(e) => setFiltroTipo(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-          >
-            <option value="todos">Todos los Tipos de Vehículo</option>
-            <option value="Patrullero">Patrullero</option>
-            <option value="Camioneta">Camioneta</option>
-            <option value="Utilitario">Utilitario</option>
-            <option value="Motovehículo">Motovehículo</option>
-          </select>
-        </div>
+          <div>
+            <select
+              value={filtroTipo}
+              onChange={(e) => setFiltroTipo(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            >
+              <option value="todos">Todos los Tipos de Vehículo</option>
+              <option value="Patrullero">Patrullero</option>
+              <option value="Camioneta">Camioneta</option>
+              <option value="Utilitario">Utilitario</option>
+              <option value="Motovehículo">Motovehículo</option>
+            </select>
+          </div>
 
-        <div>
-          <select
-            value={filtroEstado}
-            onChange={(e) => setFiltroEstado(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-          >
-            <option value="todos">Todos los Estados Operativos</option>
-            <option value="En Servicio">En Servicio</option>
-            <option value="En Taller Mecánico">En Taller Mecánico</option>
-            <option value="Fuera de Servicio">Fuera de Servicio</option>
-            <option value="Baja definitiva">Baja definitiva</option>
-          </select>
+          <div>
+            <select
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            >
+              <option value="todos">Todos los Estados Operativos</option>
+              <option value="En Servicio">En Servicio</option>
+              <option value="En Taller Mecánico">En Taller Mecánico</option>
+              <option value="Fuera de Servicio">Fuera de Servicio</option>
+              <option value="Baja definitiva">Baja definitiva</option>
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={filtroDependencia}
+              onChange={(e) => setFiltroDependencia(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            >
+              <option value="todas">Todas las Dependencias Asignadas</option>
+              {dependenciasUnicas.map((dep) => (
+                <option key={dep} value={dep}>
+                  {dep}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50/70 text-amber-950 font-semibold cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={soloConAlerta}
+              onChange={(e) => setSoloConAlerta(e.target.checked)}
+              className="rounded border-amber-400 text-amber-700 focus:ring-amber-600"
+            />
+            <span>Con alerta RTO / Service</span>
+          </label>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* VISTAS DE MÓVILES */}
       {filteredList.length === 0 ? (

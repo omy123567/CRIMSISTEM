@@ -1,14 +1,50 @@
 import React, { useState, useMemo } from 'react';
-import { InspeccionOcular, ConfiguracionSistema, Personal, ParteNovedadesGuardia } from '../../types/police';
-import { X, Camera, Eye, Upload, Trash2, CheckCircle2, ShieldCheck, UserCheck, AlertCircle, Sliders, ShieldAlert } from 'lucide-react';
+import {
+  InspeccionOcular,
+  ConfiguracionSistema,
+  Personal,
+  ParteNovedadesGuardia,
+  DelegacionPolicial,
+  GrupoPersonal,
+  UsuarioSistema,
+} from '../../types/police';
+import {
+  X,
+  Camera,
+  Eye,
+  Upload,
+  Trash2,
+  CheckCircle2,
+  ShieldCheck,
+  AlertCircle,
+  Sliders,
+  ShieldAlert,
+  Building2,
+  Users,
+  Lock,
+  Search,
+} from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { ImageEditorModal } from '../common/ImageEditorModal';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
+import {
+  extractIoNumber,
+  extractIoYear,
+  findDuplicateIoCode,
+  formatNroIO,
+  getLastLoadedIoNumber,
+  getNextIoNumber,
+} from '../../utils/numeracionUtils';
 
 interface InspeccionModalProps {
   inspeccion?: InspeccionOcular | null;
+  existingInspecciones?: InspeccionOcular[];
   personalList?: Personal[];
   partesGuardiaList?: ParteNovedadesGuardia[];
+  delegacionesList?: DelegacionPolicial[];
+  gruposList?: GrupoPersonal[];
+  activeDelegacionId?: string;
+  currentUser?: UsuarioSistema;
   config: ConfiguracionSistema;
   onSave: (io: InspeccionOcular) => void;
   onClose: () => void;
@@ -16,8 +52,13 @@ interface InspeccionModalProps {
 
 export const InspeccionModal: React.FC<InspeccionModalProps> = ({
   inspeccion,
+  existingInspecciones = [],
   personalList = [],
   partesGuardiaList = [],
+  delegacionesList = [],
+  gruposList = [],
+  activeDelegacionId,
+  currentUser,
   config,
   onSave,
   onClose,
@@ -25,56 +66,46 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
   const isEditing = Boolean(inspeccion);
   const añoActual = new Date().getFullYear();
 
-  // Requerimiento: "en Perito/Fotografo deben ser los que estan cargados en el parte de novedades, pudiendo agregar otros de otro grupo. Agrega buscador para poder seleccionar mas rapido la opcion que corresponda."
-  const personalOptions = React.useMemo(() => {
-    const list: string[] = [];
-    const seen = new Set<string>();
+  const puedeVerTodasDelegaciones = useMemo(() => {
+    if (!currentUser) return true;
+    if (currentUser.rol === 'superusuario' || currentUser.rol === 'administrador') return true;
+    return Boolean(currentUser.puedeVerOtrasDelegaciones);
+  }, [currentUser]);
 
-    // 1. Personal cargado en partes de novedades de guardia
-    partesGuardiaList.forEach((parte) => {
-      parte.funcionesPersonal?.forEach((f) => {
-        if (f.personalNombre?.trim() && !seen.has(f.personalNombre.trim().toLowerCase())) {
-          seen.add(f.personalNombre.trim().toLowerCase());
-          list.push(`${f.personalNombre.trim()} [Guardia: ${parte.grupoGuardia}]`);
-        }
-      });
-      parte.intervenciones?.forEach((i) => {
-        if (i.perito?.trim() && !seen.has(i.perito.trim().toLowerCase())) {
-          seen.add(i.perito.trim().toLowerCase());
-          list.push(`${i.perito.trim()} [Guardia / Perito]`);
-        }
-        if (i.fotografo?.trim() && !seen.has(i.fotografo.trim().toLowerCase())) {
-          seen.add(i.fotografo.trim().toLowerCase());
-          list.push(`${i.fotografo.trim()} [Guardia / Fotógrafo]`);
-        }
-        if (i.personalTecnico?.peritoAuxiliar?.trim() && !seen.has(i.personalTecnico.peritoAuxiliar.trim().toLowerCase())) {
-          seen.add(i.personalTecnico.peritoAuxiliar.trim().toLowerCase());
-          list.push(`${i.personalTecnico.peritoAuxiliar.trim()} [Técnico Guardia]`);
-        }
-        if (i.personalTecnico?.choferFotografo?.trim() && !seen.has(i.personalTecnico.choferFotografo.trim().toLowerCase())) {
-          seen.add(i.personalTecnico.choferFotografo.trim().toLowerCase());
-          list.push(`${i.personalTecnico.choferFotografo.trim()} [Técnico Guardia]`);
-        }
-      });
-    });
+  const delegacionFijaUsuario = !puedeVerTodasDelegaciones ? currentUser?.delegacionId || '' : '';
 
-    // 2. Todo el personal institucional (otros grupos)
-    personalList.forEach((p) => {
-      const full = `${p.jerarquia} ${p.apellidoYNombre}`.trim();
-      if (!seen.has(full.toLowerCase())) {
-        seen.add(full.toLowerCase());
-        list.push(full);
-      }
-    });
-
-    return list;
-  }, [partesGuardiaList, personalList]);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [buscarOtrasGuardias, setBuscarOtrasGuardias] = useState(false);
 
   const [formData, setFormData] = useState<InspeccionOcular>(() => {
-    if (inspeccion) return { ...inspeccion };
+    const initialDelegacionId =
+      delegacionFijaUsuario ||
+      inspeccion?.delegacionId ||
+      (activeDelegacionId && activeDelegacionId !== 'todas'
+        ? activeDelegacionId
+        : delegacionesList[0]?.id || 'del-laguna-blanca');
+
+    if (inspeccion) {
+      return {
+        ...inspeccion,
+        delegacionId: delegacionFijaUsuario || inspeccion.delegacionId || initialDelegacionId,
+      };
+    }
+
     const defaultHecho = config.hechosCriminalistica?.[0] || 'Inspección Ocular / Relevamiento en Escena';
-    const nextNro = Math.max(config.inicioNroIO || 1, (config.ultimoNroIO ?? 0) + 1);
-    const nroSugerido = `I.O. Nº ${String(nextNro).padStart(3, '0')}/${añoActual}`;
+    const nextNro = getNextIoNumber({
+      inspecciones: existingInspecciones,
+      partesGuardia: partesGuardiaList,
+      config,
+      anio: añoActual,
+      delegacionId: initialDelegacionId,
+    });
+    const nroSugerido = formatNroIO(nextNro, añoActual);
+    const defaultGrupo =
+      gruposList.find((g) => !initialDelegacionId || !g.delegacionId || g.delegacionId === initialDelegacionId)?.nombre ||
+      config.gruposGuardia?.[0] ||
+      '';
+
     return {
       id: 'io-' + Date.now(),
       nroIO: nroSugerido,
@@ -96,10 +127,195 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
       resumen: '',
       conclusiones: '',
       fotosAdjuntas: [],
+      delegacionId: initialDelegacionId,
+      grupoGuardia: defaultGrupo,
+      grupoGuardiaId: gruposList.find((g) => g.nombre === defaultGrupo)?.id || '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
   });
+
+  const anioCampoIO = extractIoYear(formData.nroIO, añoActual);
+
+  const ultimoLoadedIoNum = useMemo(() => {
+    return getLastLoadedIoNumber({
+      inspecciones: existingInspecciones,
+      partesGuardia: partesGuardiaList,
+      anio: anioCampoIO,
+      delegacionId: formData.delegacionId,
+    });
+  }, [existingInspecciones, partesGuardiaList, anioCampoIO, formData.delegacionId]);
+
+  const nextAvailableIoNum = useMemo(() => {
+    return getNextIoNumber({
+      inspecciones: existingInspecciones,
+      partesGuardia: partesGuardiaList,
+      config,
+      anio: anioCampoIO,
+      delegacionId: formData.delegacionId,
+      excludeId: formData.id,
+      excludeIntervencionId: formData.intervencionId,
+    });
+  }, [existingInspecciones, partesGuardiaList, config, anioCampoIO, formData.delegacionId, formData.id, formData.intervencionId]);
+
+  const duplicateConflictCode = useMemo(() => {
+    return findDuplicateIoCode(formData.nroIO, {
+      inspecciones: existingInspecciones,
+      partesGuardia: partesGuardiaList,
+      anio: anioCampoIO,
+      delegacionId: formData.delegacionId,
+      excludeId: formData.id,
+      excludeIntervencionId: formData.intervencionId,
+    });
+  }, [formData.nroIO, formData.delegacionId, formData.id, formData.intervencionId, existingInspecciones, partesGuardiaList, anioCampoIO]);
+
+  // Grupos disponibles según delegación seleccionada
+  const gruposDeDelegacion = useMemo(() => {
+    const delId = formData.delegacionId;
+    const matched = gruposList.filter(
+      (g) => !delId || !g.delegacionId || g.delegacionId === delId
+    );
+    return matched;
+  }, [gruposList, formData.delegacionId]);
+
+  const nombresGruposDisponibles = useMemo(() => {
+    const names = new Set<string>();
+    gruposDeDelegacion.forEach((g) => names.add(g.nombre));
+    if (names.size === 0) {
+      (config.gruposGuardia || []).forEach((name) => names.add(name));
+    }
+    return Array.from(names);
+  }, [gruposDeDelegacion, config.gruposGuardia]);
+
+  // Personal de la delegación seleccionada (para usuario con delegación restringida solo ve los de su delegación)
+  const personalDeDelegacion = useMemo(() => {
+    const delId = delegacionFijaUsuario || formData.delegacionId;
+    if (!delId) return personalList;
+    const filtered = personalList.filter((p) => !p.delegacionId || p.delegacionId === delId);
+    return filtered;
+  }, [personalList, delegacionFijaUsuario, formData.delegacionId]);
+
+  // Personal específico de la guardia / grupo seleccionado
+  const personalDeGuardiaSeleccionada = useMemo(() => {
+    const selectedGrupoName = (formData.grupoGuardia || '').trim().toLowerCase();
+    const grupoObj = gruposDeDelegacion.find(
+      (g) =>
+        (formData.grupoGuardiaId && g.id === formData.grupoGuardiaId) ||
+        (selectedGrupoName && g.nombre.toLowerCase() === selectedGrupoName)
+    );
+
+    const list: Array<{ id: string; label: string; rolSugerido?: string }> = [];
+    const seen = new Set<string>();
+
+    // 1. Integrantes configurados en GrupoPersonal
+    if (grupoObj) {
+      (grupoObj.personalIds || []).forEach((pid) => {
+        const p = personalDeDelegacion.find((item) => item.id === pid);
+        if (p) {
+          const full = `${p.jerarquia} ${p.apellidoYNombre}`.trim();
+          if (!seen.has(full.toLowerCase())) {
+            seen.add(full.toLowerCase());
+            list.push({ id: p.id, label: full, rolSugerido: p.seccionGrupo || undefined });
+          }
+        }
+      });
+    }
+
+    // 2. Personal que coincida por seccionGrupo con el grupo de guardia
+    if (selectedGrupoName) {
+      personalDeDelegacion.forEach((p) => {
+        if ((p.seccionGrupo || '').trim().toLowerCase() === selectedGrupoName) {
+          const full = `${p.jerarquia} ${p.apellidoYNombre}`.trim();
+          if (!seen.has(full.toLowerCase())) {
+            seen.add(full.toLowerCase());
+            list.push({ id: p.id, label: full, rolSugerido: p.seccionGrupo || undefined });
+          }
+        }
+      });
+    }
+
+    // 3. Funciones cargadas en Partes de Guardia del mismo grupo y delegación
+    partesGuardiaList.forEach((parte) => {
+      if (formData.delegacionId && parte.delegacionId && parte.delegacionId !== formData.delegacionId) {
+        return;
+      }
+      const sameGroup =
+        !selectedGrupoName ||
+        (parte.grupoGuardia || '').toLowerCase().includes(selectedGrupoName) ||
+        selectedGrupoName.includes((parte.grupoGuardia || '').toLowerCase());
+      if (!sameGroup) return;
+
+      parte.funcionesPersonal?.forEach((f, idx) => {
+        const name = f.personalNombre?.trim();
+        if (name && !seen.has(name.toLowerCase())) {
+          seen.add(name.toLowerCase());
+          list.push({ id: `pg-${parte.id}-${idx}`, label: name, rolSugerido: f.funcion });
+        }
+      });
+    });
+
+    return list;
+  }, [gruposDeDelegacion, formData.grupoGuardia, formData.grupoGuardiaId, formData.delegacionId, personalDeDelegacion, partesGuardiaList]);
+
+  // Opciones para los SearchableSelect (Perito y Fotógrafo):
+  // Muestra primero personal del grupo de guardia seleccionado; si se habilita "Buscar otra guardia", incluye todas las guardias y nómina de la delegación.
+  const personalOptions = useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+
+    // Siempre incluir al personal de la guardia seleccionada primero
+    personalDeGuardiaSeleccionada.forEach((p) => {
+      if (!seen.has(p.label.toLowerCase())) {
+        seen.add(p.label.toLowerCase());
+        list.push(p.label);
+      }
+    });
+
+    // Si no hay grupo seleccionado o se habilitó búsqueda en otra guardia / nómina general
+    if (buscarOtrasGuardias || !formData.grupoGuardia) {
+      partesGuardiaList.forEach((parte) => {
+        if (delegacionFijaUsuario && parte.delegacionId && parte.delegacionId !== delegacionFijaUsuario) {
+          return;
+        }
+        parte.funcionesPersonal?.forEach((f) => {
+          const name = f.personalNombre?.trim();
+          if (name && !seen.has(name.toLowerCase())) {
+            seen.add(name.toLowerCase());
+            list.push(`${name} [Guardia: ${parte.grupoGuardia}]`);
+          }
+        });
+      });
+
+      const poolBase = puedeVerTodasDelegaciones && buscarOtrasGuardias ? personalList : personalDeDelegacion;
+      poolBase.forEach((p) => {
+        const full = `${p.jerarquia} ${p.apellidoYNombre}`.trim();
+        if (!seen.has(full.toLowerCase())) {
+          seen.add(full.toLowerCase());
+          const grupoTag = p.seccionGrupo ? ` (${p.seccionGrupo})` : '';
+          list.push(`${full}${grupoTag}`);
+        }
+      });
+    }
+
+    return list;
+  }, [
+    personalDeGuardiaSeleccionada,
+    buscarOtrasGuardias,
+    formData.grupoGuardia,
+    partesGuardiaList,
+    delegacionFijaUsuario,
+    puedeVerTodasDelegaciones,
+    personalList,
+    personalDeDelegacion,
+  ]);
+
+  // Usuario confirmador automático desde el usuario autenticado
+  const nombreConfirmadorAutomatico = useMemo(() => {
+    if (!currentUser) return 'Supervisor de Turno';
+    return `${currentUser.apellidoYNombre || currentUser.username}${
+      currentUser.rol ? ` (${currentUser.rol.toUpperCase()})` : ''
+    }`;
+  }, [currentUser]);
 
   const [previewPhotoState, setPreviewPhotoState] = useState<{
     isOpen: boolean;
@@ -144,9 +360,20 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     const direccionFinal = formData.direccion?.trim() || formData.lugar?.trim();
     if (!formData.nroIO.trim() || !direccionFinal) {
-      alert('Debe completar el N° de I.O. y la Dirección (Lugar de ocurrido)');
+      setFormError('Debe completar el N° de I.O. y la Dirección (Lugar de ocurrido).');
+      return;
+    }
+    if (extractIoNumber(formData.nroIO) <= 0) {
+      setFormError('El N° de I.O. debe incluir un número correlativo válido (ej. I.O. Nº 001/2026).');
+      return;
+    }
+    if (duplicateConflictCode) {
+      setFormError(
+        `El número ingresado repite una Inspección Ocular existente (${duplicateConflictCode}). Las I.O. deben ser correlativas y no pueden repetirse. Próximo disponible: ${formatNroIO(nextAvailableIoNum, anioCampoIO)}.`
+      );
       return;
     }
 
@@ -156,7 +383,7 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
         !formData.personalPolicial?.plaza?.trim() ||
         !formData.personalPolicial?.jerarquia?.trim()
       ) {
-        alert(
+        setFormError(
           'Al indicar que la Inspección Ocular involucra Personal Policial, es obligatorio especificar Jerarquía, Plaza, y Apellido y Nombre.'
         );
         return;
@@ -165,17 +392,26 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
 
     onSave({
       ...formData,
+      delegacionId: delegacionFijaUsuario || formData.delegacionId,
       lugar: direccionFinal,
       direccion: direccionFinal,
-      personalInterviniente: [
-        formData.perito ? `Perito: ${formData.perito}` : '',
-        formData.fotografo ? `Fotógrafo: ${formData.fotografo}` : '',
-      ]
-        .filter(Boolean)
-        .join(' - ') || formData.personalInterviniente || 'Personal Técnico Criminalística',
+      confirmadoPorUsuario: formData.fotosConfirmadas
+        ? formData.confirmadoPorUsuario?.trim() || nombreConfirmadorAutomatico
+        : '',
+      personalInterviniente:
+        [
+          formData.perito ? `Perito: ${formData.perito}` : '',
+          formData.fotografo ? `Fotógrafo: ${formData.fotografo}` : '',
+        ]
+          .filter(Boolean)
+          .join(' - ') ||
+        formData.personalInterviniente ||
+        'Personal Técnico Criminalística',
       updatedAt: new Date().toISOString(),
     });
   };
+
+  const delegacionActualObj = delegacionesList.find((d) => d.id === formData.delegacionId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 backdrop-blur-xs overflow-y-auto">
@@ -190,30 +426,195 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
                 {isEditing ? `Editar ${formData.nroIO}` : 'Nueva Inspección Ocular (I.O.)'}
               </h2>
               <p className="text-xs text-slate-300">
-                Registro oficial pericial: N° I.O, Fecha, Dirección, Hecho, Fotos conforme fotógrafo, Perito y Fotógrafo
+                Registro oficial pericial con asignación de Delegación, Grupo de Guardia y validación por usuario
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1">
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white p-1 cursor-pointer">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 text-xs">
+          {formError && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-300 text-red-900 flex items-center gap-2 font-semibold">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
+
+          {/* Delegación y Grupo de Guardia */}
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                <Building2 className="w-4 h-4 text-blue-900" />
+                <span>Jurisdicción y Grupo de Guardia Interviniente</span>
+              </span>
+              {!puedeVerTodasDelegaciones && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-900 px-2 py-0.5 rounded border border-blue-200">
+                  <Lock className="w-3 h-3" />
+                  <span>Delegación asignada a su usuario</span>
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Delegación Policial *</label>
+                {puedeVerTodasDelegaciones ? (
+                  <select
+                    value={formData.delegacionId || ''}
+                    onChange={(e) => {
+                      const newDelId = e.target.value;
+                      const firstGrupo = gruposList.find((g) => !g.delegacionId || g.delegacionId === newDelId);
+                      setFormData({
+                        ...formData,
+                        delegacionId: newDelId,
+                        grupoGuardia: firstGrupo?.nombre || '',
+                        grupoGuardiaId: firstGrupo?.id || '',
+                      });
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-800"
+                  >
+                    {delegacionesList.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.nombre} ({d.siglas})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-100 font-bold text-slate-800 flex items-center justify-between">
+                    <span>{delegacionActualObj ? `${delegacionActualObj.nombre} (${delegacionActualObj.siglas})` : formData.delegacionId}</span>
+                    <Lock className="w-3.5 h-3.5 text-slate-500" />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Grupo de Guardia</label>
+                <select
+                  value={formData.grupoGuardia || ''}
+                  onChange={(e) => {
+                    const nombreSel = e.target.value;
+                    const gObj = gruposDeDelegacion.find((g) => g.nombre === nombreSel);
+                    setFormData({
+                      ...formData,
+                      grupoGuardia: nombreSel,
+                      grupoGuardiaId: gObj?.id || '',
+                    });
+                  }}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-blue-950"
+                >
+                  <option value="">-- Todos los Grupos / Sin especificar --</option>
+                  {nombresGruposDisponibles.map((nombre) => (
+                    <option key={nombre} value={nombre}>
+                      {nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Vista rápida de efectivos del Grupo de Guardia seleccionado */}
+            {formData.grupoGuardia && (
+              <div className="p-2.5 bg-white rounded-lg border border-blue-200 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-blue-950 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-blue-700" />
+                    <span>
+                      Personal del grupo &ldquo;{formData.grupoGuardia}&rdquo; ({personalDeGuardiaSeleccionada.length}):
+                    </span>
+                  </span>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold text-blue-800 select-none">
+                    <input
+                      type="checkbox"
+                      checked={buscarOtrasGuardias}
+                      onChange={(e) => setBuscarOtrasGuardias(e.target.checked)}
+                      className="w-3.5 h-3.5 text-blue-900 rounded border-slate-300"
+                    />
+                    <Search className="w-3 h-3" />
+                    <span>Habilitar búsqueda en otra guardia / nómina</span>
+                  </label>
+                </div>
+
+                {personalDeGuardiaSeleccionada.length === 0 ? (
+                  <p className="text-[11px] text-slate-500 italic">
+                    No hay efectivos asignados en este grupo aún. Active &ldquo;Habilitar búsqueda en otra guardia&rdquo; o escriba manualmente abajo.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {personalDeGuardiaSeleccionada.map((ef) => (
+                      <div
+                        key={ef.id}
+                        className="inline-flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 text-[11px]"
+                      >
+                        <span className="font-semibold text-slate-800">{ef.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => setFormData((prev) => ({ ...prev, perito: ef.label }))}
+                          className="px-1.5 py-0.5 rounded bg-blue-900 hover:bg-blue-950 text-white text-[9px] font-bold cursor-pointer"
+                          title="Asignar como Perito"
+                        >
+                          Perito
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormData((prev) => ({ ...prev, fotografo: ef.label }))}
+                          className="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-900 text-white text-[9px] font-bold cursor-pointer"
+                          title="Asignar como Fotógrafo"
+                        >
+                          Fotóg.
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* N° I.O y Fecha */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                N° I.O (Inspección Ocular) *
-              </label>
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <label className="font-semibold text-slate-700">
+                  N° I.O (Inspección Ocular) *
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData({
+                      ...formData,
+                      nroIO: formatNroIO(nextAvailableIoNum, anioCampoIO),
+                    })
+                  }
+                  className="text-[10px] font-bold text-blue-700 hover:text-blue-900 hover:underline cursor-pointer"
+                  title="Asignar correlativo siguiente al último cargado"
+                >
+                  Tomar último (+1)
+                </button>
+              </div>
               <input
                 type="text"
                 required
                 value={formData.nroIO}
                 onChange={(e) => setFormData({ ...formData, nroIO: e.target.value })}
                 placeholder="Ej. I.O. Nº 045/2026"
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono font-bold text-blue-900 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                className={`w-full px-3 py-2 rounded-lg border bg-white font-mono font-bold focus:ring-2 focus:outline-none ${
+                  duplicateConflictCode
+                    ? 'border-red-500 text-red-900 focus:ring-red-500'
+                    : 'border-slate-300 text-blue-900 focus:ring-blue-600'
+                }`}
               />
+              {duplicateConflictCode ? (
+                <p className="text-[10px] text-red-600 font-semibold mt-1">
+                  Número ya existente ({duplicateConflictCode}). No se permiten repetidos.
+                </p>
+              ) : (
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Último cargado: <strong className="font-mono text-slate-700">#{String(ultimoLoadedIoNum).padStart(3, '0')}</strong> • Sugerido: <strong className="font-mono text-blue-800">#{String(nextAvailableIoNum).padStart(3, '0')}</strong>
+                </p>
+              )}
             </div>
 
             <div>
@@ -255,7 +656,7 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
             />
           </div>
 
-          {/* Hecho */}
+          {/* Hecho y Dependencia */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
@@ -301,33 +702,52 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
           </div>
 
           {/* Perito y Fotógrafo */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-blue-50/50 p-3.5 rounded-xl border border-blue-100">
-            <div>
-              <SearchableSelect
-                label="Perito Interviniente *"
-                value={formData.perito || ''}
-                onChange={(val) => setFormData({ ...formData, perito: val })}
-                options={personalOptions}
-                placeholder="Buscar o ingresar Perito..."
-                allowCustom={true}
-                required
-              />
+          <div className="bg-blue-50/50 p-3.5 rounded-xl border border-blue-100 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-bold text-blue-950 text-[11px]">
+                Personal Técnico Interviniente {formData.grupoGuardia && !buscarOtrasGuardias ? `(Guardia: ${formData.grupoGuardia})` : '(Todas las Guardias / Nómina)'}
+              </span>
+              {!formData.grupoGuardia && (
+                <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold text-blue-800 select-none">
+                  <input
+                    type="checkbox"
+                    checked={buscarOtrasGuardias}
+                    onChange={(e) => setBuscarOtrasGuardias(e.target.checked)}
+                    className="w-3.5 h-3.5 text-blue-900 rounded border-slate-300"
+                  />
+                  <span>Incluir personal de otra guardia / delegación</span>
+                </label>
+              )}
             </div>
 
-            <div>
-              <SearchableSelect
-                label="Fotógrafo Interviniente *"
-                value={formData.fotografo || ''}
-                onChange={(val) => setFormData({ ...formData, fotografo: val })}
-                options={personalOptions}
-                placeholder="Buscar o ingresar Fotógrafo..."
-                allowCustom={true}
-                required
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <SearchableSelect
+                  label="Perito Interviniente *"
+                  value={formData.perito || ''}
+                  onChange={(val) => setFormData({ ...formData, perito: val })}
+                  options={personalOptions}
+                  placeholder="Buscar o ingresar Perito..."
+                  allowCustom={true}
+                  required
+                />
+              </div>
+
+              <div>
+                <SearchableSelect
+                  label="Fotógrafo Interviniente *"
+                  value={formData.fotografo || ''}
+                  onChange={(val) => setFormData({ ...formData, fotografo: val })}
+                  options={personalOptions}
+                  placeholder="Buscar o ingresar Fotógrafo..."
+                  allowCustom={true}
+                  required
+                />
+              </div>
             </div>
           </div>
 
-          {/* Fotos (conforme fotógrafo) y confirmación por otro usuario */}
+          {/* Fotos (conforme fotógrafo) y confirmación automática por usuario */}
           <div className="bg-amber-50/60 p-3.5 rounded-xl border border-amber-200/80 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -373,50 +793,36 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
               </div>
             </div>
 
-            {/* Confirmación por otro usuario */}
+            {/* Confirmación automática por checkbox vinculado al usuario actual */}
             <div className="p-3 bg-white rounded-lg border border-amber-300/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
+              <label htmlFor="confirm-fotos" className="flex items-center gap-2.5 cursor-pointer font-semibold text-slate-800 select-none">
                 <input
                   type="checkbox"
                   id="confirm-fotos"
                   checked={Boolean(formData.fotosConfirmadas)}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const checked = e.target.checked;
                     setFormData({
                       ...formData,
-                      fotosConfirmadas: e.target.checked,
-                    })
-                  }
-                  className="w-4 h-4 text-blue-900 rounded border-slate-300 focus:ring-blue-600"
+                      fotosConfirmadas: checked,
+                      confirmadoPorUsuario: checked ? nombreConfirmadorAutomatico : '',
+                    });
+                  }}
+                  className="w-4 h-4 text-blue-900 rounded border-slate-300 focus:ring-blue-600 cursor-pointer"
                 />
-                <label htmlFor="confirm-fotos" className="cursor-pointer font-semibold text-slate-800">
-                  Fotos confirmadas y verificadas por otro usuario / supervisor
-                </label>
-              </div>
+                <span>Fotos confirmadas y verificadas por otro usuario / supervisor</span>
+              </label>
 
-              <div className="flex-1 sm:max-w-xs">
-                <input
-                  type="text"
-                  list="lista-efectivos-confirmadores"
-                  value={formData.confirmadoPorUsuario || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      confirmadoPorUsuario: e.target.value,
-                      fotosConfirmadas: Boolean(e.target.value.trim()),
-                    })
-                  }
-                  placeholder="Usuario / Efectivo que confirma"
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs bg-slate-50 font-medium"
-                />
-                <datalist id="lista-efectivos-confirmadores">
-                  {personalList.map((p) => (
-                    <option
-                      key={'conf-' + p.id}
-                      value={`${p.jerarquia} ${p.apellidoYNombre}`}
-                    />
-                  ))}
-                </datalist>
-              </div>
+              {formData.fotosConfirmadas ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Confirmado por: {formData.confirmadoPorUsuario || nombreConfirmadorAutomatico}</span>
+                </div>
+              ) : (
+                <span className="text-[11px] text-slate-500 italic shrink-0">
+                  Al tildar se registrará su usuario: <strong className="text-slate-700">{nombreConfirmadorAutomatico}</strong>
+                </span>
+              )}
             </div>
           </div>
 
@@ -456,14 +862,14 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
                   Indique los datos obligatorios del efectivo policial (Jerarquía, Plaza, Apellido y Nombre):
                 </div>
 
-                {personalList.length > 0 && (
+                {personalDeDelegacion.length > 0 && (
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Seleccionar desde Nómina Policial (Opcional para autocompletar):
                     </label>
                     <select
                       onChange={(e) => {
-                        const p = personalList.find((item) => item.id === e.target.value);
+                        const p = personalDeDelegacion.find((item) => item.id === e.target.value);
                         if (p) {
                           setFormData({
                             ...formData,
@@ -482,7 +888,7 @@ export const InspeccionModal: React.FC<InspeccionModalProps> = ({
                       className="w-full text-xs px-2.5 py-1.5 rounded border border-slate-300 bg-slate-50"
                     >
                       <option value="">-- Seleccionar efectivo de la nómina --</option>
-                      {personalList.map((p) => (
+                      {personalDeDelegacion.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.jerarquia} {p.apellidoYNombre} (Plaza: {p.plaza || 's/p'}) - DNI {p.dni}
                         </option>

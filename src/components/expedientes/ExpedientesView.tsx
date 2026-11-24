@@ -33,6 +33,7 @@ import { FaltaOficioModal } from './FaltaOficioModal';
 import { AgrupacionModal } from './AgrupacionModal';
 import { generarPdfLibroExpedientes } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 
 interface ExpedientesViewProps {
@@ -65,6 +66,12 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroRequerimiento, setFiltroRequerimiento] = useState('todos');
   const [filtroEntrega, setFiltroEntrega] = useState('todos');
+  const [filtroDependencia, setFiltroDependencia] = useState('todas');
+  const [filtroJuzgado, setFiltroJuzgado] = useState('todos');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [soloPPI, setSoloPPI] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Modales
   const [isExpModalOpen, setIsExpModalOpen] = useState(false);
@@ -115,9 +122,10 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
   const handleCargarExpedienteDesdeTabla = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inlineOficio.trim() || !inlineCaratula.trim()) {
-      alert('Debe completar el N° de Oficio y la Carátula de la causa.');
+      setActionError('Debe completar el N° de Oficio y la Carátula de la causa.');
       return;
     }
+    setActionError(null);
 
     const nuevoExp: ExpedienteJudicial = {
       id: 'exp-' + Date.now(),
@@ -160,6 +168,49 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
     setTimeout(() => setQuickExpSuccess(null), 3000);
   };
 
+  const dependenciasUnicas = useMemo(() => {
+    const set = new Set<string>();
+    expedientesList.forEach((e) => {
+      if (e.dependenciaSolicitante) set.add(e.dependenciaSolicitante);
+    });
+    casosFaltaOficioList.forEach((c) => {
+      if (c.dependenciaSolicitante) set.add(c.dependenciaSolicitante);
+    });
+    return Array.from(set).sort();
+  }, [expedientesList, casosFaltaOficioList]);
+
+  const juzgadosUnicos = useMemo(() => {
+    const set = new Set<string>();
+    expedientesList.forEach((e) => {
+      if (e.juzgadoFiscalia) set.add(e.juzgadoFiscalia);
+    });
+    return Array.from(set).sort();
+  }, [expedientesList]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroRequerimiento !== 'todos') count++;
+    if (filtroEntrega !== 'todos') count++;
+    if (filtroDependencia !== 'todas') count++;
+    if (filtroJuzgado !== 'todos') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    if (soloPPI) count++;
+    return count;
+  }, [searchTerm, filtroRequerimiento, filtroEntrega, filtroDependencia, filtroJuzgado, fechaDesde, fechaHasta, soloPPI]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroRequerimiento('todos');
+    setFiltroEntrega('todos');
+    setFiltroDependencia('todas');
+    setFiltroJuzgado('todos');
+    setFechaDesde('');
+    setFechaHasta('');
+    setSoloPPI(false);
+  };
+
   // BÚSQUEDA REACTIVA:
   // "coincida contra N° Expediente, Origen, Tipos, Resumen, y contra la nómina de nombres y DNIs cargados en el resguardo"
   const filteredExpedientes = useMemo(() => {
@@ -172,6 +223,7 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
       );
 
       const matchGeneral =
+        !term ||
         exp.nroExpediente.toLowerCase().includes(term) ||
         (exp.nroOficioLetras || '').toLowerCase().includes(term) ||
         exp.caratulaOrigen.toLowerCase().includes(term) ||
@@ -185,9 +237,38 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
       const matchEnt =
         filtroEntrega === 'todos' || exp.estadoEntrega === filtroEntrega;
 
-      return (matchGeneral || matchPersonas) && matchReq && matchEnt;
+      const matchDep =
+        filtroDependencia === 'todas' || exp.dependenciaSolicitante === filtroDependencia;
+
+      const matchJuz =
+        filtroJuzgado === 'todos' || exp.juzgadoFiscalia === filtroJuzgado;
+
+      const matchDesde = !fechaDesde || (exp.fechaRegistro && exp.fechaRegistro >= fechaDesde);
+      const matchHasta = !fechaHasta || (exp.fechaRegistro && exp.fechaRegistro <= fechaHasta);
+      const matchPPI = !soloPPI || Boolean(exp.ppi?.tienePPI || exp.involucraPersonalPolicial);
+
+      return (
+        (matchGeneral || matchPersonas) &&
+        matchReq &&
+        matchEnt &&
+        matchDep &&
+        matchJuz &&
+        matchDesde &&
+        matchHasta &&
+        matchPPI
+      );
     });
-  }, [expedientesList, searchTerm, filtroRequerimiento, filtroEntrega]);
+  }, [
+    expedientesList,
+    searchTerm,
+    filtroRequerimiento,
+    filtroEntrega,
+    filtroDependencia,
+    filtroJuzgado,
+    fechaDesde,
+    fechaHasta,
+    soloPPI,
+  ]);
 
   // Casos Falta de Oficio filtrados
   const filteredCasosFalta = useMemo(() => {
@@ -197,14 +278,23 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
         (p) => p.apellidoYNombre.toLowerCase().includes(term) || p.dni.includes(term)
       );
       const matchGeneral =
+        !term ||
         c.origenIntervencion.toLowerCase().includes(term) ||
         c.dependenciaSolicitante.toLowerCase().includes(term) ||
         c.tareaRealizada.toLowerCase().includes(term) ||
         (c.resumen || '').toLowerCase().includes(term);
 
-      return matchGeneral || matchPersonas;
+      const matchReq =
+        filtroRequerimiento === 'todos' || c.tipoRequerimiento === filtroRequerimiento;
+      const matchDep =
+        filtroDependencia === 'todas' || c.dependenciaSolicitante === filtroDependencia;
+      const matchDesde = !fechaDesde || (c.fechaRegistro && c.fechaRegistro >= fechaDesde);
+      const matchHasta = !fechaHasta || (c.fechaRegistro && c.fechaRegistro <= fechaHasta);
+      const matchPPI = !soloPPI || Boolean(c.involucraPersonalPolicial);
+
+      return (matchGeneral || matchPersonas) && matchReq && matchDep && matchDesde && matchHasta && matchPPI;
     });
-  }, [casosFaltaOficioList, searchTerm]);
+  }, [casosFaltaOficioList, searchTerm, filtroRequerimiento, filtroDependencia, fechaDesde, fechaHasta, soloPPI]);
 
   // Selección checkbox de casos para agrupar
   const toggleSelectCaso = (id: string) => {
@@ -226,9 +316,10 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
   const handleConfirmRecepcionOficio = () => {
     if (!casoParaRecepcionar) return;
     if (!nroOficioRecepcionado.trim()) {
-      alert('Debe ingresar el N° de Oficio formal recibido');
+      setActionError('Debe ingresar el N° de Oficio formal recibido.');
       return;
     }
+    setActionError(null);
 
     const casoActualizado: CasoFaltaOficio = {
       ...casoParaRecepcionar,
@@ -371,114 +462,194 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
         </button>
       </div>
 
-      {/* Barra de Búsqueda y Filtros con Selector de Estilos de Vista */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 text-xs">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="relative sm:col-span-1">
+      {actionError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center justify-between gap-2">
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="text-rose-700 hover:text-rose-950 font-bold cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Barra de Búsqueda y Filtros Colapsable con Selector de Estilos de Vista */}
+      <CollapsibleFilterBar
+        title="Búsqueda y Filtros de Expedientes y Requerimientos"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          subTab === 'expedientes' ? (
+            <span className="text-[11px] text-slate-500 font-medium">
+              Mostrando <strong>{filteredExpedientes.length}</strong> de {expedientesList.length} expedientes
+            </span>
+          ) : (
+            <span className="text-[11px] text-slate-500 font-medium">
+              Mostrando <strong>{filteredCasosFalta.length}</strong> de {casosFaltaOficioList.length} casos
+            </span>
+          )
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por N° Oficio, Carátula, DNI o Nombre de resguardo..."
+              placeholder="N° Oficio, Carátula, DNI o Nombre..."
               className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
-          <div>
-            <select
-              value={filtroRequerimiento}
-              onChange={(e) => setFiltroRequerimiento(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-            >
-              <option value="todos">Todos los Tipos de Requerimiento</option>
-              {config.tiposRequerimiento.map((tr) => (
-                <option key={tr} value={tr}>
-                  {tr}
-                </option>
-              ))}
-            </select>
+          <select
+            value={filtroRequerimiento}
+            onChange={(e) => setFiltroRequerimiento(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+          >
+            <option value="todos">Todos los Tipos de Requerimiento</option>
+            {config.tiposRequerimiento.map((tr) => (
+              <option key={tr} value={tr}>
+                {tr}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroEntrega}
+            onChange={(e) => setFiltroEntrega(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+          >
+            <option value="todos">Todos los Estados de Elevación</option>
+            <option value="Entregado">Entregado / Elevado</option>
+            <option value="No entregado">No entregado (En trámite)</option>
+          </select>
+
+          <select
+            value={filtroDependencia}
+            onChange={(e) => setFiltroDependencia(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+          >
+            <option value="todas">Todas las Dependencias Solicitantes</option>
+            {dependenciasUnicas.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroJuzgado}
+            onChange={(e) => setFiltroJuzgado(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+          >
+            <option value="todos">Todos los Juzgados / Fiscalías</option>
+            {juzgadosUnicos.map((j) => (
+              <option key={j} value={j}>
+                {j}
+              </option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              title="Fecha Registro Desde"
+              className="w-full text-xs px-2 py-2 rounded-lg border border-slate-300 text-slate-700"
+            />
+            <span className="text-slate-400 text-[11px]">a</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              title="Fecha Registro Hasta"
+              className="w-full text-xs px-2 py-2 rounded-lg border border-slate-300 text-slate-700"
+            />
           </div>
 
-          <div>
-            <select
-              value={filtroEntrega}
-              onChange={(e) => setFiltroEntrega(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+          <button
+            type="button"
+            onClick={() => setSoloPPI(!soloPPI)}
+            className={`px-3 py-2 rounded-lg font-bold text-xs border transition-colors cursor-pointer ${
+              soloPPI
+                ? 'bg-purple-700 text-white border-purple-800'
+                : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+            }`}
+          >
+            Con Personal Policial (PPI)
+          </button>
+        </div>
+      </CollapsibleFilterBar>
+
+      {/* Selector de Estilo de Vista */}
+      {subTab === 'expedientes' && (
+        <div className="bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span className="text-[11px] text-slate-500 font-medium">
+            Modo de visualización del libro de expedientes:
+          </span>
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 text-xs gap-1">
+            <button
+              type="button"
+              onClick={() => setViewStyle('lista')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-semibold transition-all cursor-pointer ${
+                viewStyle === 'lista'
+                  ? 'bg-blue-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Vista Detallada en Lista"
             >
-              <option value="todos">Todos los Estados de Elevación</option>
-              <option value="Entregado">Entregado / Elevado</option>
-              <option value="No entregado">No entregado (En trámite)</option>
-            </select>
+              <LayoutList className="w-3.5 h-3.5" />
+              <span>Lista</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setViewStyle('tabla')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-semibold transition-all cursor-pointer ${
+                viewStyle === 'tabla'
+                  ? 'bg-blue-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Vista en Tabla Compacta"
+            >
+              <TableIcon className="w-3.5 h-3.5" />
+              <span>Tabla</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setViewStyle('cuadricula')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-semibold transition-all cursor-pointer ${
+                viewStyle === 'cuadricula'
+                  ? 'bg-blue-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Vista en Cuadrícula"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>Cuadrícula</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setViewStyle('parte-novedades')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
+                viewStyle === 'parte-novedades'
+                  ? 'bg-slate-900 text-amber-300 shadow-xs'
+                  : 'text-slate-700 hover:text-slate-900'
+              }`}
+              title="Formato Matriz Policial similar a Parte de Novedades"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-amber-500" />
+              <span>Estilo Parte de Novedades</span>
+            </button>
           </div>
         </div>
-
-        {/* Selector de Estilo de Vista */}
-        {subTab === 'expedientes' && (
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
-            <span className="text-[11px] text-slate-500 font-medium">
-              Mostrando <strong>{filteredExpedientes.length}</strong> de {expedientesList.length} expedientes registrados
-            </span>
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 text-xs gap-1">
-              <button
-                type="button"
-                onClick={() => setViewStyle('lista')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-semibold transition-all cursor-pointer ${
-                  viewStyle === 'lista'
-                    ? 'bg-blue-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="Vista Detallada en Lista"
-              >
-                <LayoutList className="w-3.5 h-3.5" />
-                <span>Lista</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setViewStyle('tabla')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-semibold transition-all cursor-pointer ${
-                  viewStyle === 'tabla'
-                    ? 'bg-blue-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="Vista en Tabla Compacta"
-              >
-                <TableIcon className="w-3.5 h-3.5" />
-                <span>Tabla</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setViewStyle('cuadricula')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-semibold transition-all cursor-pointer ${
-                  viewStyle === 'cuadricula'
-                    ? 'bg-blue-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="Vista en Cuadrícula"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>Cuadrícula</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setViewStyle('parte-novedades')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
-                  viewStyle === 'parte-novedades'
-                    ? 'bg-slate-900 text-amber-300 shadow-xs'
-                    : 'text-slate-700 hover:text-slate-900'
-                }`}
-                title="Formato Matriz Policial similar a Parte de Novedades"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-amber-500" />
-                <span>Estilo Parte de Novedades</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* SUBMÓDULO 1: EXPEDIENTES JUDICIALES FORMALES */}
       {subTab === 'expedientes' && (

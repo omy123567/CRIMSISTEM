@@ -6,7 +6,10 @@ import {
   ConfiguracionSistema,
   IntervencionParte,
   UsuarioSistema,
+  DelegacionPolicial,
+  GrupoPersonal,
 } from '../../types/police';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import {
   Camera,
   Search,
@@ -43,11 +46,24 @@ import { ControlNumeradorModal } from '../guardias/ControlNumeradorModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 import { generarPdfInspeccionOcular, generarPdfReporteInspeccionesOcularesPorTipo } from '../../services/pdfService';
+import {
+  extractIoNumber,
+  extractIoYear,
+  findDuplicateIoCode,
+  formatNroIO,
+  getLastLoadedIoNumber,
+  getNextIoNumber,
+  sanitizeUltimoNroIO,
+} from '../../utils/numeracionUtils';
 
 interface InspeccionesViewProps {
   inspeccionesList: InspeccionOcular[];
   partesGuardiaList?: ParteNovedadesGuardia[];
+  intervencionesList?: IntervencionParte[];
   personalList?: Personal[];
+  delegacionesList?: DelegacionPolicial[];
+  gruposList?: GrupoPersonal[];
+  activeDelegacionId?: string;
   config: ConfiguracionSistema;
   currentUser?: UsuarioSistema;
   onSaveInspeccion: (io: InspeccionOcular) => void;
@@ -59,7 +75,11 @@ interface InspeccionesViewProps {
 export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
   inspeccionesList,
   partesGuardiaList = [],
+  intervencionesList = [],
   personalList = [],
+  delegacionesList = [],
+  gruposList = [],
+  activeDelegacionId,
   config,
   currentUser,
   onSaveInspeccion,
@@ -69,6 +89,13 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
 }) => {
   const añoActual = useMemo(() => new Date().getFullYear(), []);
 
+  const puedeVerTodasDelegaciones = useMemo(() => {
+    if (!currentUser) return true;
+    if (currentUser.rol === 'superusuario' || currentUser.rol === 'administrador') return true;
+    return Boolean(currentUser.puedeVerOtrasDelegaciones);
+  }, [currentUser]);
+  const delegacionRestringidaId = !puedeVerTodasDelegaciones ? currentUser?.delegacionId || '' : '';
+
   // Estilo de visualización: 'parte-novedades' (Matriz Policial Oficial) o 'cuadricula' (Tarjetas)
   const [viewStyle, setViewStyle] = useState<'parte-novedades' | 'cuadricula'>('parte-novedades');
   const [searchTerm, setSearchTerm] = useState('');
@@ -77,6 +104,10 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
   const [fechaHasta, setFechaHasta] = useState('');
   const [filtroDependencia, setFiltroDependencia] = useState('todas');
   const [filtroOrigen, setFiltroOrigen] = useState<'todos' | 'guardias' | 'directas'>('todos');
+  const [filtroHecho, setFiltroHecho] = useState('');
+  const [filtroGrupoGuardia, setFiltroGrupoGuardia] = useState('todos');
+  const [filtroEstadoFotos, setFiltroEstadoFotos] = useState<'todos' | 'confirmadas' | 'pendientes'>('todos');
+  const [soloPolicial, setSoloPolicial] = useState(false);
 
   // Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -93,18 +124,182 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
     io: InspeccionOcular | null;
   }>({ isOpen: false, io: null });
 
-  // Mensaje de éxito tras carga o edición rápida en tabla
+  // Mensaje de éxito o error tras carga o edición rápida en tabla
   const [quickSuccessMsg, setQuickSuccessMsg] = useState<string | null>(null);
+  const [quickErrorMsg, setQuickErrorMsg] = useState<string | null>(null);
 
-  // Contador de I.O. correlativo comenzando en 1
+  // 1. SINCRONIZACIÓN Y CONSOLIDACIÓN SIN DUPLICADOS DE INSPECCIONES + INTERVENCIONES (LC + SEG. VIAL)
+  const listaConsolidada = useMemo(() => {
+    const consolidatedMap = new Map<string, InspeccionOcular>();
+    const seenIntervIds = new Set<string>();
+    const usedIoKeys = new Set<string>();
+
+    const registerUsedIo = (nroIO?: string) => {
+      const n = extractIoNumber(nroIO);
+      if (n > 0) {
+        const y = extractIoYear(nroIO, añoActual);
+        usedIoKeys.add(`${y}:${n}`);
+      }
+    };
+
+    // Primero agregamos todas las inspecciones guardadas en la BD de Inspecciones (sin duplicar claves)
+    inspeccionesList.forEach((io) => {
+      if (delegacionRestringidaId && io.delegacionId && io.delegacionId !== delegacionRestringidaId) {
+        return;
+      }
+      consolidatedMap.set(io.id, io);
+      registerUsedIo(io.nroIO);
+      if (io.intervencionId) {
+        seenIntervIds.add(io.intervencionId);
+      }
+    });
+
+    // Helper para convertir una intervención de guardia / módulo en Inspección Ocular sin repetir números
+    let nextCandidate = Math.max(config.inicioNroIO || 1, 1);
+    const allocNextFreeIo = (preferredCode: string | undefined, targetYear: number): string => {
+      const prefNum = extractIoNumber(preferredCode);
+      if (prefNum > 0) {
+        const prefYear = extractIoYear(preferredCode, targetYear);
+        const key = `${prefYear}:${prefNum}`;
+        if (!usedIoKeys.has(key)) {
+          usedIoKeys.add(key);
+          if (prefYear === targetYear && prefNum >= nextCandidate) {
+            nextCandidate = prefNum + 1;
+          }
+          return preferredCode!.trim();
+        }
+      }
+      while (usedIoKeys.has(`${targetYear}:${nextCandidate}`)) {
+        nextCandidate += 1;
+      }
+      const assignedNum = nextCandidate;
+      usedIoKeys.add(`${targetYear}:${assignedNum}`);
+      nextCandidate += 1;
+      return formatNroIO(assignedNum, targetYear);
+    };
+
+    const appendIntervencionAsIO = (
+      interv: IntervencionParte,
+      delId?: string,
+      grupoGuardia?: string,
+      parteFechaInicio?: string,
+      parteHoraInicio?: string,
+      parteDependencia?: string
+    ) => {
+      if (seenIntervIds.has(interv.id) || consolidatedMap.has(interv.id)) return;
+      seenIntervIds.add(interv.id);
+
+      const fechaVal = interv.inspeccionFecha || parteFechaInicio || new Date().toISOString().slice(0, 10);
+      const itemYear = parseInt(fechaVal.slice(0, 4), 10) || añoActual;
+      const nroIOAuto = allocNextFreeIo(interv.nroIO, itemYear);
+      const direccion = interv.direccion || interv.inspeccionLugar || 'Lugar s/ consignar';
+      const perito = interv.perito || interv.personalTecnico?.peritoAuxiliar || '';
+      const fotografo = interv.fotografo || interv.personalTecnico?.choferFotografo || '';
+      const personal =
+        [perito ? `Perito: ${perito}` : '', fotografo ? `Fotógrafo: ${fotografo}` : '']
+          .filter(Boolean)
+          .join(' - ') || 'Personal Técnico de Guardia';
+
+      const polInvolucrado =
+        Boolean(interv.involucraPersonalPolicial) ||
+        (interv.involucrados || []).some((inv) => inv.esPersonalPolicial);
+
+      const ioFromInterv: InspeccionOcular = {
+        id: interv.id,
+        nroIO: nroIOAuto,
+        fecha: fechaVal,
+        hora: interv.inspeccionHora || interv.solicitudHora?.replace(' hs.', '') || parteHoraInicio || '08:00',
+        lugar: direccion,
+        direccion,
+        hecho: interv.hecho || 'Intervención Policial de Guardia',
+        tipo: interv.tipoIntervencion === 'Accidentológica' ? 'Accidentológica Vial' : 'Criminalística',
+        dependenciaSolicitante: interv.dependencia || parteDependencia || config.dependencia || 'Comisaría de Turno',
+        expedienteVinculado: interv.referencia || interv.codigoIntervencion || '',
+        personalInterviniente: personal,
+        perito,
+        fotografo,
+        cantidadFotografias: interv.vehiculosSiniestro?.length ? 14 : 8,
+        fotosConformeFotografo: interv.fotosConformeFotografo
+          ? 'Conforme relevamiento del fotógrafo'
+          : 'Relevamiento fotográfico digital',
+        fotosConfirmadas: Boolean(interv.fotosConfirmadas),
+        confirmadoPorUsuario: interv.confirmadoPorUsuario || '',
+        resumen:
+          interv.sintesisHecho ||
+          `Intervención en guardia registrada con ${interv.involucrados?.length || 0} demorado/s y ${interv.testigos?.length || 0} testigo/s.`,
+        conclusiones: interv.laborCriminalistica || '',
+        fotosAdjuntas: [],
+        origenGuardia: true,
+        intervencionId: interv.id,
+        delegacionId: delId,
+        grupoGuardia,
+        involucraPersonalPolicial: polInvolucrado,
+        personalPolicial: interv.personalPolicial,
+        createdAt: interv.createdAt || new Date().toISOString(),
+        updatedAt: interv.createdAt || new Date().toISOString(),
+      };
+
+      consolidatedMap.set(ioFromInterv.id, ioFromInterv);
+    };
+
+    // Recolectar intervenciones de partes de guardia
+    partesGuardiaList.forEach((parte) => {
+      if (delegacionRestringidaId && parte.delegacionId && parte.delegacionId !== delegacionRestringidaId) {
+        return;
+      }
+      (parte.intervenciones || []).forEach((interv) => {
+        appendIntervencionAsIO(
+          interv,
+          parte.delegacionId,
+          parte.grupoGuardia,
+          parte.fechaInicio,
+          parte.horaInicio,
+          parte.dependencia
+        );
+      });
+    });
+
+    // También incluir intervenciones registradas directamente en el módulo Intervenciones (LC / Seg. Vial)
+    intervencionesList.forEach((interv) => {
+      appendIntervencionAsIO(interv, activeDelegacionId);
+    });
+
+    return Array.from(consolidatedMap.values()).sort((a, b) => {
+      if (a.fecha !== b.fecha) return b.fecha.localeCompare(a.fecha);
+      const numDiff = extractIoNumber(b.nroIO) - extractIoNumber(a.nroIO);
+      if (numDiff !== 0) return numDiff;
+      return b.nroIO.localeCompare(a.nroIO);
+    });
+  }, [
+    inspeccionesList,
+    partesGuardiaList,
+    intervencionesList,
+    añoActual,
+    config.dependencia,
+    config.inicioNroIO,
+    delegacionRestringidaId,
+    activeDelegacionId,
+  ]);
+
+  const ultimoLoadedIO = useMemo(() => {
+    const loaded = getLastLoadedIoNumber({
+      inspecciones: listaConsolidada,
+      anio: añoActual,
+    });
+    return Math.max(loaded, sanitizeUltimoNroIO(config.ultimoNroIO));
+  }, [listaConsolidada, añoActual, config.ultimoNroIO]);
+
+  // Contador de I.O. correlativo tomando el último cargado sin repetirse
   const proximoNroIO = useMemo(() => {
-    const inicio = config.inicioNroIO || 1;
-    const ultimo = config.ultimoNroIO ?? 0;
-    return Math.max(inicio, ultimo + 1);
-  }, [config.inicioNroIO, config.ultimoNroIO]);
+    return getNextIoNumber({
+      inspecciones: listaConsolidada,
+      config,
+      anio: añoActual,
+    });
+  }, [listaConsolidada, config, añoActual]);
 
   // Formulario de carga rápida directo desde la tabla
-  const [inlineNroIO, setInlineNroIO] = useState<string>(() => `I.O. Nº ${String(proximoNroIO).padStart(3, '0')}/${añoActual}`);
+  const [inlineNroIO, setInlineNroIO] = useState<string>(() => formatNroIO(proximoNroIO, añoActual));
   const [inlineFecha, setInlineFecha] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [inlineHora, setInlineHora] = useState<string>('10:00');
   const [inlineDireccion, setInlineDireccion] = useState<string>('');
@@ -118,87 +313,19 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
 
   // Sincronizar sugerencia de número cuando cambia el contador
   React.useEffect(() => {
-    setInlineNroIO(`I.O. Nº ${String(proximoNroIO).padStart(3, '0')}/${añoActual}`);
+    setInlineNroIO(formatNroIO(proximoNroIO, añoActual));
   }, [proximoNroIO, añoActual]);
 
   // Edición directa en fila de tabla (Inline Row Editing)
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [editingRowData, setEditingRowData] = useState<InspeccionOcular | null>(null);
 
-  // 1. SINCRONIZACIÓN AUTOMÁTICA DE INTERVENCIONES DE GUARDIAS:
-  // "pese a tener 4 intervenciones cargadas, siguen sin aparecer en 'Inspecciones Oculares' quiero que sea de forma automática"
-  const listaConsolidada = useMemo(() => {
-    const mapExisting = new Map<string, InspeccionOcular>();
-
-    // Primero agregamos todas las inspecciones cargadas en la BD de Inspecciones
-    inspeccionesList.forEach((io) => {
-      mapExisting.set(io.id, io);
-      if (io.intervencionId) {
-        mapExisting.set(io.intervencionId, io);
-      }
-    });
-
-    // Luego recolectamos automáticamente TODAS las intervenciones de los partes de guardia
-    let autoIndex = inspeccionesList.length;
-    partesGuardiaList.forEach((parte) => {
-      (parte.intervenciones || []).forEach((interv) => {
-        if (!mapExisting.has(interv.id)) {
-          autoIndex += 1;
-          const direccion = interv.direccion || interv.inspeccionLugar || 'Lugar s/ consignar';
-          const perito = interv.perito || interv.personalTecnico?.peritoAuxiliar || '';
-          const fotografo = interv.fotografo || interv.personalTecnico?.choferFotografo || '';
-          const personal = [
-            perito ? `Perito: ${perito}` : '',
-            fotografo ? `Fotógrafo: ${fotografo}` : '',
-            interv.personalTecnico?.auxiliar ? `Auxiliar: ${interv.personalTecnico.auxiliar}` : ''
-          ].filter(Boolean).join(' - ') || 'Personal Técnico de Guardia';
-
-          // Asignar número I.O. si no viene asignado expresamente
-          const nroIOAuto = interv.nroIO || `I.O. Nº ${String(autoIndex).padStart(3, '0')}/${añoActual}`;
-
-          const ioFromInterv: InspeccionOcular = {
-            id: interv.id,
-            nroIO: nroIOAuto,
-            fecha: interv.inspeccionFecha || parte.fechaInicio || new Date().toISOString().slice(0, 10),
-            hora: interv.inspeccionHora || interv.solicitudHora?.replace(' hs.', '') || parte.horaInicio || '08:00',
-            lugar: direccion,
-            direccion: direccion,
-            hecho: interv.hecho || 'Intervención Policial de Guardia',
-            tipo: interv.tipoIntervencion === 'Accidentológica' ? 'Accidentológica Vial' : 'Criminalística',
-            dependenciaSolicitante: interv.dependencia || parte.dependencia || config.dependencia || 'Comisaría de Turno',
-            expedienteVinculado: interv.referencia || interv.codigoIntervencion || '',
-            personalInterviniente: personal,
-            perito: perito,
-            fotografo: fotografo,
-            cantidadFotografias: interv.vehiculosSiniestro?.length ? 14 : 8,
-            fotosConformeFotografo: interv.fotosConformeFotografo ? 'Conforme relevamiento del fotógrafo' : 'Relevamiento fotográfico digital',
-            fotosConfirmadas: Boolean(interv.fotosConfirmadas),
-            confirmadoPorUsuario: interv.confirmadoPorUsuario || '',
-            resumen: interv.sintesisHecho || `Intervención en guardia registrada con ${interv.involucrados?.length || 0} demorado/s y ${interv.testigos?.length || 0} testigo/s.`,
-            conclusiones: interv.laborCriminalistica || '',
-            fotosAdjuntas: [],
-            origenGuardia: true,
-            intervencionId: interv.id,
-            createdAt: interv.createdAt || new Date().toISOString(),
-            updatedAt: interv.createdAt || new Date().toISOString(),
-          };
-
-          mapExisting.set(interv.id, ioFromInterv);
-        }
-      });
-    });
-
-    return Array.from(mapExisting.values()).sort((a, b) => {
-      if (a.fecha !== b.fecha) return b.fecha.localeCompare(a.fecha);
-      return b.nroIO.localeCompare(a.nroIO);
-    });
-  }, [inspeccionesList, partesGuardiaList, añoActual, config.dependencia]);
-
-  // Filtros reactivos con búsqueda por fecha, tipo, personal, lugar, contenido
+  // Filtros reactivos con búsqueda por fecha, tipo, personal, lugar, hecho, grupo, estado de fotos
   const filteredList = useMemo(() => {
     return listaConsolidada.filter((io) => {
       const term = searchTerm.toLowerCase();
       const matchSearch =
+        !term ||
         io.nroIO.toLowerCase().includes(term) ||
         (io.direccion && io.direccion.toLowerCase().includes(term)) ||
         io.lugar.toLowerCase().includes(term) ||
@@ -208,6 +335,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
         (io.perito && io.perito.toLowerCase().includes(term)) ||
         (io.fotografo && io.fotografo.toLowerCase().includes(term)) ||
         io.dependenciaSolicitante.toLowerCase().includes(term) ||
+        (io.grupoGuardia && io.grupoGuardia.toLowerCase().includes(term)) ||
         (io.expedienteVinculado && io.expedienteVinculado.toLowerCase().includes(term));
 
       const matchTipo = filtroTipo === 'todos' || io.tipo === filtroTipo;
@@ -224,9 +352,46 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
         (filtroOrigen === 'guardias' && io.origenGuardia) ||
         (filtroOrigen === 'directas' && !io.origenGuardia);
 
-      return matchSearch && matchTipo && matchFecha && matchDep && matchOrig;
+      const matchHecho =
+        !filtroHecho.trim() ||
+        (io.hecho || '').toLowerCase().includes(filtroHecho.trim().toLowerCase());
+
+      const matchGrupo =
+        filtroGrupoGuardia === 'todos' || (io.grupoGuardia || '') === filtroGrupoGuardia;
+
+      const isConfirmed = Boolean(io.fotosConfirmadas || io.confirmadoPorUsuario);
+      const matchEstadoFotos =
+        filtroEstadoFotos === 'todos' ||
+        (filtroEstadoFotos === 'confirmadas' && isConfirmed) ||
+        (filtroEstadoFotos === 'pendientes' && !isConfirmed);
+
+      const matchPolicial = !soloPolicial || Boolean(io.involucraPersonalPolicial);
+
+      return (
+        matchSearch &&
+        matchTipo &&
+        matchFecha &&
+        matchDep &&
+        matchOrig &&
+        matchHecho &&
+        matchGrupo &&
+        matchEstadoFotos &&
+        matchPolicial
+      );
     });
-  }, [listaConsolidada, searchTerm, filtroTipo, fechaDesde, fechaHasta, filtroDependencia, filtroOrigen]);
+  }, [
+    listaConsolidada,
+    searchTerm,
+    filtroTipo,
+    fechaDesde,
+    fechaHasta,
+    filtroDependencia,
+    filtroOrigen,
+    filtroHecho,
+    filtroGrupoGuardia,
+    filtroEstadoFotos,
+    soloPolicial,
+  ]);
 
   const totalFotografias = useMemo(() => {
     return listaConsolidada.reduce((acc, io) => acc + (io.cantidadFotografias || 0), 0);
@@ -301,9 +466,10 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
     );
 
     if (!puedeValidar) {
-      alert(
-        'Acceso restringido: Se requiere el permiso especial "Confirmar Fotografías" o rol de Superusuario para validar o modificar el estado de fotografías.'
+      setQuickSuccessMsg(
+        'Acceso restringido: Se requiere el permiso especial "Confirmar Fotografías" o rol de Superusuario para validar fotografías.'
       );
+      setTimeout(() => setQuickSuccessMsg(null), 4000);
       return;
     }
 
@@ -346,9 +512,27 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
   // CARGA RÁPIDA DIRECTA DESDE LA TABLA
   const handleCargarDesdeTabla = (e: React.FormEvent) => {
     e.preventDefault();
+    setQuickErrorMsg(null);
     const direccionFinal = inlineDireccion.trim();
     if (!inlineNroIO.trim() || !direccionFinal) {
-      alert('Debe ingresar el N° de I.O. y la Dirección / Lugar de Ocurrido.');
+      setQuickErrorMsg('Debe ingresar el N° de I.O. y la Dirección / Lugar de Ocurrido.');
+      return;
+    }
+
+    const currentNum = extractIoNumber(inlineNroIO);
+    if (currentNum <= 0) {
+      setQuickErrorMsg('El N° de I.O. debe incluir un número válido (ej. I.O. Nº 001/2026).');
+      return;
+    }
+
+    const dup = findDuplicateIoCode(inlineNroIO, {
+      inspecciones: listaConsolidada,
+      anio: extractIoYear(inlineNroIO, añoActual),
+    });
+    if (dup) {
+      setQuickErrorMsg(
+        `El número ingresado repite una I.O. ya cargada (${dup}). Las Inspecciones Oculares son correlativas y no pueden repetirse.`
+      );
       return;
     }
 
@@ -372,42 +556,58 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
       cantidadFotografias: inlineCantidadFotos,
       fotosConformeFotografo: `${inlineCantidadFotos} tomas fotográficas conforme fotógrafo`,
       fotosConfirmadas: true,
-      confirmadoPorUsuario: inlinePerito || 'Oficial de Servicio',
+      confirmadoPorUsuario: inlinePerito || currentUser?.apellidoYNombre || 'Oficial de Servicio',
       resumen: inlineResumen || `Relevamiento de Inspección Ocular en ${direccionFinal}.`,
       conclusiones: 'Actuación pericial registrada directamente desde tabla de novedades.',
       fotosAdjuntas: [],
+      delegacionId: delegacionRestringidaId || (activeDelegacionId && activeDelegacionId !== 'todas' ? activeDelegacionId : undefined),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     onSaveInspeccion(nuevaIO);
 
-    // Incrementar contador en config
-    const currentNum = parseInt(inlineNroIO.replace(/\D/g, '')) || proximoNroIO;
-    if (onSaveConfig) {
-      onSaveConfig({
-        ...config,
-        ultimoNroIO: Math.max(config.ultimoNroIO ?? 0, currentNum),
-      });
-    }
-
-    // Resetear formulario para siguiente entrada
-    const nextNum = currentNum + 1;
-    setInlineNroIO(`I.O. Nº ${String(nextNum).padStart(3, '0')}/${añoActual}`);
+    // Sincronizar contador tomando el último número cargado sin concatenar el año
+    const nextNum = getNextIoNumber({
+      inspecciones: [nuevaIO, ...listaConsolidada],
+      config: { ...config, ultimoNroIO: Math.max(ultimoLoadedIO, currentNum) },
+      anio: añoActual,
+    });
+    setInlineNroIO(formatNroIO(nextNum, añoActual));
     setInlineDireccion('');
     setInlineResumen('');
     setQuickSuccessMsg(`¡${nuevaIO.nroIO} cargada directamente en la tabla con éxito!`);
     setTimeout(() => setQuickSuccessMsg(null), 4000);
   };
 
-  // INLINE ROW EDITING: Guardar edición de fila
+  // INLINE ROW EDITING: Guardar edición de fila (sin repetir N° y actualizando al último cargado)
   const handleSaveInlineEdit = () => {
     if (!editingRowData) return;
+    setQuickErrorMsg(null);
+    const numEditado = extractIoNumber(editingRowData.nroIO);
+    if (numEditado <= 0) {
+      setQuickErrorMsg('El N° de I.O. editado debe contener un número correlativo válido.');
+      return;
+    }
+
+    const dup = findDuplicateIoCode(editingRowData.nroIO, {
+      inspecciones: listaConsolidada,
+      anio: extractIoYear(editingRowData.nroIO, añoActual),
+      excludeId: editingRowData.id,
+      excludeIntervencionId: editingRowData.intervencionId,
+    });
+    if (dup) {
+      setQuickErrorMsg(
+        `No se puede guardar "${editingRowData.nroIO}" porque repite una Inspección Ocular existente (${dup}). Use otro número o "Último +1".`
+      );
+      return;
+    }
+
     onSaveInspeccion(editingRowData);
     setEditingRowId(null);
     setEditingRowData(null);
-    setQuickSuccessMsg('Registro actualizado directamente en la tabla.');
-    setTimeout(() => setQuickSuccessMsg(null), 3000);
+    setQuickSuccessMsg('Registro actualizado directamente en la tabla y numerador sincronizado con el último cargado.');
+    setTimeout(() => setQuickSuccessMsg(null), 3500);
   };
 
   return (
@@ -431,16 +631,16 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
               <span>
                 Próxima I.O. a emitir:{' '}
                 <strong className="text-amber-300 font-mono font-bold">
-                  I.O. Nº {String(proximoNroIO).padStart(3, '0')}/{añoActual}
+                  {formatNroIO(proximoNroIO, añoActual)}
                 </strong>
               </span>
               <span>•</span>
               <span>
-                Último N°: <strong className="text-white font-mono">#{config.ultimoNroIO ?? 0}</strong>
+                Último cargado: <strong className="text-white font-mono">#{ultimoLoadedIO}</strong>
               </span>
               <span>•</span>
               <span className="text-emerald-300 font-semibold">
-                ✓ Comienza desde el 1
+                ✓ Correlativo sin repetidos (LC + Seg. Vial + Manuales)
               </span>
             </p>
           </div>
@@ -481,14 +681,26 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
         </div>
       </div>
 
-      {/* Notificación de éxito en operaciones rápidas */}
+      {/* Notificación de éxito o error en operaciones rápidas */}
+      {quickErrorMsg && (
+        <div className="bg-red-50 border border-red-300 text-red-900 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{quickErrorMsg}</span>
+          </div>
+          <button onClick={() => setQuickErrorMsg(null)} className="text-red-700 hover:text-red-900 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {quickSuccessMsg && (
         <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between shadow-xs animate-in fade-in">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{quickSuccessMsg}</span>
           </div>
-          <button onClick={() => setQuickSuccessMsg(null)} className="text-emerald-700 hover:text-emerald-900">
+          <button onClick={() => setQuickSuccessMsg(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -566,8 +778,39 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
         </div>
       </div>
 
-      {/* Barra de Filtros y Búsqueda Avanzada */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 text-xs">
+      {/* Barra de Búsqueda y Filtros Colapsable por Campos del Formulario */}
+      <CollapsibleFilterBar
+        title="Búsqueda y Filtros de Inspecciones Oculares"
+        activeFiltersCount={
+          (searchTerm ? 1 : 0) +
+          (filtroTipo !== 'todos' ? 1 : 0) +
+          (fechaDesde ? 1 : 0) +
+          (fechaHasta ? 1 : 0) +
+          (filtroDependencia !== 'todas' ? 1 : 0) +
+          (filtroOrigen !== 'todos' ? 1 : 0) +
+          (filtroHecho.trim() ? 1 : 0) +
+          (filtroGrupoGuardia !== 'todos' ? 1 : 0) +
+          (filtroEstadoFotos !== 'todos' ? 1 : 0) +
+          (soloPolicial ? 1 : 0)
+        }
+        onClear={() => {
+          setSearchTerm('');
+          setFiltroTipo('todos');
+          setFechaDesde('');
+          setFechaHasta('');
+          setFiltroDependencia('todas');
+          setFiltroOrigen('todos');
+          setFiltroHecho('');
+          setFiltroGrupoGuardia('todos');
+          setFiltroEstadoFotos('todos');
+          setSoloPolicial(false);
+        }}
+        summaryRight={
+          <span className="text-[11px] text-slate-600 font-mono">
+            Mostrando <strong>{filteredList.length}</strong> de {listaConsolidada.length}
+          </span>
+        }
+      >
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
           <div className="flex-1 relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -575,12 +818,12 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por N° I.O., dirección/lugar de hecho, hecho, perito, fotógrafo o dependencia..."
+              placeholder="Buscar por N° I.O., dirección/lugar, hecho, perito, fotógrafo, expediente o dependencia..."
               className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white text-xs text-slate-800"
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={filtroOrigen}
               onChange={(e) => setFiltroOrigen(e.target.value as any)}
@@ -591,31 +834,27 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
               <option value="directas">Cargadas en Módulo ({listaConsolidada.filter(i => !i.origenGuardia).length})</option>
             </select>
 
-            <button
-              onClick={() => {
-                setSearchTerm('');
-                setFiltroTipo('todos');
-                setFechaDesde('');
-                setFechaHasta('');
-                setFiltroDependencia('todas');
-                setFiltroOrigen('todos');
-              }}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-100 font-medium whitespace-nowrap cursor-pointer"
-            >
-              Limpiar Filtros
-            </button>
+            <label className="inline-flex items-center gap-1.5 px-3 py-2 border border-amber-300 bg-amber-50/70 rounded-lg text-xs font-bold text-amber-950 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={soloPolicial}
+                onChange={(e) => setSoloPolicial(e.target.checked)}
+                className="w-3.5 h-3.5 text-amber-700 rounded"
+              />
+              <span>Con Personal Policial</span>
+            </label>
           </div>
         </div>
 
-        {/* Filtros secundarios: Rango de fecha, tipo y dependencia */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100">
+        {/* Filtros por campos del formulario */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100">
           <div className="flex items-center gap-1.5">
             <span className="text-slate-500 font-semibold whitespace-nowrap">Desde:</span>
             <input
               type="date"
               value={fechaDesde}
               onChange={(e) => setFechaDesde(e.target.value)}
-              className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
+              className="w-full px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
             />
           </div>
 
@@ -625,7 +864,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
               type="date"
               value={fechaHasta}
               onChange={(e) => setFechaHasta(e.target.value)}
-              className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
+              className="w-full px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
             />
           </div>
 
@@ -634,7 +873,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
             <select
               value={filtroTipo}
               onChange={(e) => setFiltroTipo(e.target.value)}
-              className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
+              className="w-full px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
             >
               <option value="todos">Todos los Tipos</option>
               <option value="Criminalística">Criminalística</option>
@@ -651,7 +890,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
             <select
               value={filtroDependencia}
               onChange={(e) => setFiltroDependencia(e.target.value)}
-              className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
+              className="w-full px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
             >
               <option value="todas">Todas las dependencias</option>
               {config.dependenciasPoliciales.map((d) => (
@@ -659,8 +898,48 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
               ))}
             </select>
           </div>
+
+          <div>
+            <input
+              type="text"
+              value={filtroHecho}
+              onChange={(e) => setFiltroHecho(e.target.value)}
+              placeholder="Filtrar por Hecho / Tipificación..."
+              className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-semibold whitespace-nowrap">Guardia:</span>
+            <select
+              value={filtroGrupoGuardia}
+              onChange={(e) => setFiltroGrupoGuardia(e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
+            >
+              <option value="todos">Todos los Grupos</option>
+              {gruposList.map((g) => (
+                <option key={g.id} value={g.nombre}>{g.nombre}</option>
+              ))}
+              {config.gruposGuardia.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5 sm:col-span-2">
+            <span className="text-slate-500 font-semibold whitespace-nowrap">Estado Fotos:</span>
+            <select
+              value={filtroEstadoFotos}
+              onChange={(e) => setFiltroEstadoFotos(e.target.value as any)}
+              className="w-full px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-md text-xs text-slate-700"
+            >
+              <option value="todos">Todas (Confirmadas y Pendientes)</option>
+              <option value="confirmadas">Solo Fotos Confirmadas por Usuario</option>
+              <option value="pendientes">Solo Pendientes de Confirmación</option>
+            </select>
+          </div>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* CONTENIDO PRINCIPAL: VISTA ESTILO PARTE DE NOVEDADES VS CUADRÍCULA */}
       {viewStyle === 'parte-novedades' ? (
@@ -696,13 +975,34 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
                       return (
                         <tr key={io.id} className="bg-amber-100/60 border-2 border-amber-500">
                           {/* N° I.O. */}
-                          <td className="border border-slate-300 p-2">
+                          <td className="border border-slate-300 p-2 space-y-1">
                             <input
                               type="text"
                               value={editingRowData.nroIO}
                               onChange={(e) => setEditingRowData({ ...editingRowData, nroIO: e.target.value })}
-                              className="w-28 px-1.5 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-xs"
+                              className="w-32 px-1.5 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-xs"
                             />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditingRowData({
+                                  ...editingRowData,
+                                  nroIO: formatNroIO(
+                                    getNextIoNumber({
+                                      inspecciones: listaConsolidada,
+                                      config,
+                                      anio: extractIoYear(editingRowData.nroIO, añoActual),
+                                      excludeId: editingRowData.id,
+                                      excludeIntervencionId: editingRowData.intervencionId,
+                                    }),
+                                    extractIoYear(editingRowData.nroIO, añoActual)
+                                  ),
+                                })
+                              }
+                              className="block text-[10px] font-bold text-blue-800 hover:underline cursor-pointer"
+                            >
+                              Tomar último (+1)
+                            </button>
                           </td>
                           {/* Fecha / Hora */}
                           <td className="border border-slate-300 p-2 whitespace-nowrap">
@@ -1216,8 +1516,13 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
       {isModalOpen && (
         <InspeccionModal
           inspeccion={selectedInspeccion}
+          existingInspecciones={listaConsolidada}
           personalList={personalList}
           partesGuardiaList={partesGuardiaList}
+          delegacionesList={delegacionesList}
+          gruposList={gruposList}
+          activeDelegacionId={activeDelegacionId}
+          currentUser={currentUser}
           config={config}
           onSave={(data) => {
             onSaveInspeccion(data);

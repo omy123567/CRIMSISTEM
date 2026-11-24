@@ -19,6 +19,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
@@ -41,11 +42,15 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroEspecialidad, setFiltroEspecialidad] = useState('todas');
+  const [filtroJerarquia, setFiltroJerarquia] = useState('todas');
+  const [filtroSeccion, setFiltroSeccion] = useState('todas');
+  const [filtroEstado, setFiltroEstado] = useState('todos');
 
   // Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedPersonalId, setSelectedPersonalId] = useState<string>('');
   const [isEditingExisting, setIsEditingExisting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Form Fields
   const [formData, setFormData] = useState({
@@ -76,6 +81,22 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
     return Array.from(set);
   }, [licenciados]);
 
+  const jerarquiasUnicas = useMemo(() => {
+    const set = new Set<string>();
+    licenciados.forEach((l) => {
+      if (l.jerarquia) set.add(l.jerarquia);
+    });
+    return Array.from(set);
+  }, [licenciados]);
+
+  const seccionesUnicas = useMemo(() => {
+    const set = new Set<string>();
+    licenciados.forEach((l) => {
+      if (l.seccionGrupo) set.add(l.seccionGrupo);
+    });
+    return Array.from(set).sort();
+  }, [licenciados]);
+
   // Filtrado de la lista
   const filteredLicenciados = useMemo(() => {
     return licenciados.filter((lic) => {
@@ -93,13 +114,35 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
       const matchEsp =
         filtroEspecialidad === 'todas' ||
         lic.especialidadLicenciatura === filtroEspecialidad;
+      const matchJer = filtroJerarquia === 'todas' || lic.jerarquia === filtroJerarquia;
+      const matchSec = filtroSeccion === 'todas' || lic.seccionGrupo === filtroSeccion;
+      const matchEst = filtroEstado === 'todos' || lic.estado === filtroEstado;
 
-      return matchSearch && matchEsp;
+      return matchSearch && matchEsp && matchJer && matchSec && matchEst;
     });
-  }, [licenciados, searchTerm, filtroEspecialidad]);
+  }, [licenciados, searchTerm, filtroEspecialidad, filtroJerarquia, filtroSeccion, filtroEstado]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroEspecialidad !== 'todas') count++;
+    if (filtroJerarquia !== 'todas') count++;
+    if (filtroSeccion !== 'todas') count++;
+    if (filtroEstado !== 'todos') count++;
+    return count;
+  }, [searchTerm, filtroEspecialidad, filtroJerarquia, filtroSeccion, filtroEstado]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroEspecialidad('todas');
+    setFiltroJerarquia('todas');
+    setFiltroSeccion('todas');
+    setFiltroEstado('todos');
+  };
 
   // Abrir modal para agregar o editar
   const handleOpenModalNuevo = () => {
+    setFormError(null);
     setIsEditingExisting(false);
     setSelectedPersonalId(personalDisponibleParaLicenciatura[0]?.id || '');
     setFormData({
@@ -111,6 +154,7 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
   };
 
   const handleOpenModalEditar = (p: Personal) => {
+    setFormError(null);
     setIsEditingExisting(true);
     setSelectedPersonalId(p.id);
     setFormData({
@@ -123,16 +167,17 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!selectedPersonalId) {
-      alert('Por favor seleccione un efectivo policial de la nómina.');
+      setFormError('Por favor seleccione un efectivo policial de la nómina.');
       return;
     }
     if (!formData.especialidad.trim()) {
-      alert('Por favor especifique la especialidad o título de grado.');
+      setFormError('Por favor especifique la especialidad o título de grado.');
       return;
     }
     if (!formData.matricula.trim()) {
-      alert('Por favor ingrese el número de Matrícula Profesional.');
+      setFormError('Por favor ingrese el número de Matrícula Profesional.');
       return;
     }
 
@@ -340,25 +385,33 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
         </div>
       </div>
 
-      {/* Buscador y Filtros */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por Jerarquía, Nombre, Matrícula, Especialidad..."
-            className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-600 focus:bg-white"
-          />
-        </div>
+      {/* Buscador y Filtros Plegable */}
+      <CollapsibleFilterBar
+        title="Filtros de Búsqueda de Personal Licenciado"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span>
+            Mostrando <strong>{filteredLicenciados.length}</strong> de {licenciados.length} licenciados
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+          <div className="relative lg:col-span-2">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar por Jerarquía, Nombre, Matrícula, Especialidad..."
+              className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+            />
+          </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter className="w-4 h-4 text-slate-400 shrink-0" />
           <select
             value={filtroEspecialidad}
             onChange={(e) => setFiltroEspecialidad(e.target.value)}
-            className="w-full sm:w-auto px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700"
           >
             <option value="todas">Todas las Especialidades</option>
             {especialidadesUnicas.map((esp) => (
@@ -367,8 +420,48 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
               </option>
             ))}
           </select>
+
+          <select
+            value={filtroJerarquia}
+            onChange={(e) => setFiltroJerarquia(e.target.value)}
+            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todas">Todas las Jerarquías</option>
+            {jerarquiasUnicas.map((j) => (
+              <option key={j} value={j}>
+                {j}
+              </option>
+            ))}
+          </select>
+
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={filtroSeccion}
+              onChange={(e) => setFiltroSeccion(e.target.value)}
+              className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700"
+            >
+              <option value="todas">Sección: Todas</option>
+              {seccionesUnicas.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value)}
+              className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700"
+            >
+              <option value="todos">Estado: Todos</option>
+              <option value="Activo">Activo</option>
+              <option value="Licencia Médica">Licencia Médica</option>
+              <option value="Licencia Anual">Licencia Anual</option>
+              <option value="Comisión">Comisión</option>
+            </select>
+          </div>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Tabla Oficial de Licenciados */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -513,6 +606,11 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
+              {formError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 font-semibold">
+                  {formError}
+                </div>
+              )}
               {/* Selección del Personal de la Nómina */}
               <div>
                 <label className="block font-bold text-slate-800 mb-1">

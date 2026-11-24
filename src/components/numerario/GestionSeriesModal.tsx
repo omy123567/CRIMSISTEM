@@ -1,6 +1,23 @@
 import React, { useState } from 'react';
-import { SerieNumerario } from '../../types/police';
-import { X, Plus, Layers, Edit2, Trash2, CheckCircle2, Palette } from 'lucide-react';
+import { PerfilAccesoFolio, SerieNumerario } from '../../types/police';
+import {
+  ALL_PERFILES_ACCESO_FOLIO,
+  PERFILES_ACCESO_FOLIO_INFO,
+  normalizePerfilesVisibles,
+} from '../../utils/memosCatalogUtils';
+import {
+  X,
+  Plus,
+  Layers,
+  Edit2,
+  Trash2,
+  CheckCircle2,
+  Palette,
+  Shield,
+  Eye,
+  EyeOff,
+  AlertCircle,
+} from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 
 interface GestionSeriesModalProps {
@@ -41,6 +58,10 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
   const [limiteFolios, setLimiteFolios] = useState(1000);
   const [color, setColor] = useState('blue');
   const [descripcion, setDescripcion] = useState('');
+  const [perfilesVisibles, setPerfilesVisibles] = useState<PerfilAccesoFolio[]>([
+    ...ALL_PERFILES_ACCESO_FOLIO,
+  ]);
+  const [formError, setFormError] = useState<string | null>(null);
   const [serieToDelete, setSerieToDelete] = useState<SerieNumerario | null>(null);
 
   if (!isOpen) return null;
@@ -54,6 +75,8 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
     setLimiteFolios(1000);
     setColor('blue');
     setDescripcion('');
+    setPerfilesVisibles([...ALL_PERFILES_ACCESO_FOLIO]);
+    setFormError(null);
   };
 
   const handleOpenEdit = (s: SerieNumerario) => {
@@ -65,12 +88,21 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
     setLimiteFolios(s.limiteFolios || 1000);
     setColor(s.color || 'blue');
     setDescripcion(s.descripcion || '');
+    setPerfilesVisibles(normalizePerfilesVisibles(s.perfilesVisibles));
+    setFormError(null);
+  };
+
+  const togglePerfil = (perfil: PerfilAccesoFolio) => {
+    setPerfilesVisibles((prev) =>
+      prev.includes(perfil) ? prev.filter((p) => p !== perfil) : [...prev, perfil]
+    );
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!nombre.trim()) {
-      alert('Ingrese un nombre para la serie');
+      setFormError('Ingrese un nombre para la serie.');
       return;
     }
 
@@ -84,6 +116,7 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
       color: color || 'blue',
       descripcion: descripcion.trim(),
       delegacionId: editingSerie?.delegacionId,
+      perfilesVisibles: [...perfilesVisibles],
       createdAt: editingSerie?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -103,10 +136,12 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold">Administrar Series de Numerario</h2>
-              <p className="text-xs text-slate-400">Cuadernos de foliación independientes</p>
+              <p className="text-xs text-slate-400">
+                Cuadernos de foliación independientes y visibilidad por perfil
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1">
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 cursor-pointer">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -129,64 +164,89 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
               </div>
 
               <div className="space-y-2">
-                {seriesList.map((s) => (
-                  <div
-                    key={s.id}
-                    className={`p-3.5 rounded-xl border flex items-center justify-between transition-colors ${
-                      s.id === activeSerieId
-                        ? 'border-blue-400 bg-blue-50/60 shadow-xs'
-                        : 'border-slate-200 bg-white hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-blue-600 shrink-0" />
-                        <span className="font-bold text-slate-900 text-sm">{s.nombre}</span>
-                        {s.id === activeSerieId && (
-                          <span className="text-[10px] bg-blue-900 text-white px-2 py-0.5 rounded-full font-bold">
-                            Activa
-                          </span>
+                {seriesList.map((s) => {
+                  const perfiles = normalizePerfilesVisibles(s.perfilesVisibles);
+                  return (
+                    <div
+                      key={s.id}
+                      className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                        s.id === activeSerieId
+                          ? 'border-blue-400 bg-blue-50/60 shadow-xs'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-blue-600 shrink-0" />
+                          <span className="font-bold text-slate-900 text-sm">{s.nombre}</span>
+                          {s.id === activeSerieId && (
+                            <span className="text-[10px] bg-blue-900 text-white px-2 py-0.5 rounded-full font-bold">
+                              Activa
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          Prefijo: <strong>{s.prefijo}</strong> • Límite: <strong>{s.limiteFolios || 1000} folios</strong> (20 cols) • Año: <strong>{s.anio}</strong>
+                        </p>
+                        {s.descripcion && (
+                          <p className="text-[11px] text-slate-600 italic">{s.descripcion}</p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          {PERFILES_ACCESO_FOLIO_INFO.map((p) => {
+                            const visible = perfiles.includes(p.id);
+                            return (
+                              <span
+                                key={p.id}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold ${
+                                  visible
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                    : 'bg-red-50 border-red-200 text-red-800'
+                                }`}
+                              >
+                                {visible ? (
+                                  <Eye className="w-2.5 h-2.5" />
+                                ) : (
+                                  <EyeOff className="w-2.5 h-2.5" />
+                                )}
+                                <span>{p.shortLabel}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                        {s.id !== activeSerieId && (
+                          <button
+                            type="button"
+                            onClick={() => onSelectSerie(s.id)}
+                            className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg font-bold text-xs cursor-pointer"
+                          >
+                            Seleccionar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(s)}
+                          className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded-lg cursor-pointer"
+                          title="Editar configuración de serie"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        {seriesList.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setSerieToDelete(s)}
+                            className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-lg cursor-pointer"
+                            title="Eliminar serie"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500 font-mono">
-                        Prefijo: <strong>{s.prefijo}</strong> • Límite: <strong>{s.limiteFolios || 1000} folios</strong> (20 cols) • Año: <strong>{s.anio}</strong>
-                      </p>
-                      {s.descripcion && (
-                        <p className="text-[11px] text-slate-600 italic">{s.descripcion}</p>
-                      )}
                     </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {s.id !== activeSerieId && (
-                        <button
-                          type="button"
-                          onClick={() => onSelectSerie(s.id)}
-                          className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg font-bold text-xs cursor-pointer"
-                        >
-                          Seleccionar
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEdit(s)}
-                        className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded-lg cursor-pointer"
-                        title="Editar configuración de serie"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      {seriesList.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setSerieToDelete(s)}
-                          className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-lg cursor-pointer"
-                          title="Eliminar serie"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           ) : (
@@ -201,12 +261,20 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                   onClick={() => {
                     setIsNew(false);
                     setEditingSerie(null);
+                    setFormError(null);
                   }}
-                  className="text-xs text-slate-500 hover:text-slate-800"
+                  className="text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
                 >
                   Volver al listado
                 </button>
               </div>
+
+              {formError && (
+                <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-800 font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -309,12 +377,57 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                 />
               </div>
 
+              {/* Visibilidad por Perfil */}
+              <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-amber-950 flex items-center gap-1.5">
+                    <Shield className="w-4 h-4 text-amber-700" />
+                    <span>Visibilidad de esta Serie / Tipo por Perfil</span>
+                  </span>
+                  <span className="text-[11px] font-mono text-amber-900">
+                    {perfilesVisibles.length}/3 habilitados
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900">
+                  Seleccione qué perfiles pueden ver y operar esta serie tanto en <strong>Control de Folios</strong> como en <strong>Memos y Notas</strong>:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {PERFILES_ACCESO_FOLIO_INFO.map((p) => {
+                    const checked = perfilesVisibles.includes(p.id);
+                    return (
+                      <label
+                        key={p.id}
+                        className={`p-2 rounded-lg border flex items-start gap-2 cursor-pointer text-[11px] ${
+                          checked
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-bold'
+                            : 'bg-red-50 border-red-300 text-red-900 font-semibold'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => togglePerfil(p.id)}
+                          className="w-3.5 h-3.5 mt-0.5 accent-emerald-700 shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <div className="truncate">{p.label}</div>
+                          <div className="text-[10px] font-normal opacity-80">
+                            {checked ? 'Puede ver' : 'Oculto'}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setIsNew(false);
                     setEditingSerie(null);
+                    setFormError(null);
                   }}
                   className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium cursor-pointer"
                 >

@@ -28,6 +28,7 @@ import {
   FolderOpen,
   BookOpen,
   CalendarCheck,
+  Files,
 } from 'lucide-react';
 import { UsuarioSistema, ConfiguracionSistema, ModuloEstructuraConfig, TonalidadModulo } from '../../types/police';
 import { AdministrarModulosModal } from './AdministrarModulosModal';
@@ -55,6 +56,7 @@ export type ActiveTab =
   | 'informes-tecnicos'
   | 'accidentologia'
   | 'numerario'
+  | 'memos-notas'
   | 'usuarios'
   | 'auditoria'
   | 'config';
@@ -74,6 +76,7 @@ interface SidebarProps {
     personasTotal?: number;
     vehiculosTotal?: number;
     charlasProximas?: number;
+    memosNotas?: number;
   };
 }
 
@@ -225,6 +228,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Control de Folios',
       icon: BookmarkCheck,
       desc: 'Numerario y Asignación de Folios',
+    },
+    {
+      id: 'memos-notas',
+      label: 'Memos y Notas',
+      icon: Files,
+      desc: 'Memorándums, Nota V, Notas & Anexos',
+      badge: badgeCounts.memosNotas ? `${badgeCounts.memosNotas}` : undefined,
+      badgeColor: 'bg-cyan-600/30 text-cyan-300 border-cyan-600/50',
     },
     {
       id: 'usuarios',

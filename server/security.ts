@@ -40,6 +40,7 @@ export const ALLOWED_COLLECTIONS: readonly (keyof SispolDatabase)[] = [
   'licenciasPoliciales',
   'saldosLicencias',
   'feriados',
+  'memosNotas',
 ];
 
 let cachedSecret: string | null = null;
@@ -431,7 +432,167 @@ const DELEGATION_SCOPED_COLLECTIONS = new Set<string>([
   'charlasPrevencion',
   'licenciasPoliciales',
   'saldosLicencias',
+  'memosNotas',
 ]);
+
+export type PerfilAccesoFolioServer = 'comun' | 'jefe' | 'mayoria_judicial';
+const ALL_PERFILES_FOLIO_SERVER: PerfilAccesoFolioServer[] = [
+  'comun',
+  'jefe',
+  'mayoria_judicial',
+];
+
+function normalizeMemoTipoKeyServer(val?: string): string {
+  return String(val || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizePerfilesVisiblesServer(perfiles?: any): PerfilAccesoFolioServer[] {
+  if (perfiles === undefined || perfiles === null || !Array.isArray(perfiles)) {
+    return [...ALL_PERFILES_FOLIO_SERVER];
+  }
+  const valid = new Set<string>(ALL_PERFILES_FOLIO_SERVER);
+  return Array.from(
+    new Set(
+      perfiles.filter(
+        (p): p is PerfilAccesoFolioServer => typeof p === 'string' && valid.has(p)
+      )
+    )
+  );
+}
+
+export function resolveUserFolioPerfilServer(user: any): PerfilAccesoFolioServer {
+  if (
+    user?.perfilFolio === 'comun' ||
+    user?.perfilFolio === 'jefe' ||
+    user?.perfilFolio === 'mayoria_judicial'
+  ) {
+    return user.perfilFolio;
+  }
+  const rolNorm = normalizeMemoTipoKeyServer(user?.rol);
+  if (
+    rolNorm.includes('jefe') ||
+    rolNorm.includes('administrador') ||
+    rolNorm === 'admin'
+  ) {
+    return 'jefe';
+  }
+  if (
+    rolNorm.includes('mayoria') ||
+    rolNorm.includes('judicial') ||
+    rolNorm.includes('sumariante')
+  ) {
+    return 'mayoria_judicial';
+  }
+  return 'comun';
+}
+
+function isSerieHiddenForUserServer(serie: any, user: any): boolean {
+  if (!user || isSuperusuario(user) || !serie) return false;
+
+  const perfiles = normalizePerfilesVisiblesServer(serie.perfilesVisibles);
+  const userPerfil = resolveUserFolioPerfilServer(user);
+  if (!perfiles.includes(userPerfil)) {
+    return true;
+  }
+
+  const hiddenList: any[] = Array.isArray(user.tiposMemosOcultos) ? user.tiposMemosOcultos : [];
+  if (hiddenList.length === 0) return false;
+  const hiddenRaw = new Set(hiddenList.map((h) => String(h)));
+  const hiddenNorm = new Set(hiddenList.map((h) => normalizeMemoTipoKeyServer(h)));
+  const normName = normalizeMemoTipoKeyServer(serie?.nombre);
+  if (normName && (hiddenNorm.has(normName) || hiddenNorm.has(`tipo:${normName}`))) {
+    return true;
+  }
+  if (
+    serie?.id &&
+    (hiddenRaw.has(String(serie.id)) || hiddenRaw.has(`serie:${String(serie.id)}`))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function resolvePerfilesForMemoServer(
+  memo: any,
+  db?: SispolDatabase
+): PerfilAccesoFolioServer[] | undefined {
+  if (!db) return undefined;
+  const normTipo = normalizeMemoTipoKeyServer(memo?.tipo);
+  const series = Array.isArray(db.seriesNumerario) ? db.seriesNumerario : [];
+  const serieMatch =
+    (memo?.serieFolioId && series.find((s: any) => s.id === memo.serieFolioId)) ||
+    (normTipo &&
+      (series.find(
+        (s: any) =>
+          normalizeMemoTipoKeyServer(s.nombre) === normTipo &&
+          (!memo?.delegacionId || !s.delegacionId || s.delegacionId === memo.delegacionId)
+      ) ||
+        series.find((s: any) => normalizeMemoTipoKeyServer(s.nombre) === normTipo)));
+  if (serieMatch) {
+    return normalizePerfilesVisiblesServer(serieMatch.perfilesVisibles);
+  }
+
+  const configs = Array.isArray(db.configuracion) ? db.configuracion : [];
+  const orderedConfigs = memo?.delegacionId
+    ? [...configs].sort((a: any, b: any) =>
+        a.delegacionId === memo.delegacionId ? -1 : b.delegacionId === memo.delegacionId ? 1 : 0
+      )
+    : configs;
+
+  for (const cfg of orderedConfigs) {
+    if (!Array.isArray(cfg?.tiposMemoCatalogo)) continue;
+    const catMatch = cfg.tiposMemoCatalogo.find(
+      (t: any) => normTipo && normalizeMemoTipoKeyServer(t.nombre) === normTipo
+    );
+    if (catMatch) {
+      return normalizePerfilesVisiblesServer(catMatch.perfilesVisibles);
+    }
+  }
+  return undefined;
+}
+
+function isMemoHiddenForUserServer(memo: any, user: any, db?: SispolDatabase): boolean {
+  if (!user || isSuperusuario(user)) return false;
+  if (
+    Array.isArray(user.modulosPermitidos) &&
+    user.modulosPermitidos.length > 0 &&
+    !user.modulosPermitidos.includes('memos-notas')
+  ) {
+    return true;
+  }
+  if (Array.isArray(memo?.ocultoParaUsuariosIds) && memo.ocultoParaUsuariosIds.includes(user.id)) {
+    return true;
+  }
+
+  const perfilesVisibles = resolvePerfilesForMemoServer(memo, db);
+  if (perfilesVisibles !== undefined) {
+    const userPerfil = resolveUserFolioPerfilServer(user);
+    if (!perfilesVisibles.includes(userPerfil)) {
+      return true;
+    }
+  }
+
+  const hiddenList: any[] = Array.isArray(user.tiposMemosOcultos) ? user.tiposMemosOcultos : [];
+  if (hiddenList.length === 0) return false;
+  const hiddenRaw = new Set(hiddenList.map((h) => String(h)));
+  const hiddenNorm = new Set(hiddenList.map((h) => normalizeMemoTipoKeyServer(h)));
+  const normTipo = normalizeMemoTipoKeyServer(memo?.tipo);
+  if (normTipo && (hiddenNorm.has(normTipo) || hiddenNorm.has(`tipo:${normTipo}`))) {
+    return true;
+  }
+  if (
+    memo?.serieFolioId &&
+    (hiddenRaw.has(String(memo.serieFolioId)) ||
+      hiddenRaw.has(`serie:${String(memo.serieFolioId)}`))
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export function filterDatabaseForUser(db: SispolDatabase, user: any): Partial<SispolDatabase> {
   const allowed = getAllowedDelegations(user);
@@ -496,9 +657,45 @@ export function filterDatabaseForUser(db: SispolDatabase, user: any): Partial<Si
           (inter.delegacionId && allowed.includes(inter.delegacionId)) ||
           (inter.parteId && allowedParteIds.has(inter.parteId))
       );
+    } else if (col === 'memosNotas') {
+      result[col] = items.filter(
+        (item: any) =>
+          allowed.includes(item.delegacionId || 'del-laguna-blanca') &&
+          !isMemoHiddenForUserServer(item, user, db)
+      );
     } else {
       result[col] = items.filter((item: any) =>
         allowed.includes(item.delegacionId || 'del-laguna-blanca')
+      );
+    }
+  }
+
+  // Aplicar filtro de tipos/series ocultos por perfil o usuario incluso si allowed === 'ALL' cuando no es superusuario
+  if (!superUsr) {
+    const seriesById = new Map<string, any>(
+      (db.seriesNumerario || []).map((s: any) => [s.id, s])
+    );
+
+    if (Array.isArray(result.memosNotas)) {
+      result.memosNotas = result.memosNotas.filter(
+        (item: any) => !isMemoHiddenForUserServer(item, user, db)
+      );
+    }
+
+    if (Array.isArray(result.folios)) {
+      result.folios = result.folios.filter((f: any) => {
+        const ser = f?.serieId ? seriesById.get(f.serieId) : undefined;
+        return !isSerieHiddenForUserServer(ser, user);
+      });
+    }
+
+    if (
+      Array.isArray(result.seriesNumerario) &&
+      user.rol !== 'Administrador' &&
+      !canManageUsers(user)
+    ) {
+      result.seriesNumerario = result.seriesNumerario.filter(
+        (s: any) => !isSerieHiddenForUserServer(s, user)
       );
     }
   }
@@ -584,7 +781,8 @@ export function canWriteCollection(
   user: any,
   collection: string,
   existingItem: any | undefined,
-  incomingItem: any
+  incomingItem: any,
+  db?: SispolDatabase
 ): { allowed: boolean; reason?: string } {
   if (!user || !user.activo) {
     return { allowed: false, reason: 'Usuario inactivo o no autenticado.' };
@@ -730,13 +928,57 @@ export function canWriteCollection(
     }
   }
 
+  if (collection === 'seriesNumerario' && existingItem) {
+    const prevPerfiles = JSON.stringify(
+      normalizePerfilesVisiblesServer(existingItem.perfilesVisibles)
+    );
+    const nextPerfiles = JSON.stringify(
+      normalizePerfilesVisiblesServer(incomingItem.perfilesVisibles)
+    );
+    if (
+      prevPerfiles !== nextPerfiles &&
+      user.rol !== 'Administrador' &&
+      !canManageUsers(user) &&
+      !user.puedeAdministrarModulos
+    ) {
+      return {
+        allowed: false,
+        reason: 'No posee autorización para modificar los perfiles de visibilidad de la serie.',
+      };
+    }
+  }
+
+  if (collection === 'folios' && db && incomingItem?.serieId) {
+    const ser = (db.seriesNumerario || []).find((s: any) => s.id === incomingItem.serieId);
+    if (ser && isSerieHiddenForUserServer(ser, user)) {
+      return {
+        allowed: false,
+        reason: 'La serie de folio seleccionada se encuentra restringida para su perfil o usuario.',
+      };
+    }
+  }
+
+  if (collection === 'memosNotas') {
+    if (
+      Array.isArray(user.modulosPermitidos) &&
+      user.modulosPermitidos.length > 0 &&
+      !user.modulosPermitidos.includes('memos-notas')
+    ) {
+      return { allowed: false, reason: 'No posee acceso habilitado al módulo Memos y Notas.' };
+    }
+    if (isMemoHiddenForUserServer(incomingItem, user, db)) {
+      return { allowed: false, reason: 'El tipo de folio o documento seleccionado se encuentra restringido/oculto para su perfil o usuario.' };
+    }
+  }
+
   return { allowed: true };
 }
 
 export function canDeleteCollection(
   user: any,
   collection: string,
-  existingItem: any | undefined
+  existingItem: any | undefined,
+  db?: SispolDatabase
 ): { allowed: boolean; reason?: string } {
   if (!user || !user.activo) {
     return { allowed: false, reason: 'Usuario inactivo o no autenticado.' };
@@ -774,6 +1016,29 @@ export function canDeleteCollection(
     return { allowed: false, reason: 'No puede eliminar registros pertenecientes a otra delegación.' };
   }
 
+  if (collection === 'folios' && db && existingItem?.serieId) {
+    const ser = (db.seriesNumerario || []).find((s: any) => s.id === existingItem.serieId);
+    if (ser && isSerieHiddenForUserServer(ser, user)) {
+      return {
+        allowed: false,
+        reason: 'No está autorizado para eliminar folios de una serie restringida para su perfil o usuario.',
+      };
+    }
+  }
+
+  if (collection === 'memosNotas') {
+    if (
+      Array.isArray(user.modulosPermitidos) &&
+      user.modulosPermitidos.length > 0 &&
+      !user.modulosPermitidos.includes('memos-notas')
+    ) {
+      return { allowed: false, reason: 'No posee acceso habilitado al módulo Memos y Notas.' };
+    }
+    if (existingItem && isMemoHiddenForUserServer(existingItem, user, db)) {
+      return { allowed: false, reason: 'No está autorizado para eliminar un documento de un tipo oculto para su perfil o usuario.' };
+    }
+  }
+
   return { allowed: true };
 }
 
@@ -803,6 +1068,7 @@ export function applyIntegrityHashes(collection: string, item: any): any {
     collection === 'inspeccionesOculares' ||
     collection === 'expedientes' ||
     collection === 'informesTecnicos' ||
+    collection === 'memosNotas' ||
     (collection === 'partesGuardia' && copy.cerrado)
   ) {
     const payloadToHash = { ...copy };

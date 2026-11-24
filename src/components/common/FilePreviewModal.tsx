@@ -14,6 +14,11 @@ import {
   Paperclip,
 } from 'lucide-react';
 import { PdfCanvasPreview } from './PdfCanvasPreview';
+import {
+  extractDocxParagraphsFromDataUrl,
+  extractPlainTextFromDataUrl,
+  triggerSafeFileDownload,
+} from '../../utils/documentExtractUtils';
 
 export interface PreviewAttachmentItem {
   id?: string;
@@ -34,7 +39,7 @@ const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 4;
 const ZOOM_STEP = 0.25;
 
-function detectKind(item: PreviewAttachmentItem | null): 'image' | 'pdf' | 'other' {
+function detectKind(item: PreviewAttachmentItem | null): 'image' | 'pdf' | 'docx' | 'text' | 'other' {
   if (!item) return 'other';
   const url = (item.dataUrl || '').toLowerCase();
   const mime = (item.tipo || '').toLowerCase();
@@ -53,6 +58,18 @@ function detectKind(item: PreviewAttachmentItem | null): 'image' | 'pdf' | 'othe
     name.endsWith('.pdf')
   ) {
     return 'pdf';
+  }
+  if (
+    mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    name.endsWith('.docx')
+  ) {
+    return 'docx';
+  }
+  if (
+    mime.startsWith('text/') ||
+    /\.(txt|csv|md|log)$/i.test(name)
+  ) {
+    return 'text';
   }
   return 'other';
 }
@@ -97,6 +114,43 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
   const activeItem = gallery[currentIndex] || file || null;
   const kind = detectKind(activeItem);
+
+  const [docParagraphs, setDocParagraphs] = useState<string[]>([]);
+  const [docLoading, setDocLoading] = useState<boolean>(false);
+  const [plainTextPreview, setPlainTextPreview] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isOpen || !activeItem) {
+      setDocParagraphs([]);
+      setPlainTextPreview('');
+      return;
+    }
+    if (kind === 'docx') {
+      setDocLoading(true);
+      extractDocxParagraphsFromDataUrl(activeItem.dataUrl)
+        .then((paras) => {
+          if (!cancelled) {
+            setDocParagraphs(paras);
+            setDocLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setDocParagraphs([]);
+            setDocLoading(false);
+          }
+        });
+    } else if (kind === 'text') {
+      setPlainTextPreview(extractPlainTextFromDataUrl(activeItem.dataUrl));
+    } else {
+      setDocParagraphs([]);
+      setPlainTextPreview('');
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, activeItem, kind]);
 
   const resetView = useCallback(() => {
     setZoom(1);
@@ -161,7 +215,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   if (!isOpen || !activeItem) return null;
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (kind === 'other') return;
+    if (kind === 'other' || kind === 'docx' || kind === 'text') return;
     if (e.ctrlKey || kind === 'image') {
       e.preventDefault();
       const delta = e.deltaY < 0 ? 0.15 : -0.15;
@@ -196,12 +250,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   };
 
   const handleDownload = () => {
-    const a = document.createElement('a');
-    a.href = activeItem.dataUrl;
-    a.download = activeItem.nombre || 'archivo_adjunto';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    triggerSafeFileDownload(activeItem.dataUrl, activeItem.nombre || 'archivo_adjunto');
   };
 
   // Cálculo de dimensiones reales para que el zoom nunca recorte bordes y permita scroll/pan completo
@@ -249,7 +298,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         </div>
 
         {/* Controles de Zoom y Rotación */}
-        {kind !== 'other' && (
+        {(kind === 'image' || kind === 'pdf') && (
           <div className="flex flex-wrap items-center gap-1.5 bg-slate-950/80 border border-slate-800 px-2 py-1 rounded-lg text-xs">
             <button
               type="button"
@@ -446,6 +495,67 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               }}
             >
               <PdfCanvasPreview src={activeItem.dataUrl} className="w-full h-full" />
+            </div>
+          ) : kind === 'docx' ? (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl shadow-2xl border border-slate-300 max-w-3xl w-full max-h-[80vh] flex flex-col overflow-hidden"
+            >
+              <div className="bg-slate-100 border-b border-slate-200 px-5 py-3 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2 text-slate-800">
+                  <FileText className="w-4 h-4 text-blue-700" />
+                  <span className="text-xs font-bold">Vista Previa Documento Word (.docx)</span>
+                </div>
+                <span className="text-[11px] text-slate-500 font-mono tabular-nums">
+                  {docLoading ? 'Extrayendo contenido...' : `${docParagraphs.length} párrafo(s)`}
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-slate-50">
+                {docLoading ? (
+                  <div className="py-12 text-center text-xs text-slate-500">
+                    Procesando documento Word...
+                  </div>
+                ) : docParagraphs.length > 0 ? (
+                  <div className="bg-white border border-slate-200 rounded-lg p-6 sm:p-8 shadow-2xs space-y-3 text-slate-800 text-xs sm:text-sm leading-relaxed select-text">
+                    {docParagraphs.map((para, idx) => (
+                      <p key={idx} className="whitespace-pre-wrap">
+                        {para}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-10 text-center space-y-3">
+                    <p className="text-xs text-slate-600">
+                      El documento no contiene párrafos de texto plano extraíbles o utiliza elementos gráficos complejos. Puede descargarlo para abrirlo en Microsoft Word / LibreOffice.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      className="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold inline-flex items-center gap-2 cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Descargar Documento</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : kind === 'text' ? (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl shadow-2xl border border-slate-300 max-w-3xl w-full max-h-[80vh] flex flex-col overflow-hidden"
+            >
+              <div className="bg-slate-100 border-b border-slate-200 px-5 py-3 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2 text-slate-800">
+                  <FileText className="w-4 h-4 text-emerald-700" />
+                  <span className="text-xs font-bold">Vista Previa de Archivo de Texto</span>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+                <pre className="bg-white border border-slate-200 rounded-lg p-5 text-xs text-slate-800 font-mono whitespace-pre-wrap break-words select-text leading-relaxed">
+                  {plainTextPreview || '(Archivo sin contenido de texto visible)'}
+                </pre>
+              </div>
             </div>
           ) : (
             <div

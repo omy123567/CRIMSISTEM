@@ -28,6 +28,7 @@ import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { fetchAuditFromServer, purgeAuditOnServer } from '../../services/apiService';
 
 interface AuditoriaViewProps {
@@ -182,6 +183,28 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
     fechaDesde,
     fechaHasta,
   ]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroAccion !== 'TODAS') count++;
+    if (filtroModulo !== 'TODOS') count++;
+    if (filtroUsuario !== 'TODOS') count++;
+    if (filtroDelegacion !== 'TODAS') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    return count;
+  }, [searchTerm, filtroAccion, filtroModulo, filtroUsuario, filtroDelegacion, fechaDesde, fechaHasta]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroAccion('TODAS');
+    setFiltroModulo('TODOS');
+    setFiltroUsuario('TODOS');
+    setFiltroDelegacion('TODAS');
+    setFechaDesde('');
+    setFechaHasta('');
+  };
 
   // Estadísticas
   const stats = useMemo(() => {
@@ -528,147 +551,140 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
         </div>
       </div>
 
-      {/* Filtros Avanzados */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 text-xs">
-          {/* Búsqueda libre */}
-          <div className="sm:col-span-2 relative">
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Buscar en logs
-            </label>
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Usuario, acción, descripción o detalle..."
-                className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs"
-              />
+      {/* Filtros Avanzados Plegables */}
+      <CollapsibleFilterBar
+        title="Filtros Avanzados de Auditoría"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span>
+            Mostrando <strong>{filteredRegistros.length}</strong> de {registros.length} eventos
+          </span>
+        }
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 text-xs">
+            {/* Búsqueda libre */}
+            <div className="sm:col-span-2 relative">
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Buscar en logs
+              </label>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Usuario, acción, descripción o detalle..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Filtro Acción */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Tipo de Acción
+              </label>
+              <select
+                value={filtroAccion}
+                onChange={(e) => setFiltroAccion(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium"
+              >
+                <option value="TODAS">Todas las Acciones</option>
+                <option value="CREAR">CREAR</option>
+                <option value="MODIFICAR">MODIFICAR</option>
+                <option value="ELIMINAR">ELIMINAR</option>
+                <option value="RESETEO_CONTADOR">RESETEO_CONTADOR</option>
+                <option value="LOGIN">LOGIN</option>
+                <option value="TRASLADO">TRASLADO</option>
+                <option value="CAMBIO_PASSWORD">CAMBIO_PASSWORD</option>
+              </select>
+            </div>
+
+            {/* Filtro Módulo */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Módulo
+              </label>
+              <select
+                value={filtroModulo}
+                onChange={(e) => setFiltroModulo(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium"
+              >
+                <option value="TODOS">Todos los Módulos</option>
+                {modulosUnicos.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filtro Usuario */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Usuario
+              </label>
+              <select
+                value={filtroUsuario}
+                onChange={(e) => setFiltroUsuario(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium"
+              >
+                <option value="TODOS">Todos los Usuarios</option>
+                {usuariosUnicos.map((u) => (
+                  <option key={u} value={u}>
+                    @{u}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filtro Delegación */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Delegación
+              </label>
+              <select
+                value={filtroDelegacion}
+                onChange={(e) => setFiltroDelegacion(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium"
+              >
+                <option value="TODAS">Todas las Delegaciones</option>
+                {delegacionesList.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.siglas || d.ciudad}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* Filtro Acción */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Tipo de Acción
-            </label>
-            <select
-              value={filtroAccion}
-              onChange={(e) => setFiltroAccion(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium"
-            >
-              <option value="TODAS">Todas las Acciones</option>
-              <option value="CREAR">CREAR</option>
-              <option value="MODIFICAR">MODIFICAR</option>
-              <option value="ELIMINAR">ELIMINAR</option>
-              <option value="RESETEO_CONTADOR">RESETEO_CONTADOR</option>
-              <option value="LOGIN">LOGIN</option>
-              <option value="TRASLADO">TRASLADO</option>
-              <option value="CAMBIO_PASSWORD">CAMBIO_PASSWORD</option>
-            </select>
-          </div>
+          {/* Rango de Fechas */}
+          <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 text-xs text-slate-600">
+            <div className="flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              <span className="font-semibold text-[11px]">Desde:</span>
+              <input
+                type="date"
+                value={fechaDesde}
+                onChange={(e) => setFechaDesde(e.target.value)}
+                className="px-2 py-1 border border-slate-300 rounded-md text-xs bg-white"
+              />
+            </div>
 
-          {/* Filtro Módulo */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Módulo
-            </label>
-            <select
-              value={filtroModulo}
-              onChange={(e) => setFiltroModulo(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium"
-            >
-              <option value="TODOS">Todos los Módulos</option>
-              {modulosUnicos.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Filtro Usuario */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Usuario
-            </label>
-            <select
-              value={filtroUsuario}
-              onChange={(e) => setFiltroUsuario(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium"
-            >
-              <option value="TODOS">Todos los Usuarios</option>
-              {usuariosUnicos.map((u) => (
-                <option key={u} value={u}>
-                  @{u}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Filtro Delegación */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-              Delegación
-            </label>
-            <select
-              value={filtroDelegacion}
-              onChange={(e) => setFiltroDelegacion(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium"
-            >
-              <option value="TODAS">Todas las Delegaciones</option>
-              {delegacionesList.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.siglas || d.ciudad}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-[11px]">Hasta:</span>
+              <input
+                type="date"
+                value={fechaHasta}
+                onChange={(e) => setFechaHasta(e.target.value)}
+                className="px-2 py-1 border border-slate-300 rounded-md text-xs bg-white"
+              />
+            </div>
           </div>
         </div>
-
-        {/* Rango de Fechas */}
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 text-xs text-slate-600">
-          <div className="flex items-center gap-1.5">
-            <Calendar className="w-3.5 h-3.5 text-slate-400" />
-            <span className="font-semibold text-[11px]">Desde:</span>
-            <input
-              type="date"
-              value={fechaDesde}
-              onChange={(e) => setFechaDesde(e.target.value)}
-              className="px-2 py-1 border border-slate-300 rounded-md text-xs bg-white"
-            />
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <span className="font-semibold text-[11px]">Hasta:</span>
-            <input
-              type="date"
-              value={fechaHasta}
-              onChange={(e) => setFechaHasta(e.target.value)}
-              className="px-2 py-1 border border-slate-300 rounded-md text-xs bg-white"
-            />
-          </div>
-
-          {(searchTerm || filtroAccion !== 'TODAS' || filtroModulo !== 'TODOS' || filtroUsuario !== 'TODOS' || filtroDelegacion !== 'TODAS' || fechaDesde || fechaHasta) && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchTerm('');
-                setFiltroAccion('TODAS');
-                setFiltroModulo('TODOS');
-                setFiltroUsuario('TODOS');
-                setFiltroDelegacion('TODAS');
-                setFechaDesde('');
-                setFechaHasta('');
-              }}
-              className="text-blue-900 hover:underline font-bold text-[11px] ml-auto cursor-pointer"
-            >
-              Limpiar Filtros
-            </button>
-          )}
-        </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Tabla de Registros de Auditoría */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">

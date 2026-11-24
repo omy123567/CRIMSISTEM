@@ -33,11 +33,13 @@ import {
   Hash,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { IntervencionModal } from '../guardias/IntervencionModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import { getNextCorrelativoIntervencion } from '../../utils/numeracionUtils';
 
 interface IntervencionesViewProps {
   intervencionesList: IntervencionParte[];
@@ -63,7 +65,16 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
   // Tab activa: 'criminalistica' (LC) o 'accidentologia' (Siniestros y Hechos Viales)
   const [activeTab, setActiveTab] = useState<'criminalistica' | 'accidentologia'>('criminalistica');
   const [searchTerm, setSearchTerm] = useState('');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [filtroDependencia, setFiltroDependencia] = useState('todas');
+  const [filtroHecho, setFiltroHecho] = useState('todos');
+  const [filtroTipoLesion, setFiltroTipoLesion] = useState('todas');
+  const [soloFallecidos, setSoloFallecidos] = useState(false);
+  const [soloPolicial, setSoloPolicial] = useState(false);
   const [mostrarControlContadores, setMostrarControlContadores] = useState(true);
+  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+  const [confirmResetTipo, setConfirmResetTipo] = useState<'lc' | 'acc' | null>(null);
 
   // Estados locales para el Control de Contadores dentro de este módulo
   const [inicioLC, setInicioLC] = useState<number>(
@@ -78,6 +89,18 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
   const [ultimoAcc, setUltimoAcc] = useState<number>(
     config.ultimoNroIntervencionAccidentologica ?? 0
   );
+
+  React.useEffect(() => {
+    setInicioLC(config.inicioNroIntervencionCriminalistica ?? 1);
+    setUltimoLC(config.ultimoNroIntervencionCriminalistica ?? 0);
+    setInicioAcc(config.inicioNroIntervencionAccidentologica ?? 1);
+    setUltimoAcc(config.ultimoNroIntervencionAccidentologica ?? 0);
+  }, [
+    config.inicioNroIntervencionCriminalistica,
+    config.ultimoNroIntervencionCriminalistica,
+    config.inicioNroIntervencionAccidentologica,
+    config.ultimoNroIntervencionAccidentologica,
+  ]);
 
   // Modal para Crear / Editar
   const [isIntervencionModalOpen, setIsIntervencionModalOpen] = useState(false);
@@ -103,21 +126,131 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
     );
   }, [intervencionesList]);
 
+  const baseTabList = activeTab === 'criminalistica' ? intervencionesLC : intervencionesSiniestros;
+
+  const dependenciasUnicas = useMemo(() => {
+    const set = new Set<string>();
+    baseTabList.forEach((int) => {
+      if (int.dependencia) set.add(int.dependencia);
+    });
+    return Array.from(set).sort();
+  }, [baseTabList]);
+
+  const hechosUnicos = useMemo(() => {
+    const set = new Set<string>();
+    baseTabList.forEach((int) => {
+      if (int.hecho) set.add(int.hecho);
+    });
+    return Array.from(set).sort();
+  }, [baseTabList]);
+
+  const lesionesUnicas = useMemo(() => {
+    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas']);
+    baseTabList.forEach((int) => {
+      (int.involucrados || []).forEach((inv) => {
+        if (inv.tipoLesion) set.add(inv.tipoLesion);
+      });
+    });
+    return Array.from(set);
+  }, [baseTabList]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    if (filtroDependencia !== 'todas') count++;
+    if (filtroHecho !== 'todos') count++;
+    if (filtroTipoLesion !== 'todas') count++;
+    if (soloFallecidos) count++;
+    if (soloPolicial) count++;
+    return count;
+  }, [searchTerm, fechaDesde, fechaHasta, filtroDependencia, filtroHecho, filtroTipoLesion, soloFallecidos, soloPolicial]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFechaDesde('');
+    setFechaHasta('');
+    setFiltroDependencia('todas');
+    setFiltroHecho('todos');
+    setFiltroTipoLesion('todas');
+    setSoloFallecidos(false);
+    setSoloPolicial(false);
+  };
+
   // Lista activa y filtrada
   const currentList = useMemo(() => {
     const list =
       activeTab === 'criminalistica' ? intervencionesLC : intervencionesSiniestros;
     return list.filter((int) => {
+      const term = searchTerm.toLowerCase();
       const matchSearch =
-        int.codigoIntervencion.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        int.hecho.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        int.inspeccionLugar.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        int.dependencia.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        int.personalTecnico.peritoAuxiliar.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        !term ||
+        int.codigoIntervencion.toLowerCase().includes(term) ||
+        int.hecho.toLowerCase().includes(term) ||
+        int.inspeccionLugar.toLowerCase().includes(term) ||
+        int.dependencia.toLowerCase().includes(term) ||
+        int.personalTecnico.peritoAuxiliar.toLowerCase().includes(term) ||
+        int.personalTecnico.choferFotografo.toLowerCase().includes(term) ||
+        (int.involucrados || []).some((i) => i.apellidoYNombre.toLowerCase().includes(term) || (i.dni || '').includes(term)) ||
         String(int.nroCorrelativo).includes(searchTerm);
-      return matchSearch;
+
+      const matchDesde = !fechaDesde || (int.inspeccionFecha && int.inspeccionFecha >= fechaDesde);
+      const matchHasta = !fechaHasta || (int.inspeccionFecha && int.inspeccionFecha <= fechaHasta);
+      const matchDep = filtroDependencia === 'todas' || int.dependencia === filtroDependencia;
+      const matchHecho = filtroHecho === 'todos' || int.hecho === filtroHecho;
+
+      const matchLesion =
+        filtroTipoLesion === 'todas' ||
+        (int.involucrados || []).some((i) => (i.tipoLesion || 'Sin Lesiones') === filtroTipoLesion) ||
+        (int.vehiculosSiniestro || []).some((v) =>
+          (v.lesiones || '').toLowerCase().includes(filtroTipoLesion.toLowerCase())
+        );
+
+      const matchFallecido =
+        !soloFallecidos ||
+        (int.involucrados || []).some((i) => !!i.fallecido) ||
+        (int.vehiculosSiniestro || []).some((v) => {
+          const l = (v.lesiones || '').toLowerCase();
+          return l.includes('fallec') || l.includes('óbito') || l.includes('muert');
+        });
+
+      const tienePolicial =
+        !!int.involucraPersonalPolicial ||
+        (int.involucrados || []).some((i) => !!i.esPersonalPolicial);
+      const matchPolicial = !soloPolicial || tienePolicial;
+
+      return (
+        matchSearch &&
+        matchDesde &&
+        matchHasta &&
+        matchDep &&
+        matchHecho &&
+        matchLesion &&
+        matchFallecido &&
+        matchPolicial
+      );
     });
-  }, [activeTab, intervencionesLC, intervencionesSiniestros, searchTerm]);
+  }, [
+    activeTab,
+    intervencionesLC,
+    intervencionesSiniestros,
+    searchTerm,
+    fechaDesde,
+    fechaHasta,
+    filtroDependencia,
+    filtroHecho,
+    filtroTipoLesion,
+    soloFallecidos,
+    soloPolicial,
+  ]);
+
+  const showNotice = (msg: string) => {
+    setFeedbackMsg(msg);
+    setTimeout(() => {
+      setFeedbackMsg((prev) => (prev === msg ? null : prev));
+    }, 4000);
+  };
 
   // Manejo de Guardado de Contadores en la Configuración
   const handleGuardarContadorLC = () => {
@@ -127,24 +260,11 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
       ultimoNroIntervencionCriminalistica: ultimoLC,
     };
     onSaveConfig(updated);
-    alert('Contador de Labores Criminalísticas (LC) actualizado correctamente.');
+    showNotice('Contador de Labores Criminalísticas (LC) actualizado correctamente.');
   };
 
   const handleReiniciarContadorLC = () => {
-    if (
-      confirm(
-        '¿Confirma reiniciar el contador de Labores Criminalísticas (LC) al número inicial 1?'
-      )
-    ) {
-      setInicioLC(1);
-      setUltimoLC(0);
-      const updated = {
-        ...config,
-        inicioNroIntervencionCriminalistica: 1,
-        ultimoNroIntervencionCriminalistica: 0,
-      };
-      onSaveConfig(updated);
-    }
+    setConfirmResetTipo('lc');
   };
 
   const handleGuardarContadorAcc = () => {
@@ -154,24 +274,34 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
       ultimoNroIntervencionAccidentologica: ultimoAcc,
     };
     onSaveConfig(updated);
-    alert('Contador de Siniestros y Hechos Viales actualizado correctamente.');
+    showNotice('Contador de Siniestros y Hechos Viales actualizado correctamente.');
   };
 
   const handleReiniciarContadorAcc = () => {
-    if (
-      confirm(
-        '¿Confirma reiniciar el contador de Siniestros y Hechos Viales al número inicial 1?'
-      )
-    ) {
+    setConfirmResetTipo('acc');
+  };
+
+  const executeResetContador = () => {
+    if (confirmResetTipo === 'lc') {
+      setInicioLC(1);
+      setUltimoLC(0);
+      onSaveConfig({
+        ...config,
+        inicioNroIntervencionCriminalistica: 1,
+        ultimoNroIntervencionCriminalistica: 0,
+      });
+      showNotice('Contador de Labores Criminalísticas (LC) reiniciado a 1.');
+    } else if (confirmResetTipo === 'acc') {
       setInicioAcc(1);
       setUltimoAcc(0);
-      const updated = {
+      onSaveConfig({
         ...config,
         inicioNroIntervencionAccidentologica: 1,
         ultimoNroIntervencionAccidentologica: 0,
-      };
-      onSaveConfig(updated);
+      });
+      showNotice('Contador de Siniestros y Hechos Viales reiniciado a 1.');
     }
+    setConfirmResetTipo(null);
   };
 
   const handleAbrirCrear = (tipo: TipoIntervencion) => {
@@ -186,18 +316,27 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
     setIsIntervencionModalOpen(true);
   };
 
-  // Cálculo del siguiente correlativo según la configuración
-  const siguienteCorrelativo = useMemo(() => {
-    if (tipoForzadoModal === 'Criminalística') {
-      const u = config.ultimoNroIntervencionCriminalistica ?? 0;
-      const i = config.inicioNroIntervencionCriminalistica ?? 1;
-      return Math.max(u + 1, i);
-    } else {
-      const u = config.ultimoNroIntervencionAccidentologica ?? 0;
-      const i = config.inicioNroIntervencionAccidentologica ?? 1;
-      return Math.max(u + 1, i);
-    }
-  }, [config, tipoForzadoModal]);
+  // Cálculo del siguiente correlativo independiente por tipo (LC y Seg. Vial pueden coincidir en N°)
+  const siguienteCorrelativoLC = useMemo(() => {
+    return getNextCorrelativoIntervencion({
+      tipo: 'Criminalística',
+      intervenciones: intervencionesList,
+      partesGuardia: partesList,
+      config,
+    });
+  }, [intervencionesList, partesList, config]);
+
+  const siguienteCorrelativoAcc = useMemo(() => {
+    return getNextCorrelativoIntervencion({
+      tipo: 'Accidentológica',
+      intervenciones: intervencionesList,
+      partesGuardia: partesList,
+      config,
+    });
+  }, [intervencionesList, partesList, config]);
+
+  const siguienteCorrelativo =
+    tipoForzadoModal === 'Accidentológica' ? siguienteCorrelativoAcc : siguienteCorrelativoLC;
 
   // Exportar Listado Oficial a PDF con orientación, tamaño de papel y vista previa
   const handleExportPdf = () => {
@@ -355,6 +494,21 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
             </button>
           )}
         </div>
+      {feedbackMsg && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{feedbackMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFeedbackMsg(null)}
+            className="text-emerald-700 hover:text-emerald-950 font-bold cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       </div>
 
       {/* PANEL DE CONTROL DE CONTADORES (REQUERIMIENTO: "en este modulo permite controlar el contador de cada uno. NO en otra seccion.") */}
@@ -500,58 +654,152 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
       )}
 
       {/* Pestañas de Selección: Labores Criminalísticas (LC) vs Siniestros y Hechos Viales */}
-      <div className="flex border-b border-slate-200 bg-white rounded-t-xl px-4 pt-2">
-        <button
-          onClick={() => setActiveTab('criminalistica')}
-          className={`flex items-center gap-2 py-3 px-5 border-b-2 font-bold text-xs transition-colors cursor-pointer ${
-            activeTab === 'criminalistica'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Shield className="w-4 h-4 text-indigo-700" />
-          <span>Labores Criminalísticas (LC)</span>
-          <span className="bg-indigo-100 text-indigo-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
-            {intervencionesLC.length}
-          </span>
-        </button>
+      <div className="flex flex-wrap items-center justify-between border-b border-slate-200 bg-white rounded-t-xl px-4 pt-2 gap-2">
+        <div className="flex items-center">
+          <button
+            onClick={() => setActiveTab('criminalistica')}
+            className={`flex items-center gap-2 py-3 px-5 border-b-2 font-bold text-xs transition-colors cursor-pointer ${
+              activeTab === 'criminalistica'
+                ? 'border-slate-900 text-slate-900'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Shield className="w-4 h-4 text-indigo-700" />
+            <span>Labores Criminalísticas (LC)</span>
+            <span className="bg-indigo-100 text-indigo-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
+              {intervencionesLC.length}
+            </span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('accidentologia')}
-          className={`flex items-center gap-2 py-3 px-5 border-b-2 font-bold text-xs transition-colors cursor-pointer ${
-            activeTab === 'accidentologia'
-              ? 'border-blue-900 text-blue-900'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Car className="w-4 h-4 text-blue-700" />
-          <span>Siniestros y Hechos Viales</span>
-          <span className="bg-blue-100 text-blue-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
-            {intervencionesSiniestros.length}
-          </span>
-        </button>
-      </div>
-
-      {/* Filtros de Búsqueda */}
-      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative w-full sm:w-96">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            placeholder={`Buscar en ${
-              activeTab === 'criminalistica' ? 'Labores Criminalísticas' : 'Siniestros Viales'
-            } (código, hecho, lugar, perito)...`}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-600 focus:bg-white"
-          />
+          <button
+            onClick={() => setActiveTab('accidentologia')}
+            className={`flex items-center gap-2 py-3 px-5 border-b-2 font-bold text-xs transition-colors cursor-pointer ${
+              activeTab === 'accidentologia'
+                ? 'border-blue-900 text-blue-900'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Car className="w-4 h-4 text-blue-700" />
+            <span>Siniestros y Hechos Viales</span>
+            <span className="bg-blue-100 text-blue-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
+              {intervencionesSiniestros.length}
+            </span>
+          </button>
         </div>
 
-        <div className="text-xs text-slate-500 font-mono">
-          Registros mostrados: <strong>{currentList.length}</strong> de{' '}
-          {activeTab === 'criminalistica' ? intervencionesLC.length : intervencionesSiniestros.length}
+        <div className="flex items-center gap-2 pb-2 sm:pb-0 text-[11px] font-semibold text-slate-600">
+          <span className="bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg font-mono">
+            I.O. generadas (LC + Siniestros):{' '}
+            <strong className="text-blue-950">{intervencionesLC.length + intervencionesSiniestros.length}</strong>
+          </span>
         </div>
       </div>
+
+      {/* Filtros de Búsqueda Colapsables */}
+      <CollapsibleFilterBar
+        title={`Filtros de ${activeTab === 'criminalistica' ? 'Labores Criminalísticas (LC)' : 'Siniestros y Hechos Viales'}`}
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <div className="text-xs text-slate-500 font-mono">
+            Registros mostrados: <strong>{currentList.length}</strong> de {baseTabList.length}
+          </div>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Código, hecho, lugar, perito o DNI..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-600 focus:bg-white"
+            />
+          </div>
+
+          <select
+            value={filtroDependencia}
+            onChange={(e) => setFiltroDependencia(e.target.value)}
+            className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todas">Todas las Dependencias</option>
+            {dependenciasUnicas.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroHecho}
+            onChange={(e) => setFiltroHecho(e.target.value)}
+            className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todos">Todos los Hechos / Causas</option>
+            {hechosUnicos.map((h) => (
+              <option key={h} value={h}>
+                {h}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroTipoLesion}
+            onChange={(e) => setFiltroTipoLesion(e.target.value)}
+            className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todas">Tipo de Lesiones: Todas</option>
+            {lesionesUnicas.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              title="Fecha Desde"
+              className="w-full text-xs px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            />
+            <span className="text-slate-400 text-[11px]">a</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              title="Fecha Hasta"
+              className="w-full text-xs px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSoloFallecidos(!soloFallecidos)}
+            className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition-colors cursor-pointer ${
+              soloFallecidos
+                ? 'bg-rose-700 text-white border-rose-800'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Solo con Fallecidos
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSoloPolicial(!soloPolicial)}
+            className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition-colors cursor-pointer ${
+              soloPolicial
+                ? 'bg-amber-600 text-white border-amber-700'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Con Personal Policial
+          </button>
+        </div>
+      </CollapsibleFilterBar>
 
       {/* Tabla Principal de Intervenciones */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
@@ -623,11 +871,19 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                       <span className="text-[11px] text-slate-500 line-clamp-1">
                         {int.sintesisHecho}
                       </span>
-                      {int.involucraPersonalPolicial && (
+                      {(int.involucraPersonalPolicial || (int.involucrados || []).some((i) => i.esPersonalPolicial)) && (
                         <div className="mt-1">
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
                             <ShieldAlert className="w-3 h-3 text-amber-700" />
-                            <span>👮 Personal Policial: {int.personalPolicial?.jerarquia} {int.personalPolicial?.apellidoYNombre} (Plaza {int.personalPolicial?.plaza})</span>
+                            <span>
+                              Personal Policial:{' '}
+                              {int.personalPolicial?.apellidoYNombre
+                                ? `${int.personalPolicial.jerarquia} ${int.personalPolicial.apellidoYNombre} (Plaza ${int.personalPolicial.plaza})`
+                                : (int.involucrados || [])
+                                    .filter((i) => i.esPersonalPolicial)
+                                    .map((i) => `${i.jerarquia || ''} ${i.apellidoYNombre}`.trim())
+                                    .join(', ')}
+                            </span>
                           </span>
                         </div>
                       )}
@@ -682,11 +938,21 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                     {activeTab === 'criminalistica' && (
                       <td className="py-2.5 px-3">
                         {int.involucrados && int.involucrados.length > 0 ? (
-                          <div className="space-y-0.5">
+                          <div className="space-y-1">
                             {int.involucrados.map((inv, idx) => (
-                              <div key={inv.id || idx} className="text-[10px]">
+                              <div key={inv.id || idx} className="text-[10px] flex flex-wrap items-center gap-1">
                                 <span className="font-semibold text-slate-800">{inv.apellidoYNombre}</span>
-                                <span className="text-slate-500"> ({inv.funcionEnHecho})</span>
+                                <span className="text-slate-500">({inv.condicion || inv.funcionEnHecho})</span>
+                                {inv.tipoLesion && inv.tipoLesion !== 'Sin Lesiones' && (
+                                  <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-800 border border-rose-200 font-bold text-[9px]">
+                                    {inv.tipoLesion}
+                                  </span>
+                                )}
+                                {inv.fallecido && (
+                                  <span className="px-1 py-0.2 rounded bg-slate-900 text-rose-200 border border-rose-500 font-extrabold text-[9px]">
+                                    FALLECIDO
+                                  </span>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -835,9 +1101,28 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                   </span>
                   <div className="space-y-1">
                     {detalleIntervencion.involucrados.map((inv, i) => (
-                      <div key={inv.id || i} className="p-2 bg-slate-50 rounded border border-slate-200 flex justify-between">
-                        <span><strong>{inv.apellidoYNombre}</strong> (DNI {inv.dni})</span>
-                        <span className="text-slate-600 font-medium">{inv.funcionEnHecho}</span>
+                      <div key={inv.id || i} className="p-2 bg-slate-50 rounded border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                        <span>
+                          <strong>{inv.apellidoYNombre}</strong> (DNI {inv.dni})
+                          {inv.esPersonalPolicial && (
+                            <span className="ml-1.5 text-[10px] font-bold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-300">
+                              Personal Policial
+                            </span>
+                          )}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {inv.tipoLesion && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${inv.tipoLesion === 'Sin Lesiones' ? 'bg-white text-slate-600 border-slate-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
+                              {inv.tipoLesion}
+                            </span>
+                          )}
+                          {inv.fallecido && (
+                            <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-slate-900 text-rose-200 border border-rose-500">
+                              FALLECIDO
+                            </span>
+                          )}
+                          <span className="text-slate-600 font-medium">{inv.condicion || inv.funcionEnHecho}</span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -908,6 +1193,8 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
           intervencion={selectedIntervencion}
           tipoForzado={tipoForzadoModal}
           siguienteCorrelativo={siguienteCorrelativo}
+          siguienteCorrelativoLC={siguienteCorrelativoLC}
+          siguienteCorrelativoAcc={siguienteCorrelativoAcc}
           añoActual={new Date().getFullYear()}
           parteId={partesList[0]?.id || 'parte-general'}
           config={config}
@@ -938,6 +1225,21 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
           }
         }}
         onClose={() => setIntervToDelete(null)}
+      />
+
+      {/* Modal de Confirmación de Reseteo de Contadores */}
+      <ConfirmModal
+        isOpen={!!confirmResetTipo}
+        title="Reiniciar Contador Oficial"
+        message={
+          confirmResetTipo === 'lc'
+            ? '¿Confirma reiniciar el contador de Labores Criminalísticas (LC) al número inicial 1?'
+            : '¿Confirma reiniciar el contador de Siniestros y Hechos Viales al número inicial 1?'
+        }
+        confirmLabel="Reiniciar a 1"
+        isDestructive={true}
+        onConfirm={executeResetContador}
+        onClose={() => setConfirmResetTipo(null)}
       />
     </div>
   );

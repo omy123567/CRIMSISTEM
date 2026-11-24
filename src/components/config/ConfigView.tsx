@@ -34,6 +34,11 @@ import {
   EyeOff,
   AlertCircle,
   X,
+  FileSpreadsheet,
+  ShieldCheck,
+  Filter,
+  CheckSquare,
+  FileCheck2,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { AdministrarModulosModal } from '../layout/AdministrarModulosModal';
@@ -41,16 +46,21 @@ import { ControlNumeradorModal } from '../guardias/ControlNumeradorModal';
 import {
   getDatabaseCounts,
   DatabaseCounts,
+  BACKUP_MODULES_CATALOG,
+  BackupInspectionResult,
   exportGeneralJsonBackup,
   exportEncryptedJsonBackup,
   exportModuleJson,
+  exportModuleCsv,
+  exportCsvBundleZip,
   exportZipBackup,
-  importGeneralJsonBackup,
-  importZipBackup,
+  inspectBackupFile,
+  applyInspectedBackup,
   vaciarBaseDeDatosCompleta,
 } from '../../services/backupService';
+import { seedFiveRecordsPerModule } from '../../services/seedDemoDataService';
 import { evaluarFortalezaPassword } from '../../services/securityClient';
-import { db, seedInitialDataIfEmpty } from '../../db/database';
+import { db } from '../../db/database';
 import { GestionPeriodoDatos } from './GestionPeriodoDatos';
 
 import { UsuarioSistema } from '../../types/police';
@@ -112,6 +122,39 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     showPass: false,
   });
 
+  // Scope de exportación selectiva
+  const puedeVerTodasDelegaciones =
+    currentUser?.rol === 'superusuario' || Boolean(currentUser?.puedeVerOtrasDelegaciones);
+  const [exportDelegacionScope, setExportDelegacionScope] = useState<string>(
+    puedeVerTodasDelegaciones ? 'todas' : currentUser?.delegacionId || activeDelegacionId
+  );
+  const [exportModulosSeleccionados, setExportModulosSeleccionados] = useState<string[]>(
+    BACKUP_MODULES_CATALOG.map((m) => m.id)
+  );
+  const [showSelectiveModules, setShowSelectiveModules] = useState(false);
+
+  // Carga de 5 registros ficticios por módulo
+  const [seedTargetDelegacionId, setSeedTargetDelegacionId] = useState<string>(
+    activeDelegacionId && activeDelegacionId !== 'todas'
+      ? activeDelegacionId
+      : currentUser?.delegacionId || 'del-laguna-blanca'
+  );
+  const [isSeedingDemo, setIsSeedingDemo] = useState(false);
+
+  // Modal de Previsualización de Respaldo antes de Restaurar
+  const [restorePreview, setRestorePreview] = useState<{
+    isOpen: boolean;
+    inspection: BackupInspectionResult | null;
+    mode: 'merge' | 'replace';
+    selectedModules: string[];
+    fileName?: string;
+  }>({
+    isOpen: false,
+    inspection: null,
+    mode: 'merge',
+    selectedModules: [],
+  });
+
   const handleVaciarTodo = async () => {
     const texto = palabraConfirmacionVaciar.trim().toUpperCase();
     if (texto !== 'VACIAR' && texto !== 'CONFIRMAR') {
@@ -153,6 +196,9 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
   // Sincronizar cuando cambia activeDelegacionId o config
   useEffect(() => {
     setSelectedDelegacionId(activeDelegacionId);
+    if (activeDelegacionId && activeDelegacionId !== 'todas') {
+      setSeedTargetDelegacionId(activeDelegacionId);
+    }
   }, [activeDelegacionId]);
 
   useEffect(() => {
@@ -281,19 +327,31 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     onSaveConfig(updated);
   };
 
-  // Exportar Backup JSON General
+  const selectiveOptions = {
+    delegacionId: exportDelegacionScope,
+    modulos: exportModulosSeleccionados,
+  };
+
+  // Exportar Backup JSON General / Selectivo con SHA-256
   const handleExportJson = async () => {
+    if (exportModulosSeleccionados.length === 0) {
+      setBackupStatusMsg({ text: 'Seleccione al menos un módulo para exportar.', isError: true });
+      return;
+    }
     try {
       setIsProcessing(true);
-      const jsonStr = await exportGeneralJsonBackup();
+      const jsonStr = await exportGeneralJsonBackup(selectiveOptions);
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `SisPol_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+      const scopeTag = exportDelegacionScope === 'todas' ? 'Completo' : exportDelegacionScope;
+      a.download = `SisPol_Backup_${scopeTag}_${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      setBackupStatusMsg({ text: 'Copia de seguridad JSON descargada correctamente.' });
+      setBackupStatusMsg({
+        text: `Copia de seguridad JSON (${exportModulosSeleccionados.length} módulos) con verificación SHA-256 descargada.`,
+      });
     } catch (err: any) {
       setBackupStatusMsg({ text: `Error al exportar: ${err?.message}`, isError: true });
     } finally {
@@ -317,7 +375,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
 
     try {
       setIsProcessing(true);
-      const encryptedStr = await exportEncryptedJsonBackup(encryptPass.trim());
+      const encryptedStr = await exportEncryptedJsonBackup(encryptPass.trim(), selectiveOptions);
       const blob = new Blob([encryptedStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -338,18 +396,24 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     }
   };
 
-  // Exportar Backup ZIP Completo (Base de datos + Adjuntos)
+  // Exportar Backup ZIP Completo (Base de datos + CSVs + Manifiesto + Adjuntos)
   const handleExportZip = async () => {
+    if (exportModulosSeleccionados.length === 0) {
+      setBackupStatusMsg({ text: 'Seleccione al menos un módulo para empaquetar.', isError: true });
+      return;
+    }
     try {
       setIsProcessing(true);
-      const zipBlob = await exportZipBackup();
+      const zipBlob = await exportZipBackup(selectiveOptions);
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `SisPol_Respaldo_Integral_${new Date().toISOString().slice(0, 10)}.zip`;
       a.click();
       URL.revokeObjectURL(url);
-      setBackupStatusMsg({ text: 'Paquete ZIP de respaldo integral generado y descargado.' });
+      setBackupStatusMsg({
+        text: 'Paquete ZIP integral (JSON + Planillas Excel CSV + Adjuntos + SHA-256) descargado.',
+      });
     } catch (err: any) {
       setBackupStatusMsg({ text: `Error al empaquetar ZIP: ${err?.message}`, isError: true });
     } finally {
@@ -357,23 +421,75 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     }
   };
 
-  // Exportar Módulo Individual JSON
-  const handleExportModule = async (modulo: string) => {
+  // Exportar Paquete de Planillas Excel CSV (UTF-8 con BOM)
+  const handleExportCsvBundle = async () => {
+    if (exportModulosSeleccionados.length === 0) {
+      setBackupStatusMsg({ text: 'Seleccione al menos un módulo para exportar a Excel.', isError: true });
+      return;
+    }
     try {
-      const jsonStr = await exportModuleJson(modulo);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
+      setIsProcessing(true);
+      const { blob, totalRecords, moduleCount } = await exportCsvBundleZip(selectiveOptions);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `SisPol_Modulo_${modulo}_${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `SisPol_Planillas_Excel_CSV_${new Date().toISOString().slice(0, 10)}.zip`;
       a.click();
       URL.revokeObjectURL(url);
+      setBackupStatusMsg({
+        text: `Paquete CSV para Excel generado: ${totalRecords} registros en ${moduleCount} planillas con datos.`,
+      });
+    } catch (err: any) {
+      setBackupStatusMsg({ text: `Error exportando CSV: ${err?.message}`, isError: true });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Exportar Módulo Individual JSON o CSV
+  const handleExportModule = async (modulo: string, format: 'json' | 'csv' = 'json') => {
+    try {
+      if (format === 'csv') {
+        const { csv, count } = await exportModuleCsv(modulo, exportDelegacionScope);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `SisPol_${modulo}_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setBackupStatusMsg({ text: `Planilla CSV de "${modulo}" descargada (${count} registros).` });
+      } else {
+        const jsonStr = await exportModuleJson(modulo, exportDelegacionScope);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `SisPol_Modulo_${modulo}_${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setBackupStatusMsg({ text: `Módulo "${modulo}" exportado en JSON con SHA-256.` });
+      }
     } catch (err: any) {
       setBackupStatusMsg({ text: `Error al exportar módulo: ${err?.message}`, isError: true });
     }
   };
 
-  // Importar JSON (detecta si está cifrado AES-256-GCM)
+  const openPreviewFromInspection = (inspection: BackupInspectionResult, fileName?: string) => {
+    const presentMods = Object.entries(inspection.recordCounts)
+      .filter(([, cnt]) => cnt > 0)
+      .map(([id]) => id);
+    setRestorePreview({
+      isOpen: true,
+      inspection,
+      mode: 'merge',
+      selectedModules:
+        presentMods.length > 0 ? presentMods : Object.keys(inspection.recordCounts),
+      fileName,
+    });
+  };
+
+  // Importar JSON -> Inspección y Previsualización
   const handleImportJsonFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -383,8 +499,8 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
       try {
         setIsProcessing(true);
         const rawJson = reader.result as string;
-        const result = await importGeneralJsonBackup(rawJson);
-        if (result.needsPassword) {
+        const inspection = await inspectBackupFile({ rawJson });
+        if (inspection.needsPassword) {
           setDecryptModal({
             isOpen: true,
             type: 'json',
@@ -395,15 +511,16 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           });
           return;
         }
-        if (result.success) {
-          setBackupStatusMsg({ text: result.message });
-          await loadCounts();
-          onReloadAllData();
+        if (inspection.valid) {
+          openPreviewFromInspection(inspection, file.name);
         } else {
-          setBackupStatusMsg({ text: result.message, isError: true });
+          setBackupStatusMsg({
+            text: inspection.error || 'Archivo JSON de respaldo inválido.',
+            isError: true,
+          });
         }
       } catch (err: any) {
-        setBackupStatusMsg({ text: `Error al restaurar: ${err?.message}`, isError: true });
+        setBackupStatusMsg({ text: `Error al analizar respaldo: ${err?.message}`, isError: true });
       } finally {
         setIsProcessing(false);
       }
@@ -412,15 +529,15 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     e.target.value = '';
   };
 
-  // Importar ZIP
+  // Importar ZIP -> Inspección y Previsualización
   const handleImportZipFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
       setIsProcessing(true);
-      const result = await importZipBackup(file);
-      if (result.needsPassword) {
+      const inspection = await inspectBackupFile({ zipFile: file });
+      if (inspection.needsPassword) {
         setDecryptModal({
           isOpen: true,
           type: 'zip',
@@ -431,15 +548,16 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         });
         return;
       }
-      if (result.success) {
-        setBackupStatusMsg({ text: result.message });
-        await loadCounts();
-        onReloadAllData();
+      if (inspection.valid) {
+        openPreviewFromInspection(inspection, file.name);
       } else {
-        setBackupStatusMsg({ text: result.message, isError: true });
+        setBackupStatusMsg({
+          text: inspection.error || 'Archivo ZIP de respaldo inválido.',
+          isError: true,
+        });
       }
     } catch (err: any) {
-      setBackupStatusMsg({ text: `Error al restaurar ZIP: ${err?.message}`, isError: true });
+      setBackupStatusMsg({ text: `Error al analizar ZIP: ${err?.message}`, isError: true });
     } finally {
       setIsProcessing(false);
     }
@@ -459,12 +577,18 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     try {
       setIsProcessing(true);
       setDecryptModal((prev) => ({ ...prev, error: null }));
-      const result =
+      const inspection =
         decryptModal.type === 'zip' && decryptModal.zipFile
-          ? await importZipBackup(decryptModal.zipFile, decryptModal.password.trim())
-          : await importGeneralJsonBackup(decryptModal.rawJson || '', decryptModal.password.trim());
+          ? await inspectBackupFile({
+              zipFile: decryptModal.zipFile,
+              decryptionPassword: decryptModal.password.trim(),
+            })
+          : await inspectBackupFile({
+              rawJson: decryptModal.rawJson || '',
+              decryptionPassword: decryptModal.password.trim(),
+            });
 
-      if (result.success) {
+      if (inspection.valid) {
         setDecryptModal({
           isOpen: false,
           type: 'json',
@@ -472,11 +596,15 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           error: null,
           showPass: false,
         });
-        setBackupStatusMsg({ text: result.message });
-        await loadCounts();
-        onReloadAllData();
+        openPreviewFromInspection(
+          inspection,
+          decryptModal.zipFile?.name || 'Respaldo_Cifrado.json'
+        );
       } else {
-        setDecryptModal((prev) => ({ ...prev, error: result.message }));
+        setDecryptModal((prev) => ({
+          ...prev,
+          error: inspection.error || 'Contraseña incorrecta o archivo corrupto.',
+        }));
       }
     } catch (err: any) {
       setDecryptModal((prev) => ({
@@ -488,18 +616,73 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
     }
   };
 
+  const handleApplyInspectedRestore = async () => {
+    const data = restorePreview.inspection?.parsedData;
+    if (!data) return;
+    if (restorePreview.selectedModules.length === 0) {
+      setBackupStatusMsg({
+        text: 'Seleccione al menos un módulo para aplicar la restauración.',
+        isError: true,
+      });
+      return;
+    }
+    try {
+      setIsProcessing(true);
+      const res = await applyInspectedBackup(data, {
+        mode: restorePreview.mode,
+        modulosARestaurar: restorePreview.selectedModules,
+        usuarioNombre: currentUser?.apellidoYNombre || currentUser?.username,
+      });
+      setRestorePreview({
+        isOpen: false,
+        inspection: null,
+        mode: 'merge',
+        selectedModules: [],
+      });
+      setBackupStatusMsg({ text: res.message });
+      await loadCounts();
+      onReloadAllData();
+    } catch (err: any) {
+      setBackupStatusMsg({
+        text: `Error al aplicar restauración: ${err?.message || 'Error desconocido'}`,
+        isError: true,
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const [isDemoConfirmOpen, setIsDemoConfirmOpen] = useState(false);
   const [resetCounterConfirm, setResetCounterConfirm] = useState<{
     isOpen: boolean;
     tipo: 'Criminalística' | 'Accidentológica' | null;
   }>({ isOpen: false, tipo: null });
 
-  // Recargar datos demo iniciales sin window.confirm
+  // Cargar 5 datos ficticios completos en todos los módulos
   const handleReloadDemoData = async () => {
-    await seedInitialDataIfEmpty();
-    await loadCounts();
-    onReloadAllData();
-    setBackupStatusMsg({ text: 'Datos de demostración policiales cargados con éxito.' });
+    try {
+      setIsSeedingDemo(true);
+      const result = await seedFiveRecordsPerModule({
+        delegacionId: seedTargetDelegacionId,
+        delegacionesList,
+        currentUser,
+      });
+      await loadCounts();
+      onReloadAllData();
+      setBackupStatusMsg({
+        text: `¡Carga completa! Se generaron ${result.totalCreated} registros ficticios (5 por cada módulo con todos sus campos) para ${result.delegacionNombre}${
+          result.syncedToServer ? ' y se sincronizaron con el servidor.' : '.'
+        }`,
+      });
+      setTimeout(() => setBackupStatusMsg(null), 8000);
+    } catch (err: any) {
+      setBackupStatusMsg({
+        text: `Error al cargar datos ficticios: ${err?.message || 'Error desconocido'}`,
+        isError: true,
+      });
+    } finally {
+      setIsSeedingDemo(false);
+    }
   };
 
   const handleResetCounter = async (tipo: 'Criminalística' | 'Accidentológica') => {
@@ -571,10 +754,11 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
 
         <button
           onClick={() => setIsDemoConfirmOpen(true)}
-          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer"
+          disabled={isSeedingDemo}
+          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white text-xs font-semibold px-3.5 py-2 rounded-lg cursor-pointer shadow-xs"
         >
           <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-          <span>Cargar Datos Demo</span>
+          <span>{isSeedingDemo ? 'Cargando datos...' : 'Cargar 5 Datos Ficticios por Módulo'}</span>
         </button>
       </div>
 
@@ -587,83 +771,245 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           }`}
         >
           <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>{backupStatusMsg.text}</span>
+          <span className="flex-1">{backupStatusMsg.text}</span>
+          <button
+            type="button"
+            onClick={() => setBackupStatusMsg(null)}
+            className="p-0.5 hover:bg-black/10 rounded cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
-      {/* SECCIÓN K: PANEL DE ESTADO DE LA BASE DE DATOS LOCAL Y RESPALDOS */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+      {/* SECCIÓN DEMO: CARGA DE DATOS FICTICIOS (5 REGISTROS POR MÓDULO) */}
+      <div className="bg-linear-to-r from-amber-50 via-white to-blue-50 p-4 sm:p-5 rounded-xl border border-amber-200 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-amber-100 text-amber-800 rounded-lg">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <h2 className="text-sm font-bold text-slate-900">
+              Carga de Datos Ficticios de Prueba (5 registros por módulo)
+            </h2>
+          </div>
+          <p className="text-xs text-slate-600 max-w-3xl">
+            Puebla automáticamente <strong>5 registros completos en todos los campos</strong> de cada módulo operativo
+            (Personal con fecha de ingreso, Grupos, Licencias Policiales Art. 7/11/15/42/47, Saldos, Partes de Guardia,
+            Intervenciones c/ Personal Policial y Fallecidos, Inspecciones Oculares, Expedientes, Falta de Oficio,
+            Informes Técnicos, Accidentología, Móviles, Reparaciones, Recargos, Forenses, Licenciados, Folios, Novedades y Charlas).
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+          {delegacionesList.length > 0 && (
+            <select
+              value={seedTargetDelegacionId}
+              disabled={!puedeVerTodasDelegaciones}
+              onChange={(e) => setSeedTargetDelegacionId(e.target.value)}
+              className="px-2.5 py-2 bg-white border border-amber-300 rounded-lg text-xs font-semibold text-slate-800 disabled:bg-slate-100"
+              title="Delegación destino para los datos ficticios"
+            >
+              {delegacionesList.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.siglas} - {d.ciudad}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsDemoConfirmOpen(true)}
+            disabled={isSeedingDemo}
+            className="flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs px-4 py-2 rounded-lg shadow-xs cursor-pointer transition-colors"
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span>{isSeedingDemo ? 'Generando registros...' : 'Cargar 5 Registros por Módulo'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* SECCIÓN K: PANEL DE ESTADO DE LA BASE DE DATOS LOCAL Y RESPALDOS MEJORADOS */}
+      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-5">
         <div className="flex items-center justify-between border-b pb-3">
           <div className="flex items-center gap-2">
             <HardDrive className="w-5 h-5 text-blue-900" />
-            <h2 className="text-sm font-bold text-slate-900">
-              Estado de la Base de Datos Local (IndexedDB)
-            </h2>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">
+                Estado de la Base de Datos & Centro Avanzado de Backup / Exportación
+              </h2>
+              <p className="text-[11px] text-slate-500">
+                Respaldo completo o selectivo con verificación SHA-256, cifrado AES-256-GCM, planillas CSV para Excel y vista previa antes de restaurar.
+              </p>
+            </div>
           </div>
           <button
             onClick={loadCounts}
-            className="text-xs text-blue-700 hover:text-blue-900 font-semibold flex items-center gap-1 cursor-pointer"
+            className="text-xs text-blue-700 hover:text-blue-900 font-semibold flex items-center gap-1 cursor-pointer shrink-0"
           >
             <RefreshCw className="w-3 h-3" />
             <span>Actualizar Contadores</span>
           </button>
         </div>
 
-        {/* Contadores por Entidad */}
+        {/* Contadores completos por Entidad */}
         {counts && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 text-xs">
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Personal y Legajos</span>
-              <span className="text-xl font-bold font-mono text-slate-900">{counts.personal}</span>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Expedientes Formales</span>
-              <span className="text-xl font-bold font-mono text-slate-900">{counts.expedientes}</span>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Casos Falta de Oficio</span>
-              <span className="text-xl font-bold font-mono text-red-700">{counts.casosFaltaOficio}</span>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Móviles Policiales</span>
-              <span className="text-xl font-bold font-mono text-slate-900">{counts.moviles}</span>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Reparaciones Taller</span>
-              <span className="text-xl font-bold font-mono text-slate-900">{counts.reparaciones}</span>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Recargos Operativos</span>
-              <span className="text-xl font-bold font-mono text-slate-900">{counts.recargos}</span>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Libros de Guardia</span>
-              <span className="text-xl font-bold font-mono text-slate-900">{counts.partesGuardia}</span>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Intervenciones Periciales</span>
-              <span className="text-xl font-bold font-mono text-blue-900">{counts.intervenciones}</span>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Forenses Policiales</span>
-              <span className="text-xl font-bold font-mono text-slate-900">{counts.forenses}</span>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-slate-500 block text-[11px]">Usuarios Registrados</span>
-              <span className="text-xl font-bold font-mono text-slate-900">{counts.usuarios}</span>
-            </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5 text-xs">
+            {[
+              { label: 'Personal', value: counts.personal, color: 'text-slate-900' },
+              { label: 'Licencias Pol.', value: counts.licenciasPoliciales, color: 'text-indigo-800' },
+              { label: 'Grupos Guardia', value: counts.grupos, color: 'text-slate-900' },
+              { label: 'Partes Guardia', value: counts.partesGuardia, color: 'text-slate-900' },
+              { label: 'Intervenciones', value: counts.intervenciones, color: 'text-blue-900' },
+              { label: 'Insp. Oculares', value: counts.inspeccionesOculares, color: 'text-blue-800' },
+              { label: 'Expedientes', value: counts.expedientes, color: 'text-slate-900' },
+              { label: 'Falta de Oficio', value: counts.casosFaltaOficio, color: 'text-red-700' },
+              { label: 'Informes Técnicos', value: counts.informesTecnicos, color: 'text-slate-900' },
+              { label: 'Accidentología', value: counts.accidentologia, color: 'text-amber-800' },
+              { label: 'Móviles', value: counts.moviles, color: 'text-slate-900' },
+              { label: 'Reparaciones', value: counts.reparaciones, color: 'text-slate-900' },
+              { label: 'Recargos', value: counts.recargos, color: 'text-slate-900' },
+              { label: 'Forenses', value: counts.forenses, color: 'text-slate-900' },
+              { label: 'Licenciados', value: counts.licenciados, color: 'text-slate-900' },
+              { label: 'Folios Asign.', value: counts.folios, color: 'text-slate-900' },
+              { label: 'Memos y Notas', value: counts.memosNotas, color: 'text-cyan-800' },
+              { label: 'Charlas Prev.', value: counts.charlasPrevencion, color: 'text-emerald-800' },
+              { label: 'Novedades Del.', value: counts.novedadesDelegaciones, color: 'text-slate-900' },
+            ].map((item) => (
+              <div key={item.label} className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="text-slate-500 block text-[10px] truncate">{item.label}</span>
+                <span className={`text-lg font-bold font-mono ${item.color}`}>{item.value}</span>
+              </div>
+            ))}
           </div>
         )}
 
+        {/* Filtro Selectivo de Exportación (Delegación y Módulos) */}
+        <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 space-y-3 text-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-bold text-slate-800">
+              <Filter className="w-4 h-4 text-blue-800" />
+              <span>Alcance Selectivo de Exportación y Backup:</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={exportDelegacionScope}
+                disabled={!puedeVerTodasDelegaciones}
+                onChange={(e) => setExportDelegacionScope(e.target.value)}
+                className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 disabled:bg-slate-100"
+              >
+                {puedeVerTodasDelegaciones && (
+                  <option value="todas">Todas las Delegaciones (General)</option>
+                )}
+                {delegacionesList.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    Solo {d.siglas} ({d.ciudad})
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setShowSelectiveModules((v) => !v)}
+                className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-semibold text-blue-900 flex items-center gap-1 cursor-pointer"
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                <span>
+                  Módulos ({exportModulosSeleccionados.length}/{BACKUP_MODULES_CATALOG.length})
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {showSelectiveModules && (
+            <div className="pt-2 border-t border-slate-200 space-y-2.5 animate-in fade-in">
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="text-slate-500 font-semibold">Selección rápida:</span>
+                <button
+                  type="button"
+                  onClick={() => setExportModulosSeleccionados(BACKUP_MODULES_CATALOG.map((m) => m.id))}
+                  className="px-2 py-0.5 bg-blue-100 text-blue-900 rounded font-bold cursor-pointer hover:bg-blue-200"
+                >
+                  Todos ({BACKUP_MODULES_CATALOG.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExportModulosSeleccionados(
+                      BACKUP_MODULES_CATALOG.filter((m) => m.category === 'Operativo').map((m) => m.id)
+                    )
+                  }
+                  className="px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded font-bold cursor-pointer hover:bg-emerald-200"
+                >
+                  Solo Operativos
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExportModulosSeleccionados(['personal', 'grupos', 'licenciasPoliciales', 'saldosLicencias', 'feriados'])
+                  }
+                  className="px-2 py-0.5 bg-indigo-100 text-indigo-900 rounded font-bold cursor-pointer hover:bg-indigo-200"
+                >
+                  Personal y Licencias
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExportModulosSeleccionados([])}
+                  className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded font-bold cursor-pointer hover:bg-slate-300"
+                >
+                  Ninguno
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">
+                {BACKUP_MODULES_CATALOG.map((mod) => {
+                  const checked = exportModulosSeleccionados.includes(mod.id);
+                  return (
+                    <label
+                      key={mod.id}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded border text-[11px] cursor-pointer transition-colors ${
+                        checked
+                          ? 'bg-blue-50 border-blue-300 text-blue-950 font-semibold'
+                          : 'bg-white border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setExportModulosSeleccionados((prev) =>
+                            prev.includes(mod.id)
+                              ? prev.filter((x) => x !== mod.id)
+                              : [...prev, mod.id]
+                          )
+                        }
+                        className="w-3.5 h-3.5 text-blue-900 rounded"
+                      />
+                      <span className="truncate">{mod.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Acciones de Respaldo y Restauración General */}
-        <div className="pt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Exportación */}
           <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3 text-xs">
-            <span className="font-bold text-blue-950 block text-sm">
-              Exportación de Respaldo (Backup)
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-blue-950 text-sm">
+                Exportación de Respaldo y Planillas Excel
+              </span>
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-900 px-2 py-0.5 rounded-full">
+                <ShieldCheck className="w-3 h-3" />
+                SHA-256
+              </span>
+            </div>
             <p className="text-slate-600">
-              Genere copias de seguridad portables para resguardar la base de datos ante contingencias.
+              Incluye las 26 tablas del sistema (incluyendo Licencias, Feriados, Saldos, Novedades y Roles) con sello de integridad SHA-256.
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -674,46 +1020,62 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                   setShowEncryptPass(false);
                   setIsEncryptModalOpen(true);
                 }}
-                disabled={isProcessing}
-                className="flex items-center gap-1.5 bg-indigo-900 hover:bg-indigo-950 text-white font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+                disabled={isProcessing || exportModulosSeleccionados.length === 0}
+                className="flex items-center gap-1.5 bg-indigo-900 hover:bg-indigo-950 disabled:opacity-50 text-white font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
                 title="Exporta un archivo JSON protegido con cifrado AES-256-GCM + verificación SHA-256"
               >
                 <Lock className="w-3.5 h-3.5 text-indigo-200" />
-                <span>Exportar JSON Cifrado (AES-256)</span>
+                <span>JSON Cifrado (AES-256)</span>
               </button>
 
               <button
                 onClick={handleExportJson}
-                disabled={isProcessing}
-                className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                disabled={isProcessing || exportModulosSeleccionados.length === 0}
+                className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 disabled:opacity-50 text-white font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
               >
                 <FileCode className="w-3.5 h-3.5" />
-                <span>Exportar JSON General</span>
+                <span>JSON Backup</span>
               </button>
 
               <button
                 onClick={handleExportZip}
-                disabled={isProcessing}
-                className="flex items-center gap-1.5 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                disabled={isProcessing || exportModulosSeleccionados.length === 0}
+                className="flex items-center gap-1.5 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
               >
                 <Archive className="w-3.5 h-3.5" />
-                <span>Exportar ZIP Completo con Adjuntos</span>
+                <span>ZIP Integral (JSON + CSV + Adjuntos)</span>
+              </button>
+
+              <button
+                onClick={handleExportCsvBundle}
+                disabled={isProcessing || exportModulosSeleccionados.length === 0}
+                className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                title="Descarga un paquete ZIP con planillas CSV UTF-8 BOM listas para abrir directamente en Excel"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Excel (.CSV en ZIP)</span>
               </button>
             </div>
           </div>
 
           {/* Restauración */}
           <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 space-y-3 text-xs">
-            <span className="font-bold text-amber-950 block text-sm">
-              Restauración con Verificación de Integridad
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-amber-950 text-sm">
+                Restauración Segura con Previsualización
+              </span>
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full">
+                <FileCheck2 className="w-3 h-3" />
+                Inspección Previa
+              </span>
+            </div>
             <p className="text-slate-600">
-              Restaure desde un archivo JSON o paquete ZIP previamente exportado.
+              Antes de modificar la base de datos, el sistema verifica el checksum SHA-256 y muestra el desglose de registros para elegir Combinar o Reemplazar.
             </p>
             <div className="flex flex-wrap gap-2">
               <label className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold px-3 py-2 rounded-lg cursor-pointer transition-colors">
                 <Upload className="w-3.5 h-3.5" />
-                <span>Restaurar JSON</span>
+                <span>Analizar y Restaurar JSON</span>
                 <input
                   type="file"
                   accept=".json,application/json"
@@ -724,7 +1086,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
 
               <label className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold px-3 py-2 rounded-lg cursor-pointer transition-colors">
                 <Archive className="w-3.5 h-3.5" />
-                <span>Restaurar ZIP</span>
+                <span>Analizar y Restaurar ZIP</span>
                 <input
                   type="file"
                   accept=".zip,application/zip"
@@ -736,29 +1098,51 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           </div>
         </div>
 
-        {/* Exportación por Módulo Individual */}
-        <div className="pt-2">
+        {/* Exportación Rápida por Módulo Individual (JSON y Excel CSV) */}
+        <div className="pt-2 border-t border-slate-100">
           <span className="font-bold text-slate-800 block text-xs mb-2">
-            Exportar Módulos Individuales en JSON:
+            Exportación Rápida por Módulo Individual (JSON o Planilla Excel CSV):
           </span>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             {[
-              { id: 'personal', label: 'Personal' },
-              { id: 'expedientes', label: 'Expedientes' },
+              { id: 'personal', label: 'Personal y Legajos' },
+              { id: 'licenciasPoliciales', label: 'Licencias Policiales' },
+              { id: 'saldosLicencias', label: 'Saldos Art. 7' },
+              { id: 'expedientes', label: 'Expedientes Judiciales' },
               { id: 'casosFaltaOficio', label: 'Falta de Oficio' },
-              { id: 'moviles', label: 'Móviles' },
-              { id: 'reparaciones', label: 'Reparaciones' },
-              { id: 'recargos', label: 'Recargos' },
-              { id: 'partesGuardia', label: 'Partes Guardia' },
+              { id: 'partesGuardia', label: 'Partes de Guardia' },
               { id: 'intervenciones', label: 'Intervenciones' },
+              { id: 'inspeccionesOculares', label: 'Inspecciones Oculares' },
+              { id: 'accidentologia', label: 'Accidentología Vial' },
+              { id: 'informesTecnicos', label: 'Informes Técnicos' },
+              { id: 'memosNotas', label: 'Memos y Notas' },
+              { id: 'moviles', label: 'Móviles Policiales' },
+              { id: 'recargos', label: 'Recargos Operativos' },
             ].map((m) => (
-              <button
+              <div
                 key={m.id}
-                onClick={() => handleExportModule(m.id)}
-                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded font-medium text-xs border border-slate-300 cursor-pointer"
+                className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
               >
-                {m.label}
-              </button>
+                <span className="font-medium text-slate-800 truncate">{m.label}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleExportModule(m.id, 'json')}
+                    className="px-2 py-0.5 bg-white hover:bg-blue-50 text-blue-900 border border-slate-300 rounded text-[10px] font-bold cursor-pointer"
+                    title={`Descargar ${m.label} en JSON`}
+                  >
+                    JSON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExportModule(m.id, 'csv')}
+                    className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded text-[10px] font-bold cursor-pointer"
+                    title={`Descargar ${m.label} en CSV para Excel`}
+                  >
+                    CSV
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -1733,12 +2117,12 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         </div>
       </div>
 
-      {/* Confirmación para Cargar Datos Demo */}
+      {/* Confirmación para Cargar 5 Datos Ficticios por Módulo */}
       <ConfirmModal
         isOpen={isDemoConfirmOpen}
-        title="Cargar Datos Policiales de Demostración"
-        message="¿Desea re-sembrar los datos policiales de prueba en la base de datos local IndexedDB? Esto agregará registros de ejemplo."
-        confirmLabel="Cargar Datos Demo"
+        title="Cargar 5 Datos Ficticios Completos por Módulo"
+        message={`Se generarán 5 registros ficticios con todos los campos poblados en cada uno de los módulos operativos (Personal, Licencias Art. 7/11/15/42/47, Grupos, Partes de Guardia, Intervenciones, Inspecciones Oculares, Expedientes, Móviles, Accidentología, Folios, Charlas, Novedades, etc.) para la delegación seleccionada. ¿Desea continuar?`}
+        confirmLabel="Sí, Cargar 5 Registros por Módulo"
         isDestructive={false}
         onConfirm={handleReloadDemoData}
         onClose={() => setIsDemoConfirmOpen(false)}
@@ -2086,10 +2470,232 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                   className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  <span>{isProcessing ? 'Descifrando...' : 'Descifrar y Restaurar'}</span>
+                  <span>{isProcessing ? 'Analizando...' : 'Descifrar y Previsualizar'}</span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Previsualización de Respaldo antes de Restaurar */}
+      {restorePreview.isOpen && restorePreview.inspection && (
+        <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 my-8">
+            <div className="bg-slate-900 text-white p-4 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-800 rounded-xl text-blue-100">
+                  <FileCheck2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">Previsualización de Respaldo e Integridad</h3>
+                  <p className="text-[11px] text-slate-300">
+                    {restorePreview.fileName || 'Archivo de Respaldo'} • Formato{' '}
+                    {restorePreview.inspection.format.toUpperCase()}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setRestorePreview({
+                    isOpen: false,
+                    inspection: null,
+                    mode: 'merge',
+                    selectedModules: [],
+                  })
+                }
+                className="text-slate-400 hover:text-white p-1 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
+              {/* Verificación SHA-256 */}
+              <div
+                className={`p-3 rounded-xl border flex items-start gap-2.5 ${
+                  restorePreview.inspection.checksumStatus === 'valid'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : restorePreview.inspection.checksumStatus === 'invalid'
+                    ? 'bg-red-50 border-red-300 text-red-900'
+                    : 'bg-amber-50 border-amber-200 text-amber-900'
+                }`}
+              >
+                <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5" />
+                <div className="space-y-0.5 flex-1">
+                  <div className="font-bold">
+                    {restorePreview.inspection.checksumStatus === 'valid' &&
+                      'Integridad SHA-256 Verificada (Archivo Auténtico Sin Alteraciones)'}
+                    {restorePreview.inspection.checksumStatus === 'invalid' &&
+                      'ADVERTENCIA: El Checksum SHA-256 no coincide — el archivo pudo haber sido modificado manualmente'}
+                    {restorePreview.inspection.checksumStatus === 'legacy-none' &&
+                      'Respaldo compatible de versión anterior (sin sello SHA-256 integrado)'}
+                  </div>
+                  <div className="text-[11px] opacity-85 flex flex-wrap gap-x-4 gap-y-0.5">
+                    <span>
+                      Fecha exportación:{' '}
+                      <strong>
+                        {restorePreview.inspection.exportDate
+                          ? new Date(restorePreview.inspection.exportDate).toLocaleString('es-AR')
+                          : 'No especificada'}
+                      </strong>
+                    </span>
+                    <span>
+                      Versión: <strong>{restorePreview.inspection.version || '1.0'}</strong>
+                    </span>
+                    <span>
+                      Alcance: <strong>{restorePreview.inspection.delegacionFiltro || 'TODAS'}</strong>
+                    </span>
+                    <span>
+                      Total registros: <strong>{restorePreview.inspection.totalRecords}</strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Selector de Modo de Restauración */}
+              <div className="space-y-1.5">
+                <span className="font-bold text-slate-800 block">Modo de Restauración:</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRestorePreview((prev) => ({ ...prev, mode: 'merge' }))}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      restorePreview.mode === 'merge'
+                        ? 'border-blue-700 bg-blue-50 text-blue-950 ring-1 ring-blue-700'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="font-bold">Combinar / Actualizar (Recomendado)</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      Agrega registros nuevos y actualiza coincidencias sin borrar los datos existentes.
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRestorePreview((prev) => ({ ...prev, mode: 'replace' }))}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      restorePreview.mode === 'replace'
+                        ? 'border-red-600 bg-red-50 text-red-950 ring-1 ring-red-600'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="font-bold">Reemplazar Módulos Seleccionados</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      Limpia los módulos tildados antes de importar exactamente el contenido del respaldo.
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Desglose de Módulos a Restaurar */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800">
+                    Contenido detectado por módulo ({restorePreview.selectedModules.length} seleccionados):
+                  </span>
+                  <div className="flex gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRestorePreview((prev) => ({
+                          ...prev,
+                          selectedModules: Object.keys(prev.inspection?.recordCounts || {}),
+                        }))
+                      }
+                      className="text-blue-700 hover:underline font-semibold cursor-pointer"
+                    >
+                      Todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRestorePreview((prev) => ({ ...prev, selectedModules: [] }))
+                      }
+                      className="text-slate-500 hover:underline font-semibold cursor-pointer"
+                    >
+                      Ninguno
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-56 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-200">
+                  {Object.entries(restorePreview.inspection.recordCounts).map(([modId, count]) => {
+                    const meta = BACKUP_MODULES_CATALOG.find((m) => m.id === modId);
+                    const checked = restorePreview.selectedModules.includes(modId);
+                    return (
+                      <label
+                        key={modId}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border cursor-pointer ${
+                          checked
+                            ? 'bg-white border-blue-300 text-slate-900 font-semibold'
+                            : 'bg-slate-100 border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setRestorePreview((prev) => ({
+                                ...prev,
+                                selectedModules: prev.selectedModules.includes(modId)
+                                  ? prev.selectedModules.filter((x) => x !== modId)
+                                  : [...prev.selectedModules, modId],
+                              }))
+                            }
+                            className="w-3.5 h-3.5 text-blue-900 rounded"
+                          />
+                          <span className="truncate">{meta?.label || modId}</span>
+                        </div>
+                        <span
+                          className={`px-2 py-0.5 rounded-full font-mono text-[10px] font-bold ${
+                            count > 0 ? 'bg-blue-100 text-blue-900' : 'bg-slate-200 text-slate-500'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setRestorePreview({
+                    isOpen: false,
+                    inspection: null,
+                    mode: 'merge',
+                    selectedModules: [],
+                  })
+                }
+                className="px-4 py-2 border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isProcessing || restorePreview.selectedModules.length === 0}
+                onClick={handleApplyInspectedRestore}
+                className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>
+                  {isProcessing
+                    ? 'Restaurando...'
+                    : `Confirmar Restauración (${restorePreview.selectedModules.reduce(
+                        (acc, id) => acc + (restorePreview.inspection?.recordCounts[id] || 0),
+                        0
+                      )} reg.)`}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       )}

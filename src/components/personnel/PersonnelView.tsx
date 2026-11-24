@@ -29,6 +29,7 @@ import { calcularAniosAntiguedad, formatFechaDisplay } from '../../services/lice
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { ReportePersonalModal } from './ReportePersonalModal';
 
 interface PersonnelViewProps {
@@ -64,6 +65,8 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
   const [filtroJerarquia, setFiltroJerarquia] = useState<string>('todas');
   const [filtroGrupo, setFiltroGrupo] = useState<string>('todos');
   const [filtroEstado, setFiltroEstado] = useState<string>('todos');
+  const [filtroArmamento, setFiltroArmamento] = useState<string>('todos');
+  const [filtroEsLicenciado, setFiltroEsLicenciado] = useState<string>('todos');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -105,9 +108,40 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
 
       const matchEstado = filtroEstado === 'todos' || p.estado === filtroEstado;
 
-      return matchSearch && matchJerarquia && matchGrupo && matchEstado;
+      const tieneRetencion = Boolean(
+        p.armamento?.secuestradoORetenido || p.chaleco?.secuestradoORetenido
+      );
+      const matchArmamento =
+        filtroArmamento === 'todos' ||
+        (filtroArmamento === 'retenido' ? tieneRetencion : !tieneRetencion);
+
+      const matchLicenciado =
+        filtroEsLicenciado === 'todos' ||
+        (filtroEsLicenciado === 'si' ? Boolean(p.esLicenciado) : !p.esLicenciado);
+
+      return matchSearch && matchJerarquia && matchGrupo && matchEstado && matchArmamento && matchLicenciado;
     });
-  }, [personalList, searchTerm, filtroJerarquia, filtroGrupo, filtroEstado]);
+  }, [personalList, searchTerm, filtroJerarquia, filtroGrupo, filtroEstado, filtroArmamento, filtroEsLicenciado]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroJerarquia !== 'todas') count++;
+    if (filtroGrupo !== 'todos') count++;
+    if (filtroEstado !== 'todos') count++;
+    if (filtroArmamento !== 'todos') count++;
+    if (filtroEsLicenciado !== 'todos') count++;
+    return count;
+  }, [searchTerm, filtroJerarquia, filtroGrupo, filtroEstado, filtroArmamento, filtroEsLicenciado]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroJerarquia('todas');
+    setFiltroGrupo('todos');
+    setFiltroEstado('todos');
+    setFiltroArmamento('todos');
+    setFiltroEsLicenciado('todos');
+  };
 
   // Exportar Nómina Completa a PDF con selector y vista previa
   const handleExportNominaPdf = () => {
@@ -341,69 +375,105 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
         </div>
       )}
 
-      {/* Barra de Filtros y Búsqueda Reactiva */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-        {/* Buscador */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por Nombre, DNI, Jerarquía o Plaza..."
-            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
-          />
-        </div>
+      {/* Barra de Filtros y Búsqueda Plegable */}
+      <CollapsibleFilterBar
+        title="Filtros de Búsqueda de Personal"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span>
+            Mostrando <strong>{filteredList.length}</strong> de {personalList.length} efectivos
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
+          {/* Buscador */}
+          <div className="relative lg:col-span-2">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar por Nombre, DNI, Cédula Prov., Jerarquía o Plaza..."
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            />
+          </div>
 
-        {/* Filtro Jerarquía */}
-        <div>
-          <select
-            value={filtroJerarquia}
-            onChange={(e) => setFiltroJerarquia(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-          >
-            <option value="todas">Todas las Jerarquías</option>
-            {config.jerarquias.map((j) => (
-              <option key={j} value={j}>
-                {j}
-              </option>
-            ))}
-          </select>
-        </div>
+          {/* Filtro Jerarquía */}
+          <div>
+            <select
+              value={filtroJerarquia}
+              onChange={(e) => setFiltroJerarquia(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            >
+              <option value="todas">Todas las Jerarquías</option>
+              {config.jerarquias.map((j) => (
+                <option key={j} value={j}>
+                  {j}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        {/* Filtro Grupo de Guardia */}
-        <div>
-          <select
-            value={filtroGrupo}
-            onChange={(e) => setFiltroGrupo(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-          >
-            <option value="todos">Todos los Grupos / Secciones</option>
-            {config.gruposGuardia.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
-        </div>
+          {/* Filtro Grupo de Guardia */}
+          <div>
+            <select
+              value={filtroGrupo}
+              onChange={(e) => setFiltroGrupo(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            >
+              <option value="todos">Todos los Grupos / Secciones</option>
+              {config.gruposGuardia.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        {/* Filtro Estado */}
-        <div>
-          <select
-            value={filtroEstado}
-            onChange={(e) => setFiltroEstado(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-          >
-            <option value="todos">Todos los Estados</option>
-            <option value="Activo">Activo</option>
-            <option value="Licencia Médica">Licencia Médica</option>
-            <option value="Licencia Anual">Licencia Anual</option>
-            <option value="Comisión">Comisión</option>
-            <option value="Pasiva">Pasiva</option>
-            <option value="Retirado">Retirado</option>
-          </select>
+          {/* Filtro Estado */}
+          <div>
+            <select
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            >
+              <option value="todos">Todos los Estados</option>
+              <option value="Activo">Activo</option>
+              <option value="Licencia Médica">Licencia Médica</option>
+              <option value="Licencia Anual">Licencia Anual</option>
+              <option value="Comisión">Comisión</option>
+              <option value="Pasiva">Pasiva</option>
+              <option value="Retirado">Retirado</option>
+            </select>
+          </div>
+
+          {/* Filtro Arma / Chaleco y Licenciatura */}
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={filtroArmamento}
+              onChange={(e) => setFiltroArmamento(e.target.value)}
+              className="w-full px-2 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+              title="Estado de Armamento / Chaleco"
+            >
+              <option value="todos">Arma/Chaleco: Todos</option>
+              <option value="retenido">Con Retención</option>
+              <option value="normal">Sin Retención</option>
+            </select>
+
+            <select
+              value={filtroEsLicenciado}
+              onChange={(e) => setFiltroEsLicenciado(e.target.value)}
+              className="w-full px-2 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+              title="Título de Licenciatura"
+            >
+              <option value="todos">Grado: Todos</option>
+              <option value="si">Licenciados</option>
+              <option value="no">No Lic.</option>
+            </select>
+          </div>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Renderizado de vistas */}
       {filteredList.length === 0 ? (

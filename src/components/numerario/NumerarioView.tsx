@@ -38,6 +38,9 @@ import { DetalleFolioModal } from './DetalleFolioModal';
 import { GestionSeriesModal } from './GestionSeriesModal';
 import { LibroFoliosModal } from './LibroFoliosModal';
 import { ReinicioSerieModal } from './ReinicioSerieModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ConfirmModal } from '../common/ConfirmModal';
+import { isSerieHiddenForUser } from '../../utils/memosCatalogUtils';
 
 interface NumerarioViewProps {
   seriesList: SerieNumerario[];
@@ -72,21 +75,40 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
   onDeleteSerie,
   onResetSerie,
 }) => {
+  const canManageSeriesVisibility =
+    currentUser?.rol === 'superusuario' ||
+    currentUser?.rol === 'Administrador' ||
+    Boolean(currentUser?.accionesPersonalizadas?.puedeGestionarUsuarios) ||
+    Boolean(currentUser?.puedeAdministrarModulos);
+
+  const visibleSeries = useMemo(() => {
+    return seriesList.filter((s) => !isSerieHiddenForUser(s, currentUser));
+  }, [seriesList, currentUser]);
+
+  const visibleSerieIds = useMemo(
+    () => new Set(visibleSeries.map((s) => s.id)),
+    [visibleSeries]
+  );
+
+  const visibleFolios = useMemo(() => {
+    return foliosList.filter((f) => visibleSerieIds.has(f.serieId));
+  }, [foliosList, visibleSerieIds]);
+
   // Serie activa seleccionada
   const [activeSerieId, setActiveSerieId] = useState<string>(() => {
-    return seriesList[0]?.id || 'serie-oficio-jefatura';
+    return visibleSeries[0]?.id || seriesList[0]?.id || 'serie-oficio-jefatura';
   });
 
-  // Asegurar que activeSerieId sea válida si cambia la lista
+  // Asegurar que activeSerieId sea válida si cambia la lista visible
   useEffect(() => {
-    if (seriesList.length > 0 && !seriesList.some((s) => s.id === activeSerieId)) {
-      setActiveSerieId(seriesList[0].id);
+    if (visibleSeries.length > 0 && !visibleSeries.some((s) => s.id === activeSerieId)) {
+      setActiveSerieId(visibleSeries[0].id);
     }
-  }, [seriesList, activeSerieId]);
+  }, [visibleSeries, activeSerieId]);
 
   const activeSerie = useMemo(() => {
-    return seriesList.find((s) => s.id === activeSerieId) || seriesList[0];
-  }, [seriesList, activeSerieId]);
+    return visibleSeries.find((s) => s.id === activeSerieId) || visibleSeries[0];
+  }, [visibleSeries, activeSerieId]);
 
   // Densidad de visualización de la cuadrícula
   const [density, setDensity] = useState<GridDensity>('estandar');
@@ -105,13 +127,13 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
   // Folios asignados a la serie activa indexados por número (O(1) lookup)
   const folioMap = useMemo(() => {
     const map = new Map<number, FolioAsignado>();
-    foliosList
+    visibleFolios
       .filter((f) => f.serieId === activeSerie?.id)
       .forEach((f) => {
         map.set(f.numero, f);
       });
     return map;
-  }, [foliosList, activeSerie?.id]);
+  }, [visibleFolios, activeSerie?.id]);
 
   // Modales
   const [isAsignarOpen, setIsAsignarOpen] = useState(false);
@@ -122,6 +144,18 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
   const [isGestionSeriesOpen, setIsGestionSeriesOpen] = useState(false);
   const [isLibroFoliosOpen, setIsLibroFoliosOpen] = useState(false);
   const [isReinicioOpen, setIsReinicioOpen] = useState(false);
+
+  // Filtros de Búsqueda de Folios
+  const [folioSearch, setFolioSearch] = useState('');
+  const [filtroEstadoFolio, setFiltroEstadoFolio] = useState<'todos' | 'libre' | 'ocupado'>('todos');
+  const [fechaDesdeFolio, setFechaDesdeFolio] = useState('');
+  const [fechaHastaFolio, setFechaHastaFolio] = useState('');
+  const [noticeMsg, setNoticeMsg] = useState<string | null>(null);
+  const [deleteSerieConfirm, setDeleteSerieConfirm] = useState<{
+    isOpen: boolean;
+    serieId: string;
+    nombre: string;
+  }>({ isOpen: false, serieId: '', nombre: '' });
 
   // Gestión directa de nombres de series (agregar/renombrar/eliminar)
   const [nuevaSerieNombre, setNuevaSerieNombre] = useState('');
@@ -150,18 +184,22 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
     setMostrarNuevaSerieInput(false);
   };
 
-  const handleEliminarSerieDirecto = async (serieId: string, nombre: string) => {
-    if (seriesList.length <= 1) {
-      alert('No se puede eliminar la única serie del sistema.');
+  const handleEliminarSerieDirecto = (serieId: string, nombre: string) => {
+    if (visibleSeries.length <= 1) {
+      setNoticeMsg('No se puede eliminar la única serie visible del sistema.');
       return;
     }
-    if (confirm(`¿Confirma eliminar la serie "${nombre}" y todos sus registros asociados?`)) {
-      await onDeleteSerie(serieId);
-      const remaining = seriesList.filter((s) => s.id !== serieId);
-      if (remaining.length > 0) {
-        setActiveSerieId(remaining[0].id);
-      }
+    setDeleteSerieConfirm({ isOpen: true, serieId, nombre });
+  };
+
+  const confirmEliminarSerie = async () => {
+    if (!deleteSerieConfirm.serieId) return;
+    await onDeleteSerie(deleteSerieConfirm.serieId);
+    const remaining = visibleSeries.filter((s) => s.id !== deleteSerieConfirm.serieId);
+    if (remaining.length > 0) {
+      setActiveSerieId(remaining[0].id);
     }
+    setDeleteSerieConfirm({ isOpen: false, serieId: '', nombre: '' });
   };
 
   const handleGuardarRenombrarSerie = async (serie: SerieNumerario) => {
@@ -196,6 +234,52 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
     }
     return max;
   }, [folioMap]);
+
+  const activeFolioFiltersCount = useMemo(() => {
+    let count = 0;
+    if (folioSearch.trim()) count++;
+    if (filtroEstadoFolio !== 'todos') count++;
+    if (fechaDesdeFolio) count++;
+    if (fechaHastaFolio) count++;
+    return count;
+  }, [folioSearch, filtroEstadoFolio, fechaDesdeFolio, fechaHastaFolio]);
+
+  const isCellMatchingFilter = (num: number, folioOcupado?: FolioAsignado): boolean => {
+    if (activeFolioFiltersCount === 0) return true;
+    const isOccupied = Boolean(folioOcupado);
+    if (filtroEstadoFolio === 'libre' && isOccupied) return false;
+    if (filtroEstadoFolio === 'ocupado' && !isOccupied) return false;
+    if (fechaDesdeFolio || fechaHastaFolio) {
+      if (!folioOcupado) return false;
+      if (fechaDesdeFolio && folioOcupado.fechaAsignacion < fechaDesdeFolio) return false;
+      if (fechaHastaFolio && folioOcupado.fechaAsignacion > fechaHastaFolio) return false;
+    }
+    const q = folioSearch.trim().toLowerCase();
+    if (q) {
+      const matchNum = String(num) === q || `#${num}` === q || String(num).includes(q);
+      if (folioOcupado) {
+        const matchFolioText =
+          (folioOcupado.codigoCaratula || '').toLowerCase().includes(q) ||
+          (folioOcupado.asunto || '').toLowerCase().includes(q) ||
+          (folioOcupado.destinatario || '').toLowerCase().includes(q) ||
+          (folioOcupado.solicitante || '').toLowerCase().includes(q) ||
+          (folioOcupado.usuarioRegistro || '').toLowerCase().includes(q);
+        if (!matchNum && !matchFolioText) return false;
+      } else if (!matchNum) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const matchedFoliosCount = useMemo(() => {
+    if (activeFolioFiltersCount === 0) return totalFolios;
+    let count = 0;
+    for (let i = 1; i <= totalFolios; i++) {
+      if (isCellMatchingFilter(i, folioMap.get(i))) count++;
+    }
+    return count;
+  }, [activeFolioFiltersCount, totalFolios, folioMap, folioSearch, filtroEstadoFolio, fechaDesdeFolio, fechaHastaFolio]);
 
   // Selección visual por arrastre (Drag-to-select) y con Shift + Clic
   const [lastClickedNumber, setLastClickedNumber] = useState<number | null>(null);
@@ -352,8 +436,9 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
         <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
           <button
             type="button"
+            disabled={!activeSerie}
             onClick={handleAsignarSiguienteLibre}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             title="Asignar automáticamente el primer número libre"
           >
             <Sparkles className="w-4 h-4 text-emerald-200" />
@@ -362,23 +447,26 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
 
           <button
             type="button"
+            disabled={!activeSerie}
             onClick={() => setIsLibroFoliosOpen(true)}
-            className="bg-blue-800 hover:bg-blue-900 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            className="bg-blue-800 hover:bg-blue-900 disabled:opacity-45 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             title="Ver Libro de Folios consolidado y exportar a Excel / CSV"
           >
             <FileSpreadsheet className="w-4 h-4 text-blue-200" />
             <span>Libro de Folios</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setIsGestionSeriesOpen(true)}
-            className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Administrar o agregar nuevas series de numerario"
-          >
-            <Layers className="w-4 h-4 text-slate-400" />
-            <span>Series ({seriesList.length})</span>
-          </button>
+          {canManageSeriesVisibility && (
+            <button
+              type="button"
+              onClick={() => setIsGestionSeriesOpen(true)}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Administrar o agregar nuevas series de numerario"
+            >
+              <Layers className="w-4 h-4 text-slate-400" />
+              <span>Series ({seriesList.length})</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -386,8 +474,8 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
       <div className="flex flex-col gap-2.5 pb-2 border-b border-slate-200">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1 py-1">
-            {seriesList.map((serie) => {
-              const countOcupadosSerie = foliosList.filter((f) => f.serieId === serie.id).length;
+            {visibleSeries.map((serie) => {
+              const countOcupadosSerie = visibleFolios.filter((f) => f.serieId === serie.id).length;
               const isActive = serie.id === activeSerie?.id;
               const isEditing = editingSerieId === serie.id;
 
@@ -462,7 +550,7 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
                       >
                         <Edit2 className="w-3 h-3" />
                       </button>
-                      {seriesList.length > 1 && (
+                      {visibleSeries.length > 1 && (
                         <button
                           type="button"
                           onClick={() => handleEliminarSerieDirecto(serie.id, serie.nombre)}
@@ -517,17 +605,89 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
           </div>
 
           {/* Botón de Reinicio Seguro de la Serie Activa */}
-          <button
-            type="button"
-            onClick={() => setIsReinicioOpen(true)}
-            className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
-            title={`Reiniciar numerario de la serie "${activeSerie?.nombre}"`}
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-red-600" />
-            <span className="hidden md:inline">Reiniciar Serie</span>
-          </button>
+          {activeSerie && (
+            <button
+              type="button"
+              onClick={() => setIsReinicioOpen(true)}
+              className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
+              title={`Reiniciar numerario de la serie "${activeSerie.nombre}"`}
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-red-600" />
+              <span className="hidden md:inline">Reiniciar Serie</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {noticeMsg && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between gap-2">
+          <span>{noticeMsg}</span>
+          <button type="button" onClick={() => setNoticeMsg(null)} className="p-1 hover:bg-amber-100 rounded cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Barra de Búsqueda y Filtros Plegable de Folios */}
+      <CollapsibleFilterBar
+        title="Filtros de Búsqueda en Grilla de Folios"
+        activeFiltersCount={activeFolioFiltersCount}
+        defaultOpen={false}
+        onClear={() => {
+          setFolioSearch('');
+          setFiltroEstadoFolio('todos');
+          setFechaDesdeFolio('');
+          setFechaHastaFolio('');
+        }}
+        summaryRight={
+          <span>
+            Coincidencias: <strong>{matchedFoliosCount}</strong> / {totalFolios} folios ({totalOcupados} ocupados • {totalLibres} libres)
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={folioSearch}
+              onChange={(e) => setFolioSearch(e.target.value)}
+              placeholder="Buscar N° folio, carátula, asunto o destinatario..."
+              className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600"
+            />
+          </div>
+
+          <select
+            value={filtroEstadoFolio}
+            onChange={(e) => setFiltroEstadoFolio(e.target.value as any)}
+            className="px-3 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todos">Estado: Todos los folios</option>
+            <option value="ocupado">Solo Ocupados ({totalOcupados})</option>
+            <option value="libre">Solo Libres ({totalLibres})</option>
+          </select>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-slate-600 shrink-0">Asig. Desde:</span>
+            <input
+              type="date"
+              value={fechaDesdeFolio}
+              onChange={(e) => setFechaDesdeFolio(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-slate-600 shrink-0">Asig. Hasta:</span>
+            <input
+              type="date"
+              value={fechaHastaFolio}
+              onChange={(e) => setFechaHastaFolio(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+            />
+          </div>
+        </div>
+      </CollapsibleFilterBar>
 
       {/* 4. Barra de Densidad y Ayuda de Selección */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
@@ -618,6 +778,30 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
         </div>
       )}
 
+      {!activeSerie ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-3 shadow-xs">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-700 mx-auto flex items-center justify-center">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <h3 className="text-sm font-bold text-slate-900">
+            No hay Series de Folios habilitadas para su perfil o usuario
+          </h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            Las series de numerario configuradas para esta delegación se encuentran restringidas para su perfil de acceso.
+          </p>
+          {canManageSeriesVisibility && (
+            <button
+              type="button"
+              onClick={() => setIsGestionSeriesOpen(true)}
+              className="px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Layers className="w-4 h-4" />
+              <span>Administrar Series y Visibilidad</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
       {/* 6. Cuadrícula Numérica Continua (Estilo Hoja de Cálculo: 20 Columnas Continuas C1 a C20) */}
       <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
         {/* Encabezado de la Grilla con Identificador de Serie */}
@@ -660,6 +844,7 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
 
                       const folioOcupado = folioMap.get(num);
                       const isOccupied = !!folioOcupado;
+                      const isMatch = isCellMatchingFilter(num, folioOcupado);
 
                       const isInSelectedRange =
                         selectedRange &&
@@ -682,6 +867,12 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
                                 : isOccupied
                                 ? 'bg-red-600 hover:bg-red-700 text-white font-bold line-through border border-red-700 shadow-2xs'
                                 : 'bg-white hover:bg-blue-50 hover:border-blue-400 text-slate-800 border border-slate-200'
+                            } ${
+                              activeFolioFiltersCount > 0
+                                ? isMatch
+                                  ? 'ring-2 ring-amber-400 z-10'
+                                  : 'opacity-25'
+                                : ''
                             }`}
                           >
                             <span>{num}</span>
@@ -742,6 +933,8 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
           </button>
         </div>
       </div>
+        </>
+      )}
 
       {/* 8. Modales del Módulo */}
       {/* Modal Asignar Folio */}
@@ -751,7 +944,7 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
           serie={activeSerie}
           initialNumero={asignarInitialNum}
           initialRangoHasta={asignarInitialHasta}
-          existingFolios={foliosList}
+          existingFolios={visibleFolios}
           personalList={personalList}
           onSave={onSaveFolios}
           onClose={() => setIsAsignarOpen(false)}
@@ -773,7 +966,7 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
       {isGestionSeriesOpen && (
         <GestionSeriesModal
           isOpen={isGestionSeriesOpen}
-          seriesList={seriesList}
+          seriesList={canManageSeriesVisibility ? seriesList : visibleSeries}
           activeSerieId={activeSerie?.id || ''}
           onSaveSerie={onSaveSerie}
           onDeleteSerie={onDeleteSerie}
@@ -789,9 +982,9 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
       {isLibroFoliosOpen && (
         <LibroFoliosModal
           isOpen={isLibroFoliosOpen}
-          seriesList={seriesList}
+          seriesList={visibleSeries}
           activeSerieId={activeSerie?.id || ''}
-          foliosList={foliosList}
+          foliosList={visibleFolios}
           config={config}
           onClose={() => setIsLibroFoliosOpen(false)}
         />
@@ -807,6 +1000,17 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
           onClose={() => setIsReinicioOpen(false)}
         />
       )}
+
+      {/* Modal Confirmar Eliminación de Serie */}
+      <ConfirmModal
+        isOpen={deleteSerieConfirm.isOpen}
+        title="Eliminar Serie de Numerario"
+        message={`¿Confirma eliminar la serie "${deleteSerieConfirm.nombre}" y todos sus registros asociados?`}
+        confirmLabel="Eliminar Serie"
+        isDestructive={true}
+        onConfirm={confirmEliminarSerie}
+        onClose={() => setDeleteSerieConfirm({ isOpen: false, serieId: '', nombre: '' })}
+      />
     </div>
   );
 };

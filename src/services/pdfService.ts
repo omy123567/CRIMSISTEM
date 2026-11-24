@@ -186,8 +186,10 @@ export interface OpcionesPdfParte {
     siniestros?: boolean;
     cibercrimen?: boolean;
     novedadesRelevo?: boolean;
+    firmaOficial?: boolean;
     firmaJefe?: boolean;
   };
+  incluirFirmaOficial?: boolean;
   incluirFirmaJefe?: boolean;
   previewOnly?: boolean;
   licenciasPoliciales?: LicenciaPolicial[];
@@ -616,14 +618,19 @@ function buildParteGuardiaPdfDoc(
     });
   }
 
-  // Firma oficial exclusiva del Jefe (Ubicada a la derecha y responsive al ancho de página)
-  if (opts.incluirFirmaJefe !== false && sec?.firmaJefe !== false) {
+  // Firma oficial del Oficial de Servicio / Oficial de Guardia (Ubicada a la derecha y responsive al ancho de página)
+  const incluirFirma =
+    opts.incluirFirmaOficial !== false &&
+    opts.incluirFirmaJefe !== false &&
+    sec?.firmaOficial !== false &&
+    sec?.firmaJefe !== false;
+  if (incluirFirma) {
     if (currentY > pageHeight - 45) {
       doc.addPage();
       currentY = 40;
     }
     const rightMargin = pageWidth - 20;
-    const signWidth = 65;
+    const signWidth = 76;
     const signLeftX = rightMargin - signWidth;
     const signCenterX = signLeftX + signWidth / 2;
 
@@ -634,7 +641,7 @@ function buildParteGuardiaPdfDoc(
     doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
-    doc.text('JEFE DE DIVISIÓN / UNIDAD', signCenterX, currentY + 18, { align: 'center' });
+    doc.text('OFICIAL DE SERVICIO / OFICIAL DE GUARDIA', signCenterX, currentY + 18, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.text('Firma, Aclaración y Sello Oficial', signCenterX, currentY + 22, { align: 'center' });
@@ -2099,45 +2106,78 @@ export function generarPdfConstanciaLicencia(
 
     currentY = (doc as any).lastAutoTable.finalY + 4;
 
+    const constanciaBody: any[] = [
+      [
+        { content: 'TIPO DE LICENCIA:', styles: { fontStyle: 'bold' } },
+        {
+          content: `${licencia.tipoLicencia}${licencia.subtipoEtiqueta ? ` — ${licencia.subtipoEtiqueta}` : ''}`,
+          styles: { fontStyle: 'bold' },
+        },
+        { content: 'DISPOSICIÓN / EXPTE.:', styles: { fontStyle: 'bold' } },
+        { content: licencia.disposicionNro || 'S/D' },
+      ],
+    ];
+    if (licencia.opcionReglamentaria || licencia.autoridadConcesion) {
+      constanciaBody.push([
+        { content: 'ENCUADRE / MODALIDAD:', styles: { fontStyle: 'bold' } },
+        { content: licencia.opcionReglamentaria || licencia.articuloReglamento || '-' },
+        { content: 'AUTORIDAD:', styles: { fontStyle: 'bold' } },
+        { content: licencia.autoridadConcesion || 'Superioridad' },
+      ]);
+    }
+    constanciaBody.push(
+      [
+        { content: 'FECHA DE SALIDA:', styles: { fontStyle: 'bold' } },
+        { content: formatFechaDisplay(licencia.fechaSalida), styles: { fontStyle: 'bold' } },
+        {
+          content: licencia.modoComputo === 'corridos' ? 'DÍAS CORRIDOS LICENCIA:' : 'DÍAS HÁBILES LICENCIA:',
+          styles: { fontStyle: 'bold' },
+        },
+        {
+          content: `${licencia.diasHabilesSolicitados} ${
+            licencia.modoComputo === 'corridos' ? 'días corridos' : 'días hábiles administrativos'
+          }`,
+        },
+      ],
+      [
+        { content: 'TRASLADO TERRESTRE (ART. 11):', styles: { fontStyle: 'bold' } },
+        {
+          content: licencia.diasViajeArt11 > 0
+            ? `SÍ (+${licencia.diasViajeArt11} días por ${licencia.distanciaKm || 0} km)`
+            : 'No solicitado / < 300 km (0 días)',
+        },
+        { content: 'ÚLTIMO DÍA DE LICENCIA:', styles: { fontStyle: 'bold' } },
+        { content: formatFechaDisplay(licencia.fechaFinLicencia) },
+      ],
+      [
+        { content: 'FECHA Y HORA DE REANUDACIÓN:', styles: { fontStyle: 'bold', textColor: POLICE_NAVY } },
+        {
+          content: `${formatFechaDisplay(licencia.fechaReanudacion)} a las ${licencia.horaReanudacion || '08:00'} hs.`,
+          colSpan: 3,
+          styles: { fontStyle: 'bold', textColor: [22, 101, 52] },
+        },
+      ],
+      [
+        { content: 'IMPUTACIÓN MULTI-AÑO:', styles: { fontStyle: 'bold' } },
+        { content: imputacionTexto, colSpan: 3 },
+      ]
+    );
+    if (licencia.esSinGoceHaberes) {
+      constanciaBody.push([
+        { content: 'CONSTANCIA ART. 62:', styles: { fontStyle: 'bold', textColor: [185, 28, 28] } },
+        {
+          content:
+            'Licencia excepcional SIN GOCE DE HABERES. Este término NO es computable para antigüedad, retiro ni ascenso.',
+          colSpan: 3,
+          styles: { fontStyle: 'bold', textColor: [185, 28, 28] },
+        },
+      ]);
+    }
+
     autoTable(doc, {
       startY: currentY,
-      head: [[{ content: '2. DETALLE DE LICENCIA, CÓMPUTO DE DÍAS HÁBILES E IMPUTACIÓN', colSpan: 4, styles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' } }]],
-      body: [
-        [
-          { content: 'TIPO DE LICENCIA:', styles: { fontStyle: 'bold' } },
-          { content: licencia.tipoLicencia, styles: { fontStyle: 'bold' } },
-          { content: 'DISPOSICIÓN / EXPTE.:', styles: { fontStyle: 'bold' } },
-          { content: licencia.disposicionNro || 'S/D' },
-        ],
-        [
-          { content: 'FECHA DE SALIDA:', styles: { fontStyle: 'bold' } },
-          { content: formatFechaDisplay(licencia.fechaSalida), styles: { fontStyle: 'bold' } },
-          { content: 'DÍAS HÁBILES LICENCIA:', styles: { fontStyle: 'bold' } },
-          { content: `${licencia.diasHabilesSolicitados} días hábiles administrativos` },
-        ],
-        [
-          { content: 'TRASLADO TERRESTRE (ART. 11):', styles: { fontStyle: 'bold' } },
-          {
-            content: licencia.diasViajeArt11 > 0
-              ? `SÍ (+${licencia.diasViajeArt11} días por ${licencia.distanciaKm || 0} km)`
-              : 'No solicitado / < 300 km (0 días)',
-          },
-          { content: 'ÚLTIMO DÍA DE LICENCIA:', styles: { fontStyle: 'bold' } },
-          { content: formatFechaDisplay(licencia.fechaFinLicencia) },
-        ],
-        [
-          { content: 'FECHA Y HORA DE REANUDACIÓN:', styles: { fontStyle: 'bold', textColor: POLICE_NAVY } },
-          {
-            content: `${formatFechaDisplay(licencia.fechaReanudacion)} a las ${licencia.horaReanudacion || '08:00'} hs.`,
-            colSpan: 3,
-            styles: { fontStyle: 'bold', textColor: [22, 101, 52] },
-          },
-        ],
-        [
-          { content: 'IMPUTACIÓN MULTI-AÑO:', styles: { fontStyle: 'bold' } },
-          { content: imputacionTexto, colSpan: 3 },
-        ],
-      ],
+      head: [[{ content: '2. DETALLE DE LICENCIA, CÓMPUTO DE DÍAS E IMPUTACIÓN', colSpan: 4, styles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' } }]],
+      body: constanciaBody,
       theme: 'grid',
       styles: { fontSize: 8.5, cellPadding: 2.2, lineColor: POLICE_BORDER, lineWidth: 0.2 },
       margin: { left: 14, right: 14 },
@@ -2246,11 +2286,15 @@ export function generarPdfReporteLicencias(
             idx + 1,
             `${l.jerarquia}\n${l.apellidoYNombre}`,
             l.dni,
-            l.tipoLicencia,
+            l.subtipoEtiqueta ? `${l.tipoLicencia}\n(${l.subtipoEtiqueta})` : l.tipoLicencia,
             formatFechaDisplay(l.fechaSalida),
-            `${l.diasHabilesSolicitados} d.${l.diasViajeArt11 > 0 ? ` (+${l.diasViajeArt11} Art.11)` : ''}`,
+            `${l.diasHabilesSolicitados} ${l.modoComputo === 'corridos' ? 'd. corr.' : 'd. háb.'}${
+              l.diasViajeArt11 > 0 ? ` (+${l.diasViajeArt11} Art.11)` : ''
+            }`,
             `${formatFechaDisplay(l.fechaReanudacion)} ${l.horaReanudacion || '08:00'}`,
-            `${(l.imputacionAnios || []).map((i) => `${i.anio}:${i.dias}d`).join(', ') || '-'}${l.fueInterrumpida ? '\n[INTERRUMPIDA ART.15]' : ''}`,
+            `${
+              (l.imputacionAnios || []).map((i) => `${i.anio}:${i.dias}d`).join(', ') || 'No descuenta Anual'
+            }${l.fueInterrumpida ? '\n[INTERRUMPIDA ART.15]' : ''}`,
           ])
         : [['---', 'Sin licencias registradas', '', '', '', '', '', '']],
       theme: 'grid',

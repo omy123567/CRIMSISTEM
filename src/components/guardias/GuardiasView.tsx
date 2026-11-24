@@ -10,7 +10,9 @@ import {
   InspeccionOcular,
   UsuarioSistema,
   LicenciaPolicial,
+  DelegacionPolicial,
 } from '../../types/police';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import {
   ClipboardList,
   Plus,
@@ -41,12 +43,20 @@ import { IntervencionModal } from './IntervencionModal';
 import { InspeccionModal } from '../inspecciones/InspeccionModal';
 import { ParteVisualPreview } from './ParteVisualPreview';
 import { generarPdfParteGuardia } from '../../services/pdfService';
+import {
+  formatNroIO,
+  getNextCorrelativoIntervencion,
+  getNextIoNumber,
+} from '../../utils/numeracionUtils';
 
 interface GuardiasViewProps {
   partesList: ParteNovedadesGuardia[];
+  inspeccionesList?: InspeccionOcular[];
   personalList: Personal[];
   movilesList: MovilPolicial[];
   gruposList?: GrupoPersonal[];
+  delegacionesList?: DelegacionPolicial[];
+  activeDelegacionId?: string;
   licenciasPoliciales?: LicenciaPolicial[];
   config: ConfiguracionSistema;
   currentUser?: UsuarioSistema;
@@ -61,9 +71,12 @@ export type GuardiaViewMode = 'tabla' | 'intervenciones' | 'detalle';
 
 export const GuardiasView: React.FC<GuardiasViewProps> = ({
   partesList,
+  inspeccionesList = [],
   personalList,
   movilesList,
   gruposList = [],
+  delegacionesList = [],
+  activeDelegacionId,
   licenciasPoliciales = [],
   config,
   currentUser,
@@ -93,28 +106,51 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
     interv: IntervencionParte;
     parteId: string;
   } | null>(null);
-  const [usuarioConfirmador, setUsuarioConfirmador] = useState('');
+  const confirmadorAutomatico = useMemo(() => {
+    if (!currentUser) return 'Supervisor de Turno';
+    return `${currentUser.apellidoYNombre || currentUser.username}${currentUser.rol ? ` (${currentUser.rol.toUpperCase()})` : ''}`;
+  }, [currentUser]);
+  const [confirmadoCheckbox, setConfirmadoCheckbox] = useState(true);
 
   const activeParte = useMemo(() => {
     return partesList.find((p) => p.id === selectedParteId) || partesList[0] || null;
   }, [partesList, selectedParteId]);
 
-  // CORRELATIVO ANUAL CONTROLADO:
-  // "el contador de las INTERVENCIÓN CRIMINALÍSTICA se debe poder controlar desde un panel o similar al horario que se N° de ultima intervencion."
-  const siguienteCorrelativo = useMemo(() => {
-    const inicio = config.inicioNroIntervencionCriminalistica || 1;
-    let max = config.ultimoNroIntervencionCriminalistica ?? 0;
-    partesList.forEach((p) => {
-      p.intervenciones.forEach((i) => {
-        if (i.nroCorrelativo && i.nroCorrelativo > max) max = i.nroCorrelativo;
-      });
+  // CORRELATIVOS ANUALES INDEPENDIENTES (LC vs Seguridad Vial pueden coincidir en el mismo N°)
+  const siguienteCorrelativoLC = useMemo(() => {
+    return getNextCorrelativoIntervencion({
+      tipo: 'Criminalística',
+      partesGuardia: partesList,
+      config,
     });
-    return Math.max(inicio, max + 1);
-  }, [partesList, config.ultimoNroIntervencionCriminalistica, config.inicioNroIntervencionCriminalistica]);
+  }, [partesList, config]);
+
+  const siguienteCorrelativoAcc = useMemo(() => {
+    return getNextCorrelativoIntervencion({
+      tipo: 'Accidentológica',
+      partesGuardia: partesList,
+      config,
+    });
+  }, [partesList, config]);
+
+  const siguienteCorrelativo =
+    tipoIntervencionForzado === 'Accidentológica'
+      ? siguienteCorrelativoAcc
+      : siguienteCorrelativoLC;
 
   const añoActual = useMemo(() => {
     return new Date().getFullYear();
   }, []);
+
+  const proximoNroIOGuardia = useMemo(() => {
+    return getNextIoNumber({
+      inspecciones: inspeccionesList,
+      partesGuardia: partesList,
+      config,
+      anio: añoActual,
+      delegacionId: activeDelegacionId,
+    });
+  }, [inspeccionesList, partesList, config, añoActual, activeDelegacionId]);
 
   // Consolidado de todas las intervenciones de las guardias registradas
   const todasLasIntervenciones = useMemo(() => {
@@ -156,15 +192,8 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
     });
   }, [todasLasIntervenciones, searchTermInterv, filtroHechoInterv, añoActual]);
 
-  // Cargar una nueva Inspección Ocular sumando +1 al contador de intervenciones
+  // Cargar una nueva Inspección Ocular
   const handleNuevaInspeccionOcular = () => {
-    const nuevoCorrelativo = siguienteCorrelativo;
-    if (onSaveConfig) {
-      onSaveConfig({
-        ...config,
-        ultimoNroIntervencionCriminalistica: nuevoCorrelativo,
-      });
-    }
     setIsInspeccionModalOpen(true);
   };
 
@@ -193,19 +222,24 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
         intervenciones: [],
         totalIntervenciones: 0,
         cerrado: false,
+        delegacionId: io.delegacionId || activeDelegacionId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
     }
 
-    const nuevoNro = siguienteCorrelativo;
+    const esAcc = io.tipo.toLowerCase().includes('accid') || io.tipo.toLowerCase().includes('vial');
+    const nuevoNro = esAcc ? siguienteCorrelativoAcc : siguienteCorrelativoLC;
+    const siglas = config.siglasDependencia || 'DPC';
 
     const nuevaInterv: IntervencionParte = {
       id: io.id || 'interv-' + Date.now(),
       parteId: targetParte.id,
       nroCorrelativo: nuevoNro,
-      codigoIntervencion: `01 INTERVENCIÓN CRIMINALÍSTICA Nº ${nuevoNro} /${añoActual}-DPC.`,
-      tipoIntervencion: 'Criminalística',
+      codigoIntervencion: esAcc
+        ? `INTERVENCIÓN ACCIDENTOLÓGICA Nº    ${nuevoNro}    /${añoActual}-${siglas}.`
+        : `INTERVENCIÓN CRIMINALÍSTICA Nº    ${nuevoNro}    /${añoActual}-${siglas}.`,
+      tipoIntervencion: esAcc ? 'Accidentológica' : 'Criminalística',
       hecho: io.hecho || 'Inspección Ocular / Relevamiento en Escena',
       solicitudHora: io.hora ? `${io.hora} hs.` : '10:00 hs.',
       solicitudVia: 'Radial / Telefónica',
@@ -227,7 +261,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
       personalTecnico: {
         peritoAuxiliar: io.perito || '',
         choferFotografo: io.fotografo || '',
-        auxiliar: io.personalInterviniente || '',
+        auxiliar: '',
       },
       sintesisHecho: io.resumen || `Inspección ocular realizada en ${io.direccion || io.lugar} conforme protocolo policial.`,
       laborCriminalistica: io.conclusiones || '1. Fijación fotográfica panorámica y de detalle; 2. Relevamiento planimétrico del lugar; 3. Levantamiento de rastros con cadena de custodia.',
@@ -245,23 +279,12 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
     onSaveParte(parteActualizado);
     onSaveIntervencion(nuevaInterv);
 
-    if (onSaveConfig) {
-      onSaveConfig({
-        ...config,
-        ultimoNroIntervencionCriminalistica: nuevoNro,
-        ultimaHoraIntervencion: io.hora ? `${io.hora} hs.` : config.ultimaHoraIntervencion,
-      });
-    }
-
     setIsInspeccionModalOpen(false);
   };
 
-  // Confirmar fotos conforme fotógrafo por otro usuario
+  // Confirmar fotos conforme fotógrafo por otro usuario (automático desde usuario logueado)
   const handleConfirmarFotosPorOtroUsuario = () => {
-    if (!confirmarFotosModal || !usuarioConfirmador.trim()) {
-      alert('Debe indicar el nombre o efectivo que confirma las fotografías');
-      return;
-    }
+    if (!confirmarFotosModal || !confirmadoCheckbox) return;
 
     const { interv, parteId } = confirmarFotosModal;
     const parte = partesList.find((p) => p.id === parteId);
@@ -271,7 +294,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
       ...interv,
       fotosConformeFotografo: true,
       fotosConfirmadas: true,
-      confirmadoPorUsuario: usuarioConfirmador.trim(),
+      confirmadoPorUsuario: confirmadorAutomatico,
       fechaConfirmacionFotos: new Date().toISOString().slice(0, 10),
     };
 
@@ -289,7 +312,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
     onSaveIntervencion(intervActualizada);
 
     setConfirmarFotosModal(null);
-    setUsuarioConfirmador('');
+    setConfirmadoCheckbox(true);
   };
 
   const handleSaveIntervencionWrapper = (interv: IntervencionParte) => {
@@ -311,15 +334,26 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
     onSaveParte(parteActualizado);
     onSaveIntervencion(interv);
 
-    // Actualizar contador oficial en configuración si corresponde
+    // Actualizar el contador independiente correspondiente al tipo de intervención
     if (onSaveConfig && interv.nroCorrelativo) {
-      const currentMax = config.ultimoNroIntervencionCriminalistica || 0;
-      if (interv.nroCorrelativo >= currentMax) {
-        onSaveConfig({
-          ...config,
-          ultimoNroIntervencionCriminalistica: interv.nroCorrelativo,
-          ultimaHoraIntervencion: interv.inspeccionHora ? `${interv.inspeccionHora} hs.` : config.ultimaHoraIntervencion,
-        });
+      if (interv.tipoIntervencion === 'Accidentológica') {
+        const currentMaxAcc = config.ultimoNroIntervencionAccidentologica || 0;
+        if (interv.nroCorrelativo >= currentMaxAcc) {
+          onSaveConfig({
+            ...config,
+            ultimoNroIntervencionAccidentologica: interv.nroCorrelativo,
+            ultimaHoraIntervencion: interv.inspeccionHora ? `${interv.inspeccionHora} hs.` : config.ultimaHoraIntervencion,
+          });
+        }
+      } else {
+        const currentMaxLC = config.ultimoNroIntervencionCriminalistica || 0;
+        if (interv.nroCorrelativo >= currentMaxLC) {
+          onSaveConfig({
+            ...config,
+            ultimoNroIntervencionCriminalistica: interv.nroCorrelativo,
+            ultimaHoraIntervencion: interv.inspeccionHora ? `${interv.inspeccionHora} hs.` : config.ultimaHoraIntervencion,
+          });
+        }
       }
     }
 
@@ -440,34 +474,43 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
             </div>
           </div>
 
-          {/* Barra de Búsqueda y Filtros */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div className="relative sm:col-span-2">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchTermInterv}
-                onChange={(e) => setSearchTermInterv(e.target.value)}
-                placeholder="Buscar por N° I.O, Dirección/Lugar, Hecho, Perito o Fotógrafo..."
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
-            </div>
+          {/* Barra de Búsqueda y Filtros Colapsable */}
+          <CollapsibleFilterBar
+            title="Filtros de Intervenciones en Guardia"
+            activeFiltersCount={(searchTermInterv ? 1 : 0) + (filtroHechoInterv !== 'todos' ? 1 : 0)}
+            onClear={() => {
+              setSearchTermInterv('');
+              setFiltroHechoInterv('todos');
+            }}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="relative sm:col-span-2">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={searchTermInterv}
+                  onChange={(e) => setSearchTermInterv(e.target.value)}
+                  placeholder="Buscar por N° I.O, Dirección/Lugar, Hecho, Perito o Fotógrafo..."
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
 
-            <div>
-              <select
-                value={filtroHechoInterv}
-                onChange={(e) => setFiltroHechoInterv(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-              >
-                <option value="todos">Todos los Hechos / Causas</option>
-                {config.hechosCriminalistica.map((h) => (
-                  <option key={h} value={h}>
-                    {h}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <select
+                  value={filtroHechoInterv}
+                  onChange={(e) => setFiltroHechoInterv(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="todos">Todos los Hechos / Causas</option>
+                  {config.hechosCriminalistica.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          </CollapsibleFilterBar>
 
           {/* TABLA FORMAL ESTILO PARTE DE NOVEDADES */}
           <div className="bg-white rounded-xl border-2 border-slate-800 shadow-md overflow-hidden">
@@ -796,6 +839,8 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
           intervencion={selectedInterv}
           tipoForzado={selectedInterv ? selectedInterv.tipoIntervencion : tipoIntervencionForzado}
           siguienteCorrelativo={siguienteCorrelativo}
+          siguienteCorrelativoLC={siguienteCorrelativoLC}
+          siguienteCorrelativoAcc={siguienteCorrelativoAcc}
           añoActual={añoActual}
           parteId={activeParte.id}
           partesList={partesList}
@@ -813,12 +858,13 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
         />
       )}
 
-      {/* Modal Carga de Inspección Ocular (+1 Intervención al contador) */}
+      {/* Modal Carga de Inspección Ocular (+1 I.O. correlativa sin repetir) */}
       {isInspeccionModalOpen && (
         <InspeccionModal
+          existingInspecciones={inspeccionesList}
           inspeccion={{
             id: 'io-' + Date.now(),
-            nroIO: `I.O. Nº ${String(siguienteCorrelativo).padStart(3, '0')}/${añoActual}`,
+            nroIO: formatNroIO(proximoNroIOGuardia, añoActual),
             fecha: new Date().toISOString().slice(0, 10),
             hora: '10:00',
             lugar: '',
@@ -837,10 +883,17 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
             resumen: '',
             conclusiones: '',
             fotosAdjuntas: [],
+            delegacionId: activeParte?.delegacionId || activeDelegacionId,
+            grupoGuardia: activeParte?.grupoGuardia || '',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           }}
           personalList={personalList}
+          partesGuardiaList={partesList}
+          delegacionesList={delegacionesList}
+          gruposList={gruposList}
+          activeDelegacionId={activeDelegacionId}
+          currentUser={currentUser}
           config={config}
           onSave={handleSaveInspeccionOcularComoInterv}
           onClose={() => setIsInspeccionModalOpen(false)}
@@ -858,7 +911,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
               </div>
               <button
                 onClick={() => setConfirmarFotosModal(null)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-white cursor-pointer"
               >
                 ✕
               </button>
@@ -873,25 +926,22 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                 ({confirmarFotosModal.interv.hecho}) se encuentra <strong>conforme al protocolo pericial</strong>.
               </p>
 
-              <div>
-                <label className="block font-semibold text-slate-800 mb-1">
-                  Nombre y Jerarquía del Usuario que Confirma *
-                </label>
+              <label className="flex items-start gap-2.5 p-3 rounded-lg border border-emerald-300 bg-emerald-50/70 cursor-pointer select-none">
                 <input
-                  type="text"
-                  list="personal-confirmadores-lista"
-                  value={usuarioConfirmador}
-                  onChange={(e) => setUsuarioConfirmador(e.target.value)}
-                  placeholder="Ej. Principal MARTÍNEZ Carlos / Oficial de Servicio"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                  autoFocus
+                  type="checkbox"
+                  checked={confirmadoCheckbox}
+                  onChange={(e) => setConfirmadoCheckbox(e.target.checked)}
+                  className="w-4 h-4 text-emerald-700 rounded border-slate-300 mt-0.5 cursor-pointer"
                 />
-                <datalist id="personal-confirmadores-lista">
-                  {personalList.map((p) => (
-                    <option key={'c-' + p.id} value={`${p.jerarquia} ${p.apellidoYNombre}`} />
-                  ))}
-                </datalist>
-              </div>
+                <div className="space-y-0.5">
+                  <span className="font-bold text-slate-900 block">
+                    Fotos confirmadas y verificadas por otro usuario / supervisor
+                  </span>
+                  <span className="text-[11px] text-emerald-900 block">
+                    Se registrará automáticamente a nombre de: <strong>{confirmadorAutomatico}</strong>
+                  </span>
+                </div>
+              </label>
 
               <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
                 <button
@@ -903,8 +953,9 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                 </button>
                 <button
                   type="button"
+                  disabled={!confirmadoCheckbox}
                   onClick={handleConfirmarFotosPorOtroUsuario}
-                  className="px-4 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                  className="px-4 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
                 >
                   <Check className="w-4 h-4 stroke-[3]" />
                   <span>Certificar y Confirmar</span>

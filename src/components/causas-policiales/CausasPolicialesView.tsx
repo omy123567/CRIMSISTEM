@@ -35,6 +35,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 
 export type OrigenCausaPolicial =
   | 'intervencion-lc'
@@ -56,6 +57,8 @@ export interface ItemCausaPolicial {
   dependenciaInterviniente: string;
   juzgadoOFiscalia?: string;
   personalPolicial: PersonalPolicialCausa;
+  tipoLesion?: string;
+  fallecido?: boolean;
   detallesExtra?: string;
   rawItem: any;
 }
@@ -83,34 +86,24 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
   const [filtroOrigen, setFiltroOrigen] = useState<string>('todos');
   const [filtroRol, setFiltroRol] = useState<string>('todos');
   const [filtroJerarquia, setFiltroJerarquia] = useState<string>('todas');
+  const [filtroDependencia, setFiltroDependencia] = useState<string>('todas');
+  const [filtroTipoLesion, setFiltroTipoLesion] = useState<string>('todas');
+  const [soloFallecidos, setSoloFallecidos] = useState<boolean>(false);
+  const [fechaDesde, setFechaDesde] = useState<string>('');
+  const [fechaHasta, setFechaHasta] = useState<string>('');
   const [selectedItem, setSelectedItem] = useState<ItemCausaPolicial | null>(null);
 
   // Consolidar todas las fuentes que involucran Personal Policial
   const todosLosCasos: ItemCausaPolicial[] = useMemo(() => {
     const items: ItemCausaPolicial[] = [];
 
-    // 1. Intervenciones: LC y Viales
+    // 1. Intervenciones: LC y Viales (priorizar todos los Efectivos en involucrados, con fallback a personalPolicial legado)
     intervencionesList.forEach((int) => {
       const polInvolucrados = (int.involucrados || []).filter((i) => i.esPersonalPolicial);
-      if (int.involucraPersonalPolicial && int.personalPolicial) {
-        const esLC = int.tipoIntervencion === 'Criminalística';
-        items.push({
-          id: `int-${int.id}`,
-          origen: esLC ? 'intervencion-lc' : 'intervencion-vial',
-          origenLabel: esLC ? 'Intervención LC' : 'Siniestro Vial',
-          codigoRef: int.codigoIntervencion || `Int. #${int.nroCorrelativo}`,
-          fecha: int.inspeccionFecha,
-          hora: int.inspeccionHora,
-          caratulaOHecho: int.hecho || 'Intervención en Escena',
-          lugar: int.inspeccionLugar || int.direccion,
-          dependenciaInterviniente: int.dependencia,
-          personalPolicial: int.personalPolicial,
-          detallesExtra: int.sintesisHecho || int.laborCriminalistica,
-          rawItem: int,
-        });
-      } else if (polInvolucrados.length > 0) {
+      const esLC = int.tipoIntervencion === 'Criminalística';
+
+      if (polInvolucrados.length > 0) {
         polInvolucrados.forEach((inv, invIdx) => {
-          const esLC = int.tipoIntervencion === 'Criminalística';
           items.push({
             id: `int-${int.id}-inv-${invIdx}`,
             origen: esLC ? 'intervencion-lc' : 'intervencion-vial',
@@ -127,12 +120,31 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
               apellidoYNombre: inv.apellidoYNombre,
               dni: inv.dni,
               rol: inv.condicion || inv.funcionEnHecho || 'Involucrado',
-              destino: inv.destino,
-              tipoLesion: inv.tipoLesion || 'Sin Lesiones',
+              dependenciaRevista: inv.destino || int.personalPolicial?.dependenciaRevista,
+              observaciones: int.personalPolicial?.observaciones,
             },
+            tipoLesion: inv.tipoLesion || 'Sin Lesiones',
+            fallecido: !!inv.fallecido,
             detallesExtra: int.sintesisHecho || int.laborCriminalistica,
             rawItem: int,
           });
+        });
+      } else if (int.involucraPersonalPolicial && int.personalPolicial) {
+        items.push({
+          id: `int-${int.id}`,
+          origen: esLC ? 'intervencion-lc' : 'intervencion-vial',
+          origenLabel: esLC ? 'Intervención LC' : 'Siniestro Vial',
+          codigoRef: int.codigoIntervencion || `Int. #${int.nroCorrelativo}`,
+          fecha: int.inspeccionFecha,
+          hora: int.inspeccionHora,
+          caratulaOHecho: int.hecho || 'Intervención en Escena',
+          lugar: int.inspeccionLugar || int.direccion,
+          dependenciaInterviniente: int.dependencia,
+          personalPolicial: int.personalPolicial,
+          tipoLesion: 'Sin Lesiones',
+          fallecido: false,
+          detallesExtra: int.sintesisHecho || int.laborCriminalistica,
+          rawItem: int,
         });
       }
     });
@@ -236,6 +248,58 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
     informesTecnicosList,
   ]);
 
+  const dependenciasUnicas = useMemo(() => {
+    const set = new Set<string>();
+    todosLosCasos.forEach((c) => {
+      if (c.dependenciaInterviniente) set.add(c.dependenciaInterviniente);
+    });
+    return Array.from(set).sort();
+  }, [todosLosCasos]);
+
+  const lesionesUnicas = useMemo(() => {
+    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas']);
+    todosLosCasos.forEach((c) => {
+      if (c.tipoLesion) set.add(c.tipoLesion);
+    });
+    return Array.from(set);
+  }, [todosLosCasos]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroOrigen !== 'todos') count++;
+    if (filtroRol !== 'todos') count++;
+    if (filtroJerarquia !== 'todas') count++;
+    if (filtroDependencia !== 'todas') count++;
+    if (filtroTipoLesion !== 'todas') count++;
+    if (soloFallecidos) count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    return count;
+  }, [
+    searchTerm,
+    filtroOrigen,
+    filtroRol,
+    filtroJerarquia,
+    filtroDependencia,
+    filtroTipoLesion,
+    soloFallecidos,
+    fechaDesde,
+    fechaHasta,
+  ]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroOrigen('todos');
+    setFiltroRol('todos');
+    setFiltroJerarquia('todas');
+    setFiltroDependencia('todas');
+    setFiltroTipoLesion('todas');
+    setSoloFallecidos(false);
+    setFechaDesde('');
+    setFechaHasta('');
+  };
+
   // Filtrado reactivo
   const filteredCasos = useMemo(() => {
     return todosLosCasos.filter((item) => {
@@ -256,10 +320,38 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
           item.personalPolicial.rol.toLowerCase().includes(filtroRol.toLowerCase()));
       const matchJerarquia =
         filtroJerarquia === 'todas' || item.personalPolicial.jerarquia === filtroJerarquia;
+      const matchDep =
+        filtroDependencia === 'todas' || item.dependenciaInterviniente === filtroDependencia;
+      const matchLesion =
+        filtroTipoLesion === 'todas' || (item.tipoLesion || 'Sin Lesiones') === filtroTipoLesion;
+      const matchFallecido = !soloFallecidos || !!item.fallecido;
+      const matchFechaDesde = !fechaDesde || (item.fecha && item.fecha >= fechaDesde);
+      const matchFechaHasta = !fechaHasta || (item.fecha && item.fecha <= fechaHasta);
 
-      return matchSearch && matchOrigen && matchRol && matchJerarquia;
+      return (
+        matchSearch &&
+        matchOrigen &&
+        matchRol &&
+        matchJerarquia &&
+        matchDep &&
+        matchLesion &&
+        matchFallecido &&
+        matchFechaDesde &&
+        matchFechaHasta
+      );
     });
-  }, [todosLosCasos, searchTerm, filtroOrigen, filtroRol, filtroJerarquia]);
+  }, [
+    todosLosCasos,
+    searchTerm,
+    filtroOrigen,
+    filtroRol,
+    filtroJerarquia,
+    filtroDependencia,
+    filtroTipoLesion,
+    soloFallecidos,
+    fechaDesde,
+    fechaHasta,
+  ]);
 
   // Métricas y Contadores KPI
   const metricas = useMemo(() => {
@@ -511,86 +603,131 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
         </div>
       </div>
 
-      {/* Barra de Filtros y Búsqueda */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
-        <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
-          <div className="relative w-full md:w-96">
+      {/* Barra de Filtros y Búsqueda Colapsable */}
+      <CollapsibleFilterBar
+        title="Búsqueda y Filtros de Causas Policiales"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span className="text-[11px] text-slate-500">
+            Mostrando <strong>{filteredCasos.length}</strong> de {todosLosCasos.length} causas
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar por Plaza N°, Apellido y Nombre, DNI, Hecho, Exp..."
+              placeholder="Buscar Plaza N°, Apellido, DNI, Hecho, Exp..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-600 focus:bg-white"
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            {/* Filtro Origen */}
-            <select
-              value={filtroOrigen}
-              onChange={(e) => setFiltroOrigen(e.target.value)}
-              className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
-            >
-              <option value="todos">Todos los Orígenes</option>
-              <option value="intervencion-lc">Intervenciones LC</option>
-              <option value="intervencion-vial">Siniestros Viales</option>
-              <option value="inspeccion-ocular">Inspecciones Oculares</option>
-              <option value="expediente">Expedientes Judiciales</option>
-              <option value="falta-oficio">Falta de Oficio</option>
-              <option value="informe-tecnico">Informes Técnicos</option>
-            </select>
+          <select
+            value={filtroOrigen}
+            onChange={(e) => setFiltroOrigen(e.target.value)}
+            className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todos">Todos los Orígenes</option>
+            <option value="intervencion-lc">Intervenciones LC</option>
+            <option value="intervencion-vial">Siniestros Viales</option>
+            <option value="inspeccion-ocular">Inspecciones Oculares</option>
+            <option value="expediente">Expedientes Judiciales</option>
+            <option value="falta-oficio">Falta de Oficio</option>
+            <option value="informe-tecnico">Informes Técnicos</option>
+          </select>
 
-            {/* Filtro Rol */}
-            <select
-              value={filtroRol}
-              onChange={(e) => setFiltroRol(e.target.value)}
-              className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
-            >
-              <option value="todos">Todas las Condiciones / Roles</option>
-              <option value="imputado">Imputado</option>
-              <option value="damnificado">Damnificado / Víctima</option>
-              <option value="conductor">Conductor</option>
-              <option value="testigo">Testigo</option>
-              <option value="aprehendido">Aprehendido / Demorado</option>
-              <option value="denunciante">Denunciante</option>
-              <option value="franco">Franco de Servicio</option>
-              <option value="sumariado">Sumariado Administrativo</option>
-              <option value="disponibilidad">Disponibilidad / Pasiva</option>
-              <option value="retirado">Retirado</option>
-            </select>
+          <select
+            value={filtroRol}
+            onChange={(e) => setFiltroRol(e.target.value)}
+            className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todos">Todas las Condiciones / Roles</option>
+            <option value="imputado">Imputado</option>
+            <option value="damnificado">Damnificado / Víctima</option>
+            <option value="conductor">Conductor</option>
+            <option value="testigo">Testigo</option>
+            <option value="aprehendido">Aprehendido / Demorado</option>
+            <option value="denunciante">Denunciante</option>
+            <option value="franco">Franco de Servicio</option>
+            <option value="sumariado">Sumariado Administrativo</option>
+            <option value="disponibilidad">Disponibilidad / Pasiva</option>
+            <option value="retirado">Retirado</option>
+          </select>
 
-            {/* Filtro Jerarquía */}
-            <select
-              value={filtroJerarquia}
-              onChange={(e) => setFiltroJerarquia(e.target.value)}
-              className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
-            >
-              <option value="todas">Todas las Jerarquías</option>
-              {config.jerarquias.map((j) => (
-                <option key={j} value={j}>
-                  {j}
-                </option>
-              ))}
-            </select>
+          <select
+            value={filtroJerarquia}
+            onChange={(e) => setFiltroJerarquia(e.target.value)}
+            className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todas">Todas las Jerarquías</option>
+            {config.jerarquias.map((j) => (
+              <option key={j} value={j}>
+                {j}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroDependencia}
+            onChange={(e) => setFiltroDependencia(e.target.value)}
+            className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todas">Todas las Dependencias</option>
+            {dependenciasUnicas.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroTipoLesion}
+            onChange={(e) => setFiltroTipoLesion(e.target.value)}
+            className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+          >
+            <option value="todas">Tipo de Lesiones: Todas</option>
+            {lesionesUnicas.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              title="Fecha Desde"
+              className="w-full text-xs px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            />
+            <span className="text-slate-400 text-[11px]">a</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              title="Fecha Hasta"
+              className="w-full text-xs px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            />
           </div>
-        </div>
 
-        <div className="text-[11px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
-          <span>
-            Mostrando <strong>{filteredCasos.length}</strong> de {todosLosCasos.length} causas con
-            personal policial registradas
-          </span>
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="text-red-700 hover:underline font-bold text-xs"
-            >
-              Limpiar búsqueda
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setSoloFallecidos(!soloFallecidos)}
+            className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition-colors cursor-pointer ${
+              soloFallecidos
+                ? 'bg-rose-700 text-white border-rose-800'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Solo Fallecidos
+          </button>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Tabla Principal */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -656,15 +793,27 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
 
                       {/* Rol */}
                       <td className="py-2.5 px-3 whitespace-nowrap">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
-                            esImputado
-                              ? 'bg-red-50 text-red-800 border-red-300'
-                              : 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                          }`}
-                        >
-                          {item.personalPolicial.rol || 'Involucrado'}
-                        </span>
+                        <div className="flex flex-col items-start gap-1">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              esImputado
+                                ? 'bg-red-50 text-red-800 border-red-300'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                            }`}
+                          >
+                            {item.personalPolicial.rol || 'Involucrado'}
+                          </span>
+                          {item.tipoLesion && item.tipoLesion !== 'Sin Lesiones' && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
+                              {item.tipoLesion}
+                            </span>
+                          )}
+                          {item.fallecido && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-slate-900 text-rose-200 border border-rose-500">
+                              FALLECIDO
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Origen */}

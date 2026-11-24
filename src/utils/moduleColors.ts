@@ -188,6 +188,7 @@ export function getDefaultTonalidadForModule(moduleId: string): TonalidadModulo 
     case 'personas':
     case 'vehiculos':
     case 'numerario':
+    case 'memos-notas':
       return 'cian';
     case 'auditoria':
     case 'usuarios':

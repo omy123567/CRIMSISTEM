@@ -941,7 +941,7 @@ async function startServer() {
       const idKey = item.id ? 'id' : item.username ? 'username' : 'id';
       const existingItem = list.find((x) => x[idKey] === item[idKey]);
 
-      const check = canWriteCollection(req.authUser, collection, existingItem, item);
+      const check = canWriteCollection(req.authUser, collection, existingItem, item, db);
       if (!check.allowed) {
         res.status(403).json({ error: check.reason || 'Operación no autorizada.' });
         return;
@@ -1018,7 +1018,7 @@ async function startServer() {
       const list = (db[collection as keyof SispolDatabase] as any[]) || [];
       const existingItem = list.find((x) => x.id === id || x.username === id);
 
-      const check = canDeleteCollection(req.authUser, collection, existingItem);
+      const check = canDeleteCollection(req.authUser, collection, existingItem, db);
       if (!check.allowed) {
         res.status(403).json({ error: check.reason || 'No autorizado para eliminar este registro.' });
         return;

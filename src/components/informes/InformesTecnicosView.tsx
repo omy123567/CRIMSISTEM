@@ -33,6 +33,7 @@ import {
   Users,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { ModalOpcionesImpresion, OpcionesImpresion } from '../common/ModalOpcionesImpresion';
 import { FilePreviewModal } from '../common/FilePreviewModal';
 import jsPDF from 'jspdf';
@@ -60,6 +61,12 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroTipo, setFiltroTipo] = useState('todos');
+  const [filtroDependencia, setFiltroDependencia] = useState('todas');
+  const [filtroLicenciado, setFiltroLicenciado] = useState('todos');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [soloPolicial, setSoloPolicial] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -215,7 +222,7 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.caratula.trim() || !formData.oficioNro.trim()) {
-      alert('Por favor complete el Oficio y la Carátula de la causa');
+      setFormError('Por favor complete el Oficio y la Carátula de la causa.');
       return;
     }
     if (formData.involucraPersonalPolicial) {
@@ -224,12 +231,13 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
         !formData.personalPolicial?.plaza?.trim() ||
         !formData.personalPolicial?.jerarquia?.trim()
       ) {
-        alert(
+        setFormError(
           'Al indicar que la causa involucra Personal Policial, es obligatorio especificar Jerarquía, Plaza, y Apellido y Nombre.'
         );
         return;
       }
     }
+    setFormError(null);
     onSaveInforme({
       ...formData,
       updatedAt: new Date().toISOString(),
@@ -237,23 +245,67 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
     setIsModalOpen(false);
   };
 
+  const dependenciasUnicas = useMemo(() => {
+    const set = new Set<string>();
+    informesList.forEach((inf) => {
+      if (inf.dependenciaInterviniente) set.add(inf.dependenciaInterviniente);
+    });
+    return Array.from(set).sort();
+  }, [informesList]);
+
+  const licenciadosUnicos = useMemo(() => {
+    const set = new Set<string>();
+    informesList.forEach((inf) => {
+      if (inf.licenciadoACargoNombre) set.add(inf.licenciadoACargoNombre);
+    });
+    return Array.from(set).sort();
+  }, [informesList]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filtroEstado !== 'todos') count++;
+    if (filtroTipo !== 'todos') count++;
+    if (filtroDependencia !== 'todas') count++;
+    if (filtroLicenciado !== 'todos') count++;
+    if (fechaDesde) count++;
+    if (fechaHasta) count++;
+    if (soloPolicial) count++;
+    return count;
+  }, [searchTerm, filtroEstado, filtroTipo, filtroDependencia, filtroLicenciado, fechaDesde, fechaHasta, soloPolicial]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFiltroEstado('todos');
+    setFiltroTipo('todos');
+    setFiltroDependencia('todas');
+    setFiltroLicenciado('todos');
+    setFechaDesde('');
+    setFechaHasta('');
+    setSoloPolicial(false);
+  };
+
   // Filtrado de informes
   const filteredList = informesList.filter((inf) => {
+    const term = searchTerm.toLowerCase();
     const matchSearch =
-      inf.caratula.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inf.oficioNro.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inf.nroExpediente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inf.juzgado.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inf.dependenciaInterviniente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inf.licenciadoACargoNombre.toLowerCase().includes(searchTerm.toLowerCase());
+      !term ||
+      inf.caratula.toLowerCase().includes(term) ||
+      inf.oficioNro.toLowerCase().includes(term) ||
+      inf.nroExpediente.toLowerCase().includes(term) ||
+      inf.juzgado.toLowerCase().includes(term) ||
+      inf.dependenciaInterviniente.toLowerCase().includes(term) ||
+      inf.licenciadoACargoNombre.toLowerCase().includes(term);
 
-    const matchEstado =
-      filtroEstado === 'todos' || inf.estado === filtroEstado;
+    const matchEstado = filtroEstado === 'todos' || inf.estado === filtroEstado;
+    const matchTipo = filtroTipo === 'todos' || inf.tipoExpediente === filtroTipo;
+    const matchDep = filtroDependencia === 'todas' || inf.dependenciaInterviniente === filtroDependencia;
+    const matchLic = filtroLicenciado === 'todos' || inf.licenciadoACargoNombre === filtroLicenciado;
+    const matchDesde = !fechaDesde || (inf.fecha && inf.fecha >= fechaDesde);
+    const matchHasta = !fechaHasta || (inf.fecha && inf.fecha <= fechaHasta);
+    const matchPolicial = !soloPolicial || Boolean(inf.involucraPersonalPolicial);
 
-    const matchTipo =
-      filtroTipo === 'todos' || inf.tipoExpediente === filtroTipo;
-
-    return matchSearch && matchEstado && matchTipo;
+    return matchSearch && matchEstado && matchTipo && matchDep && matchLic && matchDesde && matchHasta && matchPolicial;
   });
 
   const handleExportListPdf = (opciones?: OpcionesImpresion) => {
@@ -513,51 +565,110 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Buscar carátula, oficio, expediente, juzgado, perito..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-600 focus:bg-white"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-slate-600 font-medium">Estado:</span>
-            <select
-              value={filtroEstado}
-              onChange={(e) => setFiltroEstado(e.target.value)}
-              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-600"
-            >
-              <option value="todos">Todos los Estados</option>
-              <option value="En Confección">En Confección</option>
-              <option value="Elevado">Elevado</option>
-              <option value="Recepcionado">Recepcionado</option>
-            </select>
+      {/* Filtros Colapsables */}
+      <CollapsibleFilterBar
+        title="Búsqueda y Filtros de Informes Técnicos"
+        activeFiltersCount={activeFiltersCount}
+        onClear={handleClearFilters}
+        summaryRight={
+          <span className="text-[11px] text-slate-500 font-medium">
+            Mostrando <strong>{filteredList.length}</strong> de {informesList.length} informes
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Carátula, oficio, expediente, juzgado, perito..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-600 focus:bg-white"
+            />
           </div>
 
+          <select
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-600"
+          >
+            <option value="todos">Todos los Estados</option>
+            <option value="En Confección">En Confección</option>
+            <option value="Elevado">Elevado</option>
+            <option value="Recepcionado">Recepcionado</option>
+          </select>
+
+          <select
+            value={filtroTipo}
+            onChange={(e) => setFiltroTipo(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-600"
+          >
+            <option value="todos">Todos los Tipos de Sumario</option>
+            <option value="Sumario Judicial">Sumario Judicial</option>
+            <option value="IPP">IPP</option>
+            <option value="Causa Penal">Causa Penal</option>
+            <option value="Expediente Pericial">Expediente Pericial</option>
+            <option value="Actuación Prevencional">Actuación Prevencional</option>
+          </select>
+
+          <select
+            value={filtroDependencia}
+            onChange={(e) => setFiltroDependencia(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-600"
+          >
+            <option value="todas">Todas las Dependencias</option>
+            {dependenciasUnicas.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroLicenciado}
+            onChange={(e) => setFiltroLicenciado(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-600"
+          >
+            <option value="todos">Todos los Licenciados a Cargo</option>
+            {licenciadosUnicos.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+
           <div className="flex items-center gap-1.5">
-            <span className="text-xs text-slate-600 font-medium">Tipo:</span>
-            <select
-              value={filtroTipo}
-              onChange={(e) => setFiltroTipo(e.target.value)}
-              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-600"
-            >
-              <option value="todos">Todos los Tipos</option>
-              <option value="Sumario Judicial">Sumario Judicial</option>
-              <option value="IPP">IPP</option>
-              <option value="Causa Penal">Causa Penal</option>
-              <option value="Expediente Pericial">Expediente Pericial</option>
-              <option value="Actuación Prevencional">Actuación Prevencional</option>
-            </select>
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              title="Fecha Oficio Desde"
+              className="w-full text-xs px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            />
+            <span className="text-slate-400 text-[11px]">a</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              title="Fecha Oficio Hasta"
+              className="w-full text-xs px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            />
           </div>
+
+          <button
+            type="button"
+            onClick={() => setSoloPolicial(!soloPolicial)}
+            className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition-colors cursor-pointer ${
+              soloPolicial
+                ? 'bg-amber-600 text-white border-amber-700'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Con Personal Policial
+          </button>
         </div>
-      </div>
+      </CollapsibleFilterBar>
 
       {/* Tabla de Informes Técnicos */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
@@ -776,6 +887,11 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 text-xs">
+              {formError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 font-semibold">
+                  {formError}
+                </div>
+              )}
               {/* Sección 1: Datos de Cabecera y Causa */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>

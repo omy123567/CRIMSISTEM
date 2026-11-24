@@ -154,6 +154,8 @@ export interface InspeccionOcular {
   personalPolicial?: PersonalPolicialCausa;
 
   delegacionId?: string;
+  grupoGuardia?: string;
+  grupoGuardiaId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -451,6 +453,7 @@ export interface InvolucradoIntervencion {
 
   // Clasificación de Lesiones obligatoria
   tipoLesion?: TipoLesionPolicial;
+  fallecido?: boolean;
   asistenciaMedica?: TipoAsistenciaMedica;
   nosocomioDestino?: string;
   detalleLesiones?: string;
@@ -666,6 +669,7 @@ export interface ConfiguracionSistema {
   tiposLesionCatalogo?: string[]; // "Sin Lesiones", "Leves", "Graves", "Gravísimas", "A Determinar / En Observación"
   ordenColumnasGuardia?: string[]; // Orden personalizable: ['personal', 'moviles', 'lc', 'forense', 'segVial', 'cibercrimen']
   tiposLicenciaCatalogo?: TipoLicenciaConfig[]; // Catálogo de tipos de licencia policial (Anual, Invernal, Extraordinaria, otros)
+  tiposMemoCatalogo?: TipoMemoCatalogoItem[]; // Catálogo de tipos de Memos y Notas (Memorándum, Nota V, Nota, personalizados)
 
   // Supabase Sync opcional
   supabaseUrl?: string;
@@ -771,10 +775,14 @@ export type RolUsuario =
   | 'Operador'
   | 'Administrador'
   | 'superusuario'
+  | 'Jefe'
+  | 'Mayoría / Judicial'
   | 'Oficial de Guardia'
   | 'Carga / Editor'
   | 'Solo Lectura (Auditor / Consulta)'
   | string;
+
+export type PerfilAccesoFolio = 'comun' | 'jefe' | 'mayoria_judicial';
 
 export type PrioridadNovedad = 'Normal' | 'Alta' | 'Urgente' | 'Informativa';
 
@@ -784,6 +792,8 @@ export interface AdjuntoArchivo {
   tipo: string;
   dataUrl: string;
   tamanoBytes?: number;
+  extension?: string;
+  contenidoExtraido?: string;
   fecha?: string;
   integrityHash?: string;
 }
@@ -899,6 +909,12 @@ export interface UsuarioSistema {
   // Permiso específico: Activar o desactivar 2FA (Google Authenticator) de otros usuarios
   puedeGestionar2faOtros?: boolean;
 
+  // Tipos o series de folios ocultos/quitados en Memos y Notas para este usuario
+  tiposMemosOcultos?: string[];
+
+  // Perfil de acceso para visibilidad de Tipo / Serie de Folio ('comun' | 'jefe' | 'mayoria_judicial')
+  perfilFolio?: PerfilAccesoFolio;
+
   activo: boolean;
   dni?: string;
   nombre?: string; // Compatibilidad
@@ -934,6 +950,7 @@ export interface SerieNumerario {
   color: string; // ej: "blue", "indigo", "emerald", "amber", "purple", "rose"
   delegacionId?: string;
   descripcion?: string;
+  perfilesVisibles?: PerfilAccesoFolio[];
   createdAt: string;
   updatedAt?: string;
 }
@@ -1054,10 +1071,12 @@ export interface PdfExportOptions {
 // --- MÓDULO: RÉGIMEN DE LICENCIAS POLICIALES ---
 export interface TipoLicenciaConfig {
   id: string;
-  nombre: string; // "Anual", "Invernal", "Extraordinaria", etc.
+  nombre: string; // "Anual", "Invernal", "Extraordinaria", "Excepcional", etc.
   esDefault?: boolean;
   descuentaSaldoAnual: boolean; // Si imputa días contra los saldos disponibles por año (Anual = true)
+  modoComputo?: 'habiles' | 'corridos'; // 'habiles' (Art. 7 / Invernal / Matrimonio) o 'corridos' (resto Extraord./Excepc.)
   diasSugeridos?: number;
+  articuloReglamento?: string;
   activo: boolean;
 }
 
@@ -1076,17 +1095,26 @@ export interface LicenciaPolicial {
   fechaIngreso?: string;
   antiguedadAnios: number; // Solamente años (sin meses)
 
-  tipoLicencia: string; // 'Anual' | 'Invernal' | 'Extraordinaria' | personalizado
+  tipoLicencia: string; // 'Anual' | 'Invernal' | 'Extraordinaria' | 'Excepcional' | personalizado
+  subtipoLicencia?: string; // ej. 'matrimonio', 'fallecimiento', 'maternidad', 'asuntos_personales', etc.
+  subtipoEtiqueta?: string; // Etiqueta legible del causal (ej. 'Fallecimiento (Art. 47 inc. a)')
+  articuloReglamento?: string; // ej. 'Art. 7', 'Art. 47 inc. a', 'Art. 62'
+  modoComputo?: 'habiles' | 'corridos'; // Hábiles administrativos vs Días corridos
+  parentescoFallecimiento?: string; // Art. 47: Cónyuge, Padre/Madre, Hermano/a, etc.
+  opcionReglamentaria?: string; // Modalidad específica (ej. '45 pre / 105 post', 'Inc. a) No Policial', etc.)
+  autoridadConcesion?: string; // Jefe de Dependencia, Sanidad Policial, Jefatura de Policía, Poder Ejecutivo Provincial
+  esSinGoceHaberes?: boolean; // Art. 62 (no computable para antigüedad, retiro o ascenso)
+
   fechaSalida: string; // YYYY-MM-DD
-  diasHabilesSolicitados: number; // Días hábiles administrativos de licencia
+  diasHabilesSolicitados: number; // Cantidad de días de licencia (hábiles o corridos según modoComputo)
   // Viaje / traslado por vía terrestre (Art. 11)
   incluyeViajeTerrestre?: boolean;
   distanciaKm?: number;
   diasViajeArt11: number; // 0, 1..5 días según Art. 11
 
-  // Calculados automáticamente teniendo en cuenta feriados y días hábiles
+  // Calculados automáticamente teniendo en cuenta feriados y días hábiles (o días corridos)
   fechaFinLicencia: string; // YYYY-MM-DD (último día de licencia)
-  fechaReanudacion: string; // YYYY-MM-DD (día hábil siguiente de regreso)
+  fechaReanudacion: string; // YYYY-MM-DD (día de reintegro)
   horaReanudacion: string; // "08:00"
 
   // Lógica de imputación multi-año
@@ -1135,4 +1163,48 @@ export interface FeriadoDiaNoLaborable {
   delegacionId?: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+// --- MÓDULO: MEMOS Y NOTAS ---
+export type MemoNotaEstado = 'Borrador' | 'Emitido' | 'Enviado' | 'Recepcionado' | 'Archivado';
+
+export interface TipoMemoCatalogoItem {
+  id: string;
+  nombre: string; // ej. "Memorándum", "Nota V", "Nota", "Nota Interna", "Circular"
+  prefijo?: string; // ej. "Mem. N°", "Nota V N°", "Nota N°"
+  esDefault?: boolean;
+  activo: boolean;
+  perfilesVisibles?: PerfilAccesoFolio[];
+}
+
+export interface MemoNota {
+  id: string;
+  tipo: string; // Memorándum, Nota V, Nota, serie de Control de Folios, o personalizado
+  serieFolioId?: string; // Vinculación con SerieNumerario de Control de Folios
+  serieFolioNombre?: string;
+  folioId?: string; // Vinculación opcional con FolioAsignado de Control de Folios
+  nroFolioMemo: string; // N° Folio / Memo (ej. "Mem. N° 015/2026")
+  anio?: number;
+  fecha: string; // YYYY-MM-DD
+  asunto: string;
+  destino: string;
+  remitenteArea?: string;
+  estado: MemoNotaEstado | string;
+  prioridad?: 'Normal' | 'Urgente' | 'Reservado' | string;
+  archivoNombre?: string;
+  archivoMimeType?: string;
+  archivoExtension?: string;
+  archivoTamanoBytes?: number;
+  archivoDataUrl?: string;
+  adjuntos?: AdjuntoArchivo[];
+  contenidoExtraido?: string; // Texto extraído de .docx / .txt / .pdf para búsqueda por contenido
+  observaciones?: string;
+  ocultoParaUsuariosIds?: string[]; // Usuarios específicos que no deben visualizar este registro
+  delegacionId?: string;
+  delegacionNombre?: string;
+  usuarioRegistroId?: string;
+  usuarioRegistroNombre?: string;
+  integrityHash?: string;
+  createdAt: string;
+  updatedAt: string;
 }

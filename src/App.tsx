@@ -28,6 +28,7 @@ import {
   LicenciaPolicial,
   SaldoLicenciaAnio,
   FeriadoDiaNoLaborable,
+  MemoNota,
 } from './types/police';
 
 import { Navbar } from './components/layout/Navbar';
@@ -56,12 +57,20 @@ import { ConfigView } from './components/config/ConfigView';
 import { UsuariosView } from './components/usuarios/UsuariosView';
 import { AuditoriaView } from './components/auditoria/AuditoriaView';
 import { LicenciasPolicialesView } from './components/licencias/LicenciasPolicialesView';
+import { MemosNotasView } from './components/memos/MemosNotasView';
+import {
+  normalizeTiposMemoCatalogo,
+  isMemoVisibleForUser,
+} from './utils/memosCatalogUtils';
 import { PdfPreviewModal } from './components/common/PdfPreviewModal';
 import { LoginView } from './components/auth/LoginView';
 import { CambiarPasswordModal } from './components/auth/CambiarPasswordModal';
 import { TwoFactorModal } from './components/auth/TwoFactorModal';
 import { registrarAuditoria } from './services/auditService';
-import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from './services/licenciaService';
+import {
+  DEFAULT_FERIADOS_ARGENTINA,
+  normalizeTiposLicenciaCatalogo,
+} from './services/licenciaService';
 import {
   syncWithServer,
   saveItemToServer,
@@ -70,13 +79,22 @@ import {
   adminResetUser2faOnServer,
 } from './services/apiService';
 import { getAuthToken, subscribeAuthExpired } from './services/securityClient';
+import {
+  extractIoNumber,
+  extractIoYear,
+  formatNroIO,
+  getLastLoadedIoNumber,
+  getNextIoNumber,
+  sanitizeUltimoNroIO,
+} from './utils/numeracionUtils';
 import { PanelLeftOpen, ShieldAlert, CheckCircle2, Clock, X } from 'lucide-react';
 
 const ensureConfigLicencias = (conf: ConfiguracionSistema): ConfiguracionSistema => {
-  let updated = conf;
-  if (!conf.tiposLicenciaCatalogo || conf.tiposLicenciaCatalogo.length === 0) {
-    updated = { ...updated, tiposLicenciaCatalogo: DEFAULT_TIPOS_LICENCIA };
-  }
+  let updated: ConfiguracionSistema = {
+    ...conf,
+    tiposLicenciaCatalogo: normalizeTiposLicenciaCatalogo(conf.tiposLicenciaCatalogo),
+    tiposMemoCatalogo: normalizeTiposMemoCatalogo(conf.tiposMemoCatalogo),
+  };
   if (
     updated.estructuraModulos &&
     updated.estructuraModulos.length > 0 &&
@@ -94,6 +112,27 @@ const ensureConfigLicencias = (conf: ConfiguracionSistema): ConfiguracionSistema
           orden: updated.estructuraModulos.length,
           padreId: null,
           colorTonalidad: 'esmeralda',
+        },
+      ],
+    };
+  }
+  if (
+    updated.estructuraModulos &&
+    updated.estructuraModulos.length > 0 &&
+    !updated.estructuraModulos.some((m) => m.id === 'memos-notas')
+  ) {
+    updated = {
+      ...updated,
+      estructuraModulos: [
+        ...updated.estructuraModulos,
+        {
+          id: 'memos-notas',
+          label: 'Memos y Notas',
+          desc: 'Memorándums, Nota V, Notas & Anexos',
+          visible: true,
+          orden: updated.estructuraModulos.length,
+          padreId: null,
+          colorTonalidad: 'cian',
         },
       ],
     };
@@ -161,6 +200,7 @@ export default function App() {
   const [licenciasPolicialesList, setLicenciasPolicialesList] = useState<LicenciaPolicial[]>([]);
   const [saldosLicenciasList, setSaldosLicenciasList] = useState<SaldoLicenciaAnio[]>([]);
   const [feriadosList, setFeriadosList] = useState<FeriadoDiaNoLaborable[]>([]);
+  const [memosNotasList, setMemosNotasList] = useState<MemoNota[]>([]);
 
   // Delegación activa en visualización
   const [activeDelegacionId, setActiveDelegacionId] = useState<string>(() => {
@@ -229,6 +269,7 @@ export default function App() {
         licsPol,
         saldosLic,
         fers,
+        memos,
       ] = await Promise.all([
         db.personal.toArray(),
         db.grupos.toArray(),
@@ -254,6 +295,7 @@ export default function App() {
         db.licenciasPoliciales.toArray(),
         db.saldosLicencias.toArray(),
         db.feriados.toArray(),
+        db.memosNotas.toArray(),
       ]);
 
       setPersonalList(pers);
@@ -280,6 +322,7 @@ export default function App() {
       setLicenciasPolicialesList(licsPol);
       setSaldosLicenciasList(saldosLic);
       setFeriadosList(fers && fers.length > 0 ? fers : DEFAULT_FERIADOS_ARGENTINA);
+      setMemosNotasList(memos);
 
       // Si el usuario ya está logueado, sincronizar su sesión fresca sin contraseñas en claro
       if (currentUser) {
@@ -521,8 +564,21 @@ export default function App() {
     );
   }, [saldosLicenciasList, activeDelegacionId]);
 
+  const filteredMemosNotas = useMemo(() => {
+    return memosNotasList.filter(
+      (m) =>
+        (!m.delegacionId || m.delegacionId === activeDelegacionId) &&
+        isMemoVisibleForUser(m, currentUser)
+    );
+  }, [memosNotasList, activeDelegacionId, currentUser]);
+
   // Intervenciones de la delegación activa (combinadas de partes de guardia e independientes)
   const filteredIntervenciones = useMemo(() => {
+    const otherDelegacionParteIds = new Set(
+      partesGuardiaList
+        .filter((p) => (p.delegacionId || 'del-laguna-blanca') !== activeDelegacionId)
+        .map((p) => p.id)
+    );
     const fromPartes = filteredPartesGuardia.flatMap(
       (p) => p.intervenciones || []
     );
@@ -531,6 +587,7 @@ export default function App() {
       map.set(item.id, item);
     }
     for (const item of intervencionesList) {
+      if (item.parteId && otherDelegacionParteIds.has(item.parteId)) continue;
       if (!map.has(item.id)) {
         map.set(item.id, item);
       }
@@ -538,7 +595,7 @@ export default function App() {
     return Array.from(map.values()).sort(
       (a, b) => (b.nroCorrelativo || 0) - (a.nroCorrelativo || 0)
     );
-  }, [filteredPartesGuardia, intervencionesList]);
+  }, [filteredPartesGuardia, intervencionesList, partesGuardiaList, activeDelegacionId]);
 
   // --- TRASLADO DE PERSONAL ENTRE DELEGACIONES ---
   const handleTransferirPersonal = async (
@@ -992,17 +1049,40 @@ export default function App() {
 
   const handleSaveIntervencion = async (inter: IntervencionParte) => {
     const isNew = !intervencionesList.some((i) => i.id === inter.id);
+    const anioInt = inter.inspeccionFecha
+      ? Number(inter.inspeccionFecha.slice(0, 4)) || new Date().getFullYear()
+      : new Date().getFullYear();
+
+    // Asignar I.O. correlativa automática no repetida si no tiene una asignada
+    let finalNroIO = inter.nroIO;
+    if (!finalNroIO || !finalNroIO.trim()) {
+      const nextIoNum = getNextIoNumber({
+        inspecciones: filteredInspecciones,
+        partesGuardia: filteredPartesGuardia,
+        intervenciones: filteredIntervenciones,
+        config,
+        anio: anioInt,
+        delegacionId: activeDelegacionId,
+      });
+      finalNroIO = formatNroIO(nextIoNum, anioInt);
+    }
+
+    const interFinal: IntervencionParte = {
+      ...inter,
+      nroIO: finalNroIO,
+    };
+
     // 1. Guardar en tabla directa de intervenciones
-    await db.intervenciones.put(inter);
-    saveItemToServer('intervenciones', inter);
+    await db.intervenciones.put(interFinal);
+    saveItemToServer('intervenciones', interFinal);
     setIntervencionesList((prev) => {
-      const idx = prev.findIndex((i) => i.id === inter.id);
+      const idx = prev.findIndex((i) => i.id === interFinal.id);
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = inter;
+        copy[idx] = interFinal;
         return copy;
       }
-      return [inter, ...prev];
+      return [interFinal, ...prev];
     });
 
     await registrarAuditoria({
@@ -1010,21 +1090,21 @@ export default function App() {
       delegacionId: activeDelegacionId,
       modulo: 'Intervenciones',
       accion: isNew ? 'CREAR' : 'MODIFICAR',
-      descripcion: `${isNew ? 'Registró' : 'Modificó'} intervención ${inter.tipoIntervencion || ''} N° ${inter.nroCorrelativo} - ${inter.hecho || 'S/D'}`,
+      descripcion: `${isNew ? 'Registró' : 'Modificó'} intervención ${interFinal.tipoIntervencion || ''} N° ${interFinal.nroCorrelativo} (${interFinal.nroIO}) - ${interFinal.hecho || 'S/D'}`,
     });
 
     // 2. Si pertenece a un parte de guardia, actualizar el parte
-    const parte = partesGuardiaList.find((p) => p.id === inter.parteId);
+    const parte = partesGuardiaList.find((p) => p.id === interFinal.parteId);
     if (parte) {
       const currentIntervenciones = parte.intervenciones || [];
-      const idx = currentIntervenciones.findIndex((i) => i.id === inter.id);
+      const idx = currentIntervenciones.findIndex((i) => i.id === interFinal.id);
       let updatedIntervenciones: IntervencionParte[];
 
       if (idx >= 0) {
         updatedIntervenciones = [...currentIntervenciones];
-        updatedIntervenciones[idx] = inter;
+        updatedIntervenciones[idx] = interFinal;
       } else {
-        updatedIntervenciones = [...currentIntervenciones, inter];
+        updatedIntervenciones = [...currentIntervenciones, interFinal];
       }
 
       const parteActualizado: ParteNovedadesGuardia = {
@@ -1035,29 +1115,42 @@ export default function App() {
       await handleSaveParte(parteActualizado);
     }
 
-    // 3. Actualizar contador correlativo en la configuración de contadores
-    if (inter.tipoIntervencion === 'Criminalística') {
+    // 3. Actualizar contadores independientes por tipo (LC vs Accidentológica) y último N° de I.O.
+    const nextConfig: ConfiguracionSistema = { ...config };
+    let configChanged = false;
+
+    if (interFinal.tipoIntervencion === 'Criminalística') {
       const nuevoUltimo = Math.max(
         config.ultimoNroIntervencionCriminalistica || 0,
-        inter.nroCorrelativo
+        interFinal.nroCorrelativo || 0
       );
       if (nuevoUltimo !== config.ultimoNroIntervencionCriminalistica) {
-        await handleSaveConfig({
-          ...config,
-          ultimoNroIntervencionCriminalistica: nuevoUltimo,
-        });
+        nextConfig.ultimoNroIntervencionCriminalistica = nuevoUltimo;
+        configChanged = true;
       }
-    } else if (inter.tipoIntervencion === 'Accidentológica') {
+    } else if (interFinal.tipoIntervencion === 'Accidentológica') {
       const nuevoUltimo = Math.max(
         config.ultimoNroIntervencionAccidentologica || 0,
-        inter.nroCorrelativo
+        interFinal.nroCorrelativo || 0
       );
       if (nuevoUltimo !== config.ultimoNroIntervencionAccidentologica) {
-        await handleSaveConfig({
-          ...config,
-          ultimoNroIntervencionAccidentologica: nuevoUltimo,
-        });
+        nextConfig.ultimoNroIntervencionAccidentologica = nuevoUltimo;
+        configChanged = true;
       }
+    }
+
+    const ioNum = extractIoNumber(interFinal.nroIO);
+    if (ioNum > 0) {
+      const sanitizedPrevIo = sanitizeUltimoNroIO(config.ultimoNroIO);
+      const nuevoUltimoIo = Math.max(sanitizedPrevIo, ioNum);
+      if (nuevoUltimoIo !== config.ultimoNroIO) {
+        nextConfig.ultimoNroIO = nuevoUltimoIo;
+        configChanged = true;
+      }
+    }
+
+    if (configChanged) {
+      await handleSaveConfig(nextConfig);
     }
 
     // 4. Sincronización automática con módulo de Accidentología Vial si es siniestro con personal policial
@@ -1175,24 +1268,91 @@ export default function App() {
     };
     await db.inspeccionesOculares.put(entity);
     saveItemToServer('inspeccionesOculares', entity);
-    setInspeccionesList((prev) => {
-      const idx = prev.findIndex((item) => item.id === entity.id);
+
+    const nextInspecciones = (() => {
+      const idx = inspeccionesList.findIndex((item) => item.id === entity.id);
       if (idx >= 0) {
-        const copy = [...prev];
+        const copy = [...inspeccionesList];
         copy[idx] = entity;
         return copy;
       }
-      return [entity, ...prev];
-    });
+      return [entity, ...inspeccionesList];
+    })();
+    setInspeccionesList(nextInspecciones);
 
-    if (ins.nroIO) {
-      const numPart = parseInt(ins.nroIO.replace(/\D/g, ''), 10);
-      const updatedConfig: ConfiguracionSistema = {
-        ...config,
-        ultimoNroIntervencionCriminalistica: (config.ultimoNroIntervencionCriminalistica || 0) + 1,
-        ultimoNroIO: Math.max(config.ultimoNroIO ?? 0, numPart),
-      };
-      await handleSaveConfig(updatedConfig);
+    // Sincronizar si proviene de una intervención de guardia / intervenciones
+    if (entity.intervencionId) {
+      const linkedInterv = intervencionesList.find((i) => i.id === entity.intervencionId);
+      if (linkedInterv) {
+        const updatedInterv: IntervencionParte = {
+          ...linkedInterv,
+          nroIO: entity.nroIO,
+          fotosConfirmadas: Boolean(entity.fotosConfirmadas),
+          confirmadoPorUsuario: entity.confirmadoPorUsuario,
+          perito: entity.perito || linkedInterv.perito,
+          fotografo: entity.fotografo || linkedInterv.fotografo,
+        };
+        await db.intervenciones.put(updatedInterv);
+        saveItemToServer('intervenciones', updatedInterv);
+        setIntervencionesList((prev) =>
+          prev.map((i) => (i.id === updatedInterv.id ? updatedInterv : i))
+        );
+      }
+
+      const parteConInterv = partesGuardiaList.find((p) =>
+        (p.intervenciones || []).some((i) => i.id === entity.intervencionId)
+      );
+      if (parteConInterv) {
+        const updatedParte: ParteNovedadesGuardia = {
+          ...parteConInterv,
+          intervenciones: (parteConInterv.intervenciones || []).map((i) =>
+            i.id === entity.intervencionId
+              ? {
+                  ...i,
+                  nroIO: entity.nroIO,
+                  fotosConfirmadas: Boolean(entity.fotosConfirmadas),
+                  confirmadoPorUsuario: entity.confirmadoPorUsuario,
+                  perito: entity.perito || i.perito,
+                  fotografo: entity.fotografo || i.fotografo,
+                }
+              : i
+          ),
+          updatedAt: new Date().toISOString(),
+        };
+        await db.partesGuardia.put(updatedParte);
+        saveItemToServer('partesGuardia', updatedParte);
+        setPartesGuardiaList((prev) =>
+          prev.map((p) => (p.id === updatedParte.id ? updatedParte : p))
+        );
+      }
+    }
+
+    if (entity.nroIO) {
+      const anioRef =
+        extractIoYear(entity.nroIO) ||
+        (entity.fecha ? Number(entity.fecha.slice(0, 4)) : 0) ||
+        new Date().getFullYear();
+      const delegacionRef = entity.delegacionId || activeDelegacionId;
+      const lastLoaded = getLastLoadedIoNumber({
+        inspecciones: nextInspecciones.filter(
+          (i) => !i.delegacionId || i.delegacionId === delegacionRef
+        ),
+        partesGuardia: partesGuardiaList.filter(
+          (p) => (p.delegacionId || 'del-laguna-blanca') === delegacionRef
+        ),
+        intervenciones: filteredIntervenciones,
+        anio: anioRef,
+        delegacionId: delegacionRef,
+      });
+      const currentNum = extractIoNumber(entity.nroIO);
+      const nuevoUltimoIO = Math.max(lastLoaded, currentNum);
+
+      if (nuevoUltimoIO !== config.ultimoNroIO) {
+        await handleSaveConfig({
+          ...config,
+          ultimoNroIO: nuevoUltimoIO,
+        });
+      }
     }
   };
 
@@ -1200,7 +1360,25 @@ export default function App() {
     if (!verificarPermisoEliminar()) return;
     await db.inspeccionesOculares.delete(id);
     deleteItemFromServer('inspeccionesOculares', id);
-    setInspeccionesList((prev) => prev.filter((i) => i.id !== id));
+    const remaining = inspeccionesList.filter((i) => i.id !== id);
+    setInspeccionesList(remaining);
+
+    const anioActual = new Date().getFullYear();
+    const lastLoaded = getLastLoadedIoNumber({
+      inspecciones: remaining.filter(
+        (i) => !i.delegacionId || i.delegacionId === activeDelegacionId
+      ),
+      partesGuardia: filteredPartesGuardia,
+      intervenciones: filteredIntervenciones,
+      anio: anioActual,
+      delegacionId: activeDelegacionId,
+    });
+    if (lastLoaded !== sanitizeUltimoNroIO(config.ultimoNroIO)) {
+      await handleSaveConfig({
+        ...config,
+        ultimoNroIO: lastLoaded,
+      });
+    }
   };
 
   // --- CRUD FORENSES ---
@@ -1746,6 +1924,50 @@ export default function App() {
     setFeriadosList((prev) => prev.filter((f) => f.id !== id));
   };
 
+  // --- CRUD MEMOS Y NOTAS ---
+  const handleSaveMemoNota = async (memo: MemoNota) => {
+    const isNew = !memosNotasList.some((m) => m.id === memo.id);
+    const entity: MemoNota = {
+      ...memo,
+      delegacionId: memo.delegacionId || activeDelegacionId,
+    };
+    await db.memosNotas.put(entity);
+    saveItemToServer('memosNotas', entity);
+    setMemosNotasList((prev) => {
+      const idx = prev.findIndex((item) => item.id === entity.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = entity;
+        return copy;
+      }
+      return [entity, ...prev];
+    });
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Memos y Notas',
+      accion: isNew ? 'CREAR' : 'MODIFICAR',
+      descripcion: `${isNew ? 'Registró' : 'Actualizó'} ${entity.tipo} "${entity.nroFolioMemo}" — Asunto: ${entity.asunto} (Destino: ${entity.destino})`,
+      delegacionId: entity.delegacionId || activeDelegacionId,
+    });
+  };
+
+  const handleDeleteMemoNota = async (id: string) => {
+    if (!verificarPermisoEliminar()) return;
+    const target = memosNotasList.find((m) => m.id === id);
+    await db.memosNotas.delete(id);
+    deleteItemFromServer('memosNotas', id);
+    setMemosNotasList((prev) => prev.filter((m) => m.id !== id));
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Memos y Notas',
+      accion: 'ELIMINAR',
+      descripcion: `Eliminó ${target?.tipo || 'documento'} "${target?.nroFolioMemo || id}" (${target?.asunto || ''})`,
+      delegacionId: target?.delegacionId || activeDelegacionId,
+    });
+  };
+
   // --- CAMBIO DE CONTRASEÑA ---
   const handleSavePassword = async (
     userId: string,
@@ -1889,6 +2111,12 @@ export default function App() {
               ...cfg,
               estructuraModulos: newConfig.estructuraModulos,
               estructuraModulosUpdatedAt: structTimestamp,
+              ...(newConfig.tiposLicenciaCatalogo
+                ? { tiposLicenciaCatalogo: newConfig.tiposLicenciaCatalogo }
+                : {}),
+              ...(newConfig.tiposMemoCatalogo
+                ? { tiposMemoCatalogo: newConfig.tiposMemoCatalogo }
+                : {}),
             };
             await db.configuracion.put(updated);
             saveItemToServer('configuracion', updated);
@@ -1919,6 +2147,12 @@ export default function App() {
               pieDePagina: del.pieDePagina || DEFAULT_CONFIG.pieDePagina,
               estructuraModulos: newConfig.estructuraModulos,
               estructuraModulosUpdatedAt: structTimestamp,
+              ...(newConfig.tiposLicenciaCatalogo
+                ? { tiposLicenciaCatalogo: newConfig.tiposLicenciaCatalogo }
+                : {}),
+              ...(newConfig.tiposMemoCatalogo
+                ? { tiposMemoCatalogo: newConfig.tiposMemoCatalogo }
+                : {}),
             };
             await db.configuracion.put(createdCfg);
             saveItemToServer('configuracion', createdCfg);
@@ -2015,6 +2249,7 @@ export default function App() {
               movilesTaller: movilesTallerCount,
               armasRetenidas: armasRetenidasCount,
               charlasProximas: charlasProximasCount,
+              memosNotas: filteredMemosNotas.length,
               inspecciones:
                 filteredInspecciones.length +
                 filteredPartesGuardia.reduce(
@@ -2127,7 +2362,10 @@ export default function App() {
               personalList={filteredPersonal}
               movilesList={filteredMoviles}
               gruposList={filteredGrupos}
+              delegacionesList={delegacionesList}
+              activeDelegacionId={activeDelegacionId}
               licenciasPoliciales={filteredLicenciasPoliciales}
+              inspeccionesList={filteredInspecciones}
               config={config}
               currentUser={currentUser || undefined}
               onSaveParte={handleSaveParte}
@@ -2142,7 +2380,11 @@ export default function App() {
             <InspeccionesView
               inspeccionesList={filteredInspecciones}
               partesGuardiaList={filteredPartesGuardia}
+              intervencionesList={filteredIntervenciones}
               personalList={filteredPersonal}
+              delegacionesList={delegacionesList}
+              gruposList={filteredGrupos}
+              activeDelegacionId={activeDelegacionId}
               config={config}
               currentUser={currentUser || undefined}
               onSaveInspeccion={handleSaveInspeccion}
@@ -2259,11 +2501,31 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'memos-notas' && (
+            <MemosNotasView
+              memosList={filteredMemosNotas}
+              seriesList={filteredSeriesNumerario}
+              foliosList={filteredFolios}
+              usuariosList={usuariosList}
+              delegacionesList={delegacionesList}
+              activeDelegacionId={activeDelegacionId}
+              config={config}
+              currentUser={currentUser}
+              onSaveMemo={handleSaveMemoNota}
+              onDeleteMemo={handleDeleteMemoNota}
+              onSaveConfig={handleSaveConfig}
+              onSaveUsuario={handleSaveUsuario}
+              onSaveSerie={handleSaveSerie}
+            />
+          )}
+
           {activeTab === 'usuarios' && currentUser && (
             <UsuariosView
               usuariosList={usuariosList}
               delegacionesList={delegacionesList}
               rolesList={rolesList}
+              seriesNumerarioList={filteredSeriesNumerario}
+              config={config}
               currentUser={currentUser}
               onSaveUsuario={handleSaveUsuario}
               onDeleteUsuario={handleDeleteUsuario}
