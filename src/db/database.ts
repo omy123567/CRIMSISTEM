@@ -31,7 +31,7 @@ import {
 } from '../types/police';
 import { crearOfflineVerifier } from '../services/securityClient';
 import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from '../services/licenciaService';
-import { DEFAULT_TIPOS_MEMO } from '../utils/memosCatalogUtils';
+import { DEFAULT_TIPOS_MEMO, normalizeTipoKey } from '../utils/memosCatalogUtils';
 
 export class SisPolDatabase extends Dexie {
   personal!: Table<Personal, string>;
@@ -1073,66 +1073,241 @@ export const DEFAULT_INFORMES_TECNICOS: InformeTecnico[] = [];
 
 export const DEFAULT_SERIES_NUMERARIO: SerieNumerario[] = [
   {
+    id: 'serie-memorandums',
+    nombre: 'Memorandum',
+    prefijo: 'Memorandum N°',
+    anio: 2026,
+    limiteFolios: 1000,
+    columnas: 20,
+    color: 'emerald',
+    orden: 1,
+    delegacionId: 'del-laguna-blanca',
+    descripcion: 'Memorándums internos, disposiciones operativas y directivas de servicio',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'serie-nota-v',
+    nombre: 'Nota V',
+    prefijo: 'Nota V N°',
+    anio: 2026,
+    limiteFolios: 1000,
+    columnas: 20,
+    color: 'cyan',
+    orden: 2,
+    delegacionId: 'del-laguna-blanca',
+    descripcion: 'Notas de Vicedirección, requerimientos y elevaciones administrativas',
+    createdAt: new Date().toISOString(),
+  },
+  {
     id: 'serie-oficio-jefatura',
-    nombre: 'Oficio Jefatura',
+    nombre: 'Oficio J',
     prefijo: 'Oficio J N°',
     anio: 2026,
     limiteFolios: 1000,
     columnas: 20,
     color: 'blue',
+    orden: 3,
     delegacionId: 'del-laguna-blanca',
     descripcion: 'Oficios judiciales y comunicaciones oficiales emitidas por Jefatura de Delegación',
     createdAt: new Date().toISOString(),
   },
   {
     id: 'serie-oficio-vicedireccion',
-    nombre: 'Oficio Vicedirección',
+    nombre: 'Oficio V',
     prefijo: 'Oficio V N°',
     anio: 2026,
     limiteFolios: 1000,
     columnas: 20,
     color: 'indigo',
+    orden: 4,
     delegacionId: 'del-laguna-blanca',
     descripcion: 'Oficios, informes elevados y resoluciones de Vicedirección y Subjefatura',
     createdAt: new Date().toISOString(),
   },
   {
-    id: 'serie-memorandums',
-    nombre: 'Memorándums',
-    prefijo: 'Mem. N°',
-    anio: 2026,
-    limiteFolios: 1000,
-    columnas: 20,
-    color: 'emerald',
-    delegacionId: 'del-laguna-blanca',
-    descripcion: 'Memorándums internos, disposiciones operativas y directivas de servicio',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'serie-expedientes',
-    nombre: 'Expedientes',
-    prefijo: 'Exp. N°',
+    id: 'serie-memorandum-r',
+    nombre: 'Memorandum R',
+    prefijo: 'Memorandum R N°',
     anio: 2026,
     limiteFolios: 1000,
     columnas: 20,
     color: 'amber',
+    orden: 5,
+    perfilesVisibles: ['jefe', 'mayoria_judicial'],
     delegacionId: 'del-laguna-blanca',
-    descripcion: 'Control de folios para carátulas de expedientes periciales y sumarios',
+    descripcion: 'Memorándums Reservados, directivas sensibles y comunicaciones de carácter reservado',
     createdAt: new Date().toISOString(),
   },
   {
-    id: 'serie-circulares',
-    nombre: 'Circulares',
-    prefijo: 'Circ. N°',
+    id: 'serie-radiograma',
+    nombre: 'Radiograma',
+    prefijo: 'Radiograma N°',
     anio: 2026,
     limiteFolios: 1000,
     columnas: 20,
     color: 'purple',
+    orden: 6,
     delegacionId: 'del-laguna-blanca',
-    descripcion: 'Circulares generales y notificaciones de interés institucional',
+    descripcion: 'Radiogramas institucionales, circulares telegráficas y despachos urgentes',
     createdAt: new Date().toISOString(),
   },
 ];
+
+export function standardizeControlFoliosSeries(
+  series: SerieNumerario[],
+  folios: FolioAsignado[] = [],
+  memos: MemoNota[] = []
+): {
+  series: SerieNumerario[];
+  deletedIds: string[];
+  changed: boolean;
+} {
+  let changed = false;
+  const deletedIds: string[] = [];
+  const nextSeries: SerieNumerario[] = [];
+  const canonicalById = new Map(DEFAULT_SERIES_NUMERARIO.map((s) => [s.id, s]));
+
+  for (const s of series || []) {
+    if (s.id === 'serie-expedientes' || s.id === 'serie-circulares') {
+      const hasFolios = folios.some((f) => f.serieId === s.id);
+      const hasMemos = memos.some(
+        (m) =>
+          m.serieFolioId === s.id ||
+          (m.tipo && s.nombre && m.tipo.trim().toLowerCase() === s.nombre.trim().toLowerCase())
+      );
+      if (!hasFolios && !hasMemos) {
+        deletedIds.push(s.id);
+        changed = true;
+        continue;
+      }
+    }
+
+    if (
+      (s.id === 'serie-oficio-jefatura' &&
+        (s.nombre === 'Oficio Jefatura' || s.nombre === 'Oficio J')) ||
+      (s.id === 'serie-oficio-vicedireccion' &&
+        (s.nombre === 'Oficio Vicedirección' || s.nombre === 'Oficio V')) ||
+      (s.id === 'serie-memorandums' &&
+        (s.nombre === 'Memorándums' || s.nombre === 'Memorandums' || s.nombre === 'Memorandum'))
+    ) {
+      const target = canonicalById.get(s.id)!;
+      if (s.nombre !== target.nombre || s.prefijo !== target.prefijo) {
+        nextSeries.push({
+          ...s,
+          nombre: target.nombre,
+          prefijo: target.prefijo,
+          descripcion: target.descripcion,
+          orden: typeof s.orden === 'number' ? s.orden : target.orden,
+          updatedAt: new Date().toISOString(),
+        });
+        changed = true;
+        continue;
+      }
+    }
+
+    nextSeries.push(s);
+  }
+
+  for (const defSerie of DEFAULT_SERIES_NUMERARIO) {
+    const exists = nextSeries.some(
+      (s) =>
+        s.id === defSerie.id ||
+        s.nombre.trim().toLowerCase() === defSerie.nombre.trim().toLowerCase()
+    );
+    if (!exists) {
+      nextSeries.push({ ...defSerie });
+      changed = true;
+    }
+  }
+
+  const orderIndex = new Map(DEFAULT_SERIES_NUMERARIO.map((s, idx) => [s.id, idx]));
+  nextSeries.sort((a, b) => {
+    const ordA =
+      typeof a.orden === 'number'
+        ? a.orden
+        : (orderIndex.has(a.id) ? orderIndex.get(a.id)! + 1 : 999);
+    const ordB =
+      typeof b.orden === 'number'
+        ? b.orden
+        : (orderIndex.has(b.id) ? orderIndex.get(b.id)! + 1 : 999);
+    return ordA - ordB;
+  });
+
+  return { series: nextSeries, deletedIds, changed };
+}
+
+export function enforceMemorandumRVisibilityRestriction(
+  series: SerieNumerario[],
+  configuraciones: ConfiguracionSistema[] = []
+): {
+  series: SerieNumerario[];
+  configuraciones: ConfiguracionSistema[];
+  changed: boolean;
+} {
+  let changed = false;
+  const canonicalOrderById = new Map(
+    DEFAULT_SERIES_NUMERARIO.map((s, idx) => [s.id, s.orden ?? idx + 1])
+  );
+
+  const nextSeries = (series || []).map((s, idx) => {
+    const isMemR =
+      s.id === 'serie-memorandum-r' ||
+      s.id.startsWith('serie-memorandum-r-') ||
+      normalizeTipoKey(s.nombre) === 'memorandum r';
+    const targetOrden =
+      typeof s.orden === 'number'
+        ? s.orden
+        : canonicalOrderById.get(s.id) ?? idx + 1;
+
+    let itemChanged = false;
+    const copy: SerieNumerario = { ...s };
+
+    if (typeof s.orden !== 'number') {
+      copy.orden = targetOrden;
+      itemChanged = true;
+    }
+
+    if (isMemR) {
+      const targetPerfiles: ('jefe' | 'mayoria_judicial')[] = ['jefe', 'mayoria_judicial'];
+      const curr = Array.isArray(s.perfilesVisibles) ? [...s.perfilesVisibles].sort() : null;
+      const expected = [...targetPerfiles].sort();
+      if (JSON.stringify(curr) !== JSON.stringify(expected)) {
+        copy.perfilesVisibles = targetPerfiles;
+        copy.updatedAt = new Date().toISOString();
+        itemChanged = true;
+      }
+    }
+
+    if (itemChanged) changed = true;
+    return copy;
+  });
+
+  const nextConfigs = (configuraciones || []).map((cfg) => {
+    if (!Array.isArray(cfg?.tiposMemoCatalogo)) return cfg;
+    let cfgChanged = false;
+    const nextCat = cfg.tiposMemoCatalogo.map((t) => {
+      const isMemR =
+        t.id === 'tm-memorandum-r' || normalizeTipoKey(t.nombre) === 'memorandum r';
+      if (isMemR) {
+        const targetPerfiles: ('jefe' | 'mayoria_judicial')[] = ['jefe', 'mayoria_judicial'];
+        const curr = Array.isArray(t.perfilesVisibles) ? [...t.perfilesVisibles].sort() : null;
+        const expected = [...targetPerfiles].sort();
+        if (JSON.stringify(curr) !== JSON.stringify(expected)) {
+          cfgChanged = true;
+          return { ...t, perfilesVisibles: targetPerfiles };
+        }
+      }
+      return t;
+    });
+    if (cfgChanged) {
+      changed = true;
+      return { ...cfg, tiposMemoCatalogo: nextCat };
+    }
+    return cfg;
+  });
+
+  return { series: nextSeries, configuraciones: nextConfigs, changed };
+}
 
 export const DEFAULT_FOLIOS: FolioAsignado[] = [];
 
@@ -1191,6 +1366,47 @@ export async function seedInitialDataIfEmpty() {
   const countSeries = await db.seriesNumerario.count();
   if (countSeries === 0) {
     await db.seriesNumerario.bulkPut(DEFAULT_SERIES_NUMERARIO);
+  } else {
+    const alreadyMigrated =
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem('sispol_series_v2_migrated') === '1';
+    if (!alreadyMigrated) {
+      const [curSeries, curFolios, curMemos] = await Promise.all([
+        db.seriesNumerario.toArray(),
+        db.folios.toArray(),
+        db.memosNotas.toArray(),
+      ]);
+      const res = standardizeControlFoliosSeries(curSeries, curFolios, curMemos);
+      if (res.changed) {
+        if (res.deletedIds.length > 0) {
+          await db.seriesNumerario.bulkDelete(res.deletedIds);
+        }
+        await db.seriesNumerario.bulkPut(res.series);
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('sispol_series_v2_migrated', '1');
+      }
+    }
+
+    const memRMigrated =
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem('sispol_mem_r_restricted_v3') === '1';
+    if (!memRMigrated) {
+      const [curSeries, curConfigs] = await Promise.all([
+        db.seriesNumerario.toArray(),
+        db.configuracion.toArray(),
+      ]);
+      const v3Res = enforceMemorandumRVisibilityRestriction(curSeries, curConfigs);
+      if (v3Res.changed) {
+        await db.seriesNumerario.bulkPut(v3Res.series);
+        if (v3Res.configuraciones.length > 0) {
+          await db.configuracion.bulkPut(v3Res.configuraciones);
+        }
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('sispol_mem_r_restricted_v3', '1');
+      }
+    }
   }
 
   const countFeriados = await db.feriados.count();

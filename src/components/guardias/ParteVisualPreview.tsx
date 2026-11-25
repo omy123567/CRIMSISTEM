@@ -7,11 +7,16 @@ import {
   LicenciaPolicial,
 } from '../../types/police';
 import { getLicenciaActivaPersonal, formatFechaDisplay } from '../../services/licenciaService';
-import { Download, Printer, Plus, Edit2, Trash2, X, Eye } from 'lucide-react';
+import { Download, Printer, Plus, Edit2, Trash2, X, Eye, AlertTriangle } from 'lucide-react';
 import { generarPdfParteGuardia } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { ModalOpcionesImpresion, OpcionesImpresion } from '../common/ModalOpcionesImpresion';
 import { PdfCanvasPreview } from '../common/PdfCanvasPreview';
+import {
+  esTipoLesionADeterminar,
+  getResumenLesionADeterminarIntervencion,
+  getResumenLesionADeterminarParte,
+} from '../../utils/lesionesUtils';
 
 interface ParteVisualPreviewProps {
   parte: ParteNovedadesGuardia;
@@ -145,6 +150,31 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Aviso si el Parte de Novedades contiene intervenciones con lesiones "A Determinar" */}
+      {(() => {
+        const resumenPartePend = getResumenLesionADeterminarParte(parte);
+        if (resumenPartePend.cantidadIntervenciones === 0) return null;
+        return (
+          <div className="bg-amber-50 border-2 border-amber-400 rounded-xl p-3 text-xs text-amber-950 flex items-start gap-2.5 shadow-xs print:hidden">
+            <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-extrabold block">
+                Aviso: {resumenPartePend.cantidadIntervenciones} intervención(es) en este Parte tienen Tipo de Lesiones &ldquo;A Determinar&rdquo;
+              </span>
+              <span className="text-[11px] text-amber-900 block mt-0.5">
+                Falta completar el carácter definitivo de las lesiones en:{' '}
+                <strong>
+                  {resumenPartePend.intervenciones
+                    .map((i) => `N° ${i.nroCorrelativo} (${i.hecho})`)
+                    .join(', ')}
+                </strong>
+                . Las mismas figuran remarcadas debajo.
+              </span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MAQUETA VISUAL EXACTA AL MODELO DE LAS IMÁGENES PROVISTAS */}
       <div className="bg-white p-4 sm:p-8 rounded-xl border border-slate-300 shadow-md font-sans text-slate-900 text-[11px] leading-tight space-y-6 print:border-none print:shadow-none print:p-0">
@@ -311,9 +341,17 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
               const headerTitle = interv.tipoIntervencion === 'Accidentológica'
                 ? `INTERVENCIÓN ACCIDENTOLÓGICA Nº    ${interv.nroCorrelativo}    /${new Date(parte.fechaInicio).getFullYear()}-${config.siglasDependencia}.`
                 : `INTERVENCIÓN CRIMINALÍSTICA Nº    ${interv.nroCorrelativo}    /${new Date(parte.fechaInicio).getFullYear()}-${config.siglasDependencia}.`;
+              const resumenLesionPend = getResumenLesionADeterminarIntervencion(interv);
 
               return (
-                <div key={interv.id} className="border-2 border-slate-900 relative group overflow-hidden">
+                <div
+                  key={interv.id}
+                  className={`border-2 relative group overflow-hidden ${
+                    resumenLesionPend.tienePendiente
+                      ? 'border-amber-500 ring-2 ring-amber-300/70 bg-amber-50/20 print:border-slate-900 print:ring-0 print:bg-white'
+                      : 'border-slate-900'
+                  }`}
+                >
                   {/* Botones de acción flotantes para edición */}
                   {(onEditIntervencion || onDeleteIntervencion) && (
                     <div className="absolute top-2 right-2 flex items-center gap-1 z-10 print:hidden opacity-0 group-hover:opacity-100 transition-opacity">
@@ -343,8 +381,17 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
                     <div className="w-16 border-r-2 border-slate-900 flex items-center justify-center font-bold text-sm bg-[#0e1f3d]">
                       {itemNum}
                     </div>
-                    <div className="flex-1 py-1.5 px-3 text-center font-bold text-xs tracking-wider">
-                      {headerTitle}
+                    <div className="flex-1 py-1.5 px-3 text-center font-bold text-xs tracking-wider flex flex-wrap items-center justify-center gap-2">
+                      <span>{headerTitle}</span>
+                      {resumenLesionPend.tienePendiente && (
+                        <span
+                          className="print:hidden inline-flex items-center gap-1 bg-amber-400 text-slate-950 px-2 py-0.5 rounded text-[10px] font-extrabold tracking-normal"
+                          title={resumenLesionPend.motivos.join(' | ')}
+                        >
+                          <AlertTriangle className="w-3 h-3 shrink-0" />
+                          <span>FALTA TIPO DE LESIÓN (A DETERMINAR)</span>
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -401,6 +448,17 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
                             {interv.involucrados.map((inv) => (
                               <span key={inv.id} className="mr-3 font-medium">
                                 <strong>{inv.apellidoYNombre}</strong>, DNI: {inv.dni}, {inv.edad} años. ({inv.funcionEnHecho})
+                                {inv.tipoLesion && inv.tipoLesion !== 'Sin Lesiones' && (
+                                  <span
+                                    className={`ml-1 px-1 py-0.2 rounded text-[10px] font-bold ${
+                                      esTipoLesionADeterminar(inv.tipoLesion)
+                                        ? 'bg-amber-200 text-amber-950 border border-amber-500 print:bg-transparent print:border-none'
+                                        : 'text-rose-800'
+                                    }`}
+                                  >
+                                    [Lesión: {inv.tipoLesion}]
+                                  </span>
+                                )}
                               </span>
                             ))}
                           </td>
@@ -485,7 +543,15 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
                               <td className="p-1 px-2 font-bold underline border-r border-slate-900">Z. CONTACTO</td>
                               <td className="p-1 px-2 border-r border-slate-900">{v.zonaContacto}</td>
                               <td className="p-1 px-2 font-bold underline border-r border-slate-900">LESIONES</td>
-                              <td className="p-1 px-2 font-bold text-red-800">{v.lesiones || 'Ileso'}</td>
+                              <td
+                                className={`p-1 px-2 font-bold ${
+                                  esTipoLesionADeterminar(v.lesiones)
+                                    ? 'bg-amber-100 text-amber-950 print:bg-transparent print:text-slate-900'
+                                    : 'text-red-800'
+                                }`}
+                              >
+                                {v.lesiones || 'Ileso'}
+                              </td>
                             </tr>
                           </React.Fragment>
                         ))}

@@ -7,13 +7,10 @@ import {
   Edit2,
   Trash2,
   Shield,
-  UserCheck,
   UserPlus,
-  Layers,
   Sparkles,
   Download,
-  Filter,
-  CheckCircle,
+  BarChart3,
 } from 'lucide-react';
 import { GrupoModal } from './GrupoModal';
 import jsPDF from 'jspdf';
@@ -22,6 +19,13 @@ import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ModuleStatsPanel, StatKpiItem, StatChartConfig } from '../common/ModuleStatsPanel';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface GruposViewProps {
   gruposList: GrupoPersonal[];
@@ -45,6 +49,7 @@ export const GruposView: React.FC<GruposViewProps> = ({
   const [filtroJefe, setFiltroJefe] = useState('todos');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedGrupo, setSelectedGrupo] = useState<GrupoPersonal | null>(null);
+  const [showStats, setShowStats] = useState(false);
   const [deleteGrupoConfirm, setDeleteGrupoConfirm] = useState<{
     isOpen: boolean;
     grupo: GrupoPersonal | null;
@@ -102,6 +107,53 @@ export const GruposView: React.FC<GruposViewProps> = ({
     setFiltroJefe('todos');
   };
 
+  const gruposStats = useMemo(() => {
+    const total = filteredGrupos.length;
+    const activos = filteredGrupos.filter((g) => g.activo).length;
+    const inactivos = total - activos;
+    const totalAsignaciones = filteredGrupos.reduce((acc, g) => acc + g.personalIds.length, 0);
+    const unicosAsignados = new Set(filteredGrupos.flatMap((g) => g.personalIds)).size;
+    const promedio = total > 0 ? Math.round((totalAsignaciones / total) * 10) / 10 : 0;
+
+    const porGrupo = filteredGrupos.map((g) => ({
+      name: g.nombre,
+      value: g.personalIds.length,
+    }));
+
+    const porEstado = [
+      { name: 'Activos', value: activos },
+      { name: 'Inactivos', value: inactivos },
+    ].filter((d) => d.value > 0);
+
+    const kpis: StatKpiItem[] = [
+      { label: 'Total Grupos', value: total, detail: 'En vista filtrada', tone: 'navy' },
+      { label: 'Grupos Activos', value: activos, detail: `${inactivos} inactivos`, tone: 'emerald' },
+      { label: 'Efectivos Asignados', value: unicosAsignados, detail: `${totalAsignaciones} asignaciones`, tone: 'blue' },
+      { label: 'Promedio / Grupo', value: promedio, detail: 'Efectivos por sección', tone: 'slate' },
+    ];
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'grupos-efectivos',
+        title: 'Efectivos por Grupo de Guardia',
+        subtitle: 'Dotación asignada en cada sección',
+        type: 'bar',
+        data: porGrupo,
+        valueLabel: 'Efectivos',
+        primaryColor: '#11264d',
+      },
+      {
+        id: 'grupos-estado',
+        title: 'Estado Operativo de Secciones',
+        subtitle: 'Distribución activos vs. inactivos',
+        type: 'donut',
+        data: porEstado,
+      },
+    ];
+
+    return { total, activos, inactivos, unicosAsignados, promedio, porGrupo, porEstado, kpis, charts };
+  }, [filteredGrupos]);
+
   // Exportar PDF de nómina de grupos
   const handleExportPdf = () => {
     requestPdfExport({
@@ -122,6 +174,47 @@ export const GruposView: React.FC<GruposViewProps> = ({
           'NÓMINA DE GRUPOS Y SECCIONES DE GUARDIA',
           12
         );
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY + 2,
+          [
+            { label: 'Total Grupos', value: gruposStats.total, subtitle: 'Secciones incluidas', accentColor: [17, 38, 77] },
+            { label: 'Grupos Activos', value: gruposStats.activos, subtitle: `${gruposStats.inactivos} inactivos`, accentColor: [15, 118, 110] },
+            { label: 'Efectivos Únicos', value: gruposStats.unicosAsignados, subtitle: 'Personal asignado', accentColor: [29, 78, 216] },
+            { label: 'Promedio / Grupo', value: gruposStats.promedio, subtitle: 'Efectivos por grupo', accentColor: [71, 85, 105] },
+          ],
+          14
+        );
+
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            {
+              title: 'Efectivos Asignados por Grupo',
+              subtitle: 'Dotación actual por sección',
+              imageDataUrl: renderBarChartPng(
+                gruposStats.porGrupo.map((d) => ({ label: d.name, value: d.value })),
+                { barColor: '#11264d' }
+              ),
+            },
+            {
+              title: 'Estado Operativo de Grupos',
+              subtitle: 'Activos vs. Inactivos',
+              imageDataUrl: renderDonutChartPng(
+                gruposStats.porEstado.map((d) => ({ label: d.name, value: d.value })),
+                { centerLabel: 'GRUPOS' }
+              ),
+            },
+          ],
+          14
+        );
+
+        if (currentY > pageHeight - 40) {
+          doc.addPage();
+          currentY = 18;
+        }
 
         filteredGrupos.forEach((g) => {
           const members = g.personalIds
@@ -186,10 +279,23 @@ export const GruposView: React.FC<GruposViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowStats((prev) => !prev)}
+            className={`px-3 py-2 border rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+              showStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Estadísticas</span>
+          </button>
+
           <button
             onClick={handleExportPdf}
-            className="px-3.5 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+            className="px-3.5 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
             title="Descargar PDF de nómina de grupos"
           >
             <Download className="w-4 h-4 text-slate-500" />
@@ -201,13 +307,25 @@ export const GruposView: React.FC<GruposViewProps> = ({
               setSelectedGrupo(null);
               setIsModalOpen(true);
             }}
-            className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+            className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-sm transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>+ Nuevo Grupo / Guardia</span>
           </button>
         </div>
       </div>
+
+      {showStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Grupos y Secciones de Guardia"
+          subtitle="Distribución de efectivos asignados y estado operativo de secciones"
+          kpis={gruposStats.kpis}
+          charts={gruposStats.charts}
+          onExportPdf={handleExportPdf}
+          exportPdfLabel="Exportar Nómina + Gráficos (PDF)"
+          onClose={() => setShowStats(false)}
+        />
+      )}
 
       {/* Barra de Filtros y Búsqueda Plegable */}
       <CollapsibleFilterBar

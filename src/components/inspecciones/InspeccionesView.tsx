@@ -40,10 +40,12 @@ import {
   ShieldCheck,
   UserCheck,
   Car,
+  BarChart3,
 } from 'lucide-react';
 import { InspeccionModal } from './InspeccionModal';
 import { ControlNumeradorModal } from '../guardias/ControlNumeradorModal';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { ModuleStatsPanel } from '../common/ModuleStatsPanel';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 import { generarPdfInspeccionOcular, generarPdfReporteInspeccionesOcularesPorTipo } from '../../services/pdfService';
 import {
@@ -108,6 +110,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
   const [filtroGrupoGuardia, setFiltroGrupoGuardia] = useState('todos');
   const [filtroEstadoFotos, setFiltroEstadoFotos] = useState<'todos' | 'confirmadas' | 'pendientes'>('todos');
   const [soloPolicial, setSoloPolicial] = useState(false);
+  const [mostrarStats, setMostrarStats] = useState(false);
 
   // Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -265,10 +268,10 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
     });
 
     return Array.from(consolidatedMap.values()).sort((a, b) => {
-      if (a.fecha !== b.fecha) return b.fecha.localeCompare(a.fecha);
-      const numDiff = extractIoNumber(b.nroIO) - extractIoNumber(a.nroIO);
+      if ((a.fecha || '') !== (b.fecha || '')) return (b.fecha || '').localeCompare(a.fecha || '');
+      const numDiff = extractIoNumber(b.nroIO || '') - extractIoNumber(a.nroIO || '');
       if (numDiff !== 0) return numDiff;
-      return b.nroIO.localeCompare(a.nroIO);
+      return (b.nroIO || '').localeCompare(a.nroIO || '');
     });
   }, [
     inspeccionesList,
@@ -326,15 +329,15 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
       const term = searchTerm.toLowerCase();
       const matchSearch =
         !term ||
-        io.nroIO.toLowerCase().includes(term) ||
+        (io.nroIO || '').toLowerCase().includes(term) ||
         (io.direccion && io.direccion.toLowerCase().includes(term)) ||
-        io.lugar.toLowerCase().includes(term) ||
+        (io.lugar || '').toLowerCase().includes(term) ||
         (io.hecho && io.hecho.toLowerCase().includes(term)) ||
-        io.resumen.toLowerCase().includes(term) ||
-        io.personalInterviniente.toLowerCase().includes(term) ||
+        (io.resumen || '').toLowerCase().includes(term) ||
+        (io.personalInterviniente || '').toLowerCase().includes(term) ||
         (io.perito && io.perito.toLowerCase().includes(term)) ||
         (io.fotografo && io.fotografo.toLowerCase().includes(term)) ||
-        io.dependenciaSolicitante.toLowerCase().includes(term) ||
+        (io.dependenciaSolicitante || '').toLowerCase().includes(term) ||
         (io.grupoGuardia && io.grupoGuardia.toLowerCase().includes(term)) ||
         (io.expedienteVinculado && io.expedienteVinculado.toLowerCase().includes(term));
 
@@ -403,26 +406,63 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
 
   // Cantidad de Intervenciones Criminalísticas (LC)
   const cantidadLC = useMemo(() => {
-    return listaConsolidada.filter(
-      (io) =>
-        io.tipo.toLowerCase().includes('criminalística') ||
-        io.tipo.toLowerCase().includes('lc') ||
-        (!io.tipo.toLowerCase().includes('accid') && !io.tipo.toLowerCase().includes('vial'))
-    ).length;
+    return listaConsolidada.filter((io) => {
+      const t = (io.tipo || '').toLowerCase();
+      return t.includes('criminalística') || t.includes('lc') || (!t.includes('accid') && !t.includes('vial'));
+    }).length;
   }, [listaConsolidada]);
 
   // Cantidad de Seguridad Vial (Seg. Vial) - Siniestros y Hechos Viales
   const cantidadSegVial = useMemo(() => {
-    return listaConsolidada.filter(
-      (io) =>
-        io.tipo.toLowerCase().includes('accid') ||
-        io.tipo.toLowerCase().includes('vial') ||
-        io.tipo.toLowerCase().includes('siniestro')
-    ).length;
+    return listaConsolidada.filter((io) => {
+      const t = (io.tipo || '').toLowerCase();
+      return t.includes('accid') || t.includes('vial') || t.includes('siniestro');
+    }).length;
   }, [listaConsolidada]);
 
   // Total de Inspecciones Oculares = LC + Seg. Vial
   const cantidadTotalIO = cantidadLC + cantidadSegVial;
+
+  const ioStats = useMemo(() => {
+    const total = listaConsolidada.length;
+    const confirmadas = listaConsolidada.filter((io) => Boolean(io.fotosConfirmadas || io.confirmadoPorUsuario)).length;
+    const promFotos = total > 0 ? Math.round((totalFotografias / total) * 10) / 10 : 0;
+
+    const porTipo = new Map<string, { actas: number; fotos: number }>();
+    listaConsolidada.forEach((io) => {
+      const t = io.tipo || 'Otras';
+      const cur = porTipo.get(t) || { actas: 0, fotos: 0 };
+      cur.actas += 1;
+      cur.fotos += io.cantidadFotografias || 0;
+      porTipo.set(t, cur);
+    });
+
+    return {
+      kpis: [
+        { label: 'Total Actas I.O.', value: total, detail: `LC: ${cantidadLC} · Seg. Vial: ${cantidadSegVial}`, tone: 'navy' as const },
+        { label: 'Tomas Fotográficas', value: totalFotografias, detail: 'Evidencia visual capturada', tone: 'blue' as const },
+        { label: 'Promedio Fotos / Acta', value: promFotos, detail: 'Cobertura fotográfica media', tone: 'slate' as const },
+        { label: 'Fotos Confirmadas', value: `${confirmadas}/${total}`, detail: 'Validación conforme fotógrafo', tone: 'emerald' as const },
+      ],
+      charts: [
+        {
+          id: 'io-tipos',
+          title: 'Inspecciones por Tipo Pericial',
+          subtitle: 'Proporción por especialidad de relevamiento',
+          type: 'donut' as const,
+          data: Array.from(porTipo.entries()).map(([name, v]) => ({ name, value: v.actas })),
+        },
+        {
+          id: 'io-fotos',
+          title: 'Volumen de Fotografías por Tipo',
+          subtitle: 'Total de tomas fotográficas registradas',
+          type: 'bar' as const,
+          data: Array.from(porTipo.entries()).map(([name, v]) => ({ name, value: v.fotos })),
+          valueLabel: 'Fotografías',
+        },
+      ],
+    };
+  }, [listaConsolidada, totalFotografias, cantidadLC, cantidadSegVial]);
 
   // Personal para autocompletar Perito / Fotógrafo (priorizando personal de partes de guardia)
   const opcionesPersonalGuardia = useMemo(() => {
@@ -734,12 +774,25 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setMostrarStats((v) => !v)}
+            className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-300'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
           {/* Selector de Estilo de Vista */}
           <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 text-xs gap-1">
             <button
               type="button"
               onClick={() => setViewStyle('parte-novedades')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 viewStyle === 'parte-novedades'
                   ? 'bg-slate-900 text-amber-300 shadow-xs'
                   : 'text-slate-700 hover:text-slate-900'
@@ -753,7 +806,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
             <button
               type="button"
               onClick={() => setViewStyle('cuadricula')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 viewStyle === 'cuadricula'
                   ? 'bg-blue-900 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -770,13 +823,25 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
               setSelectedInspeccion(null);
               setIsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>+ Nueva I.O. Detallada</span>
           </button>
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Inspecciones Oculares (I.O.)"
+          subtitle="Distribución pericial, tomas fotográficas y control de conformidad"
+          kpis={ioStats.kpis}
+          charts={ioStats.charts}
+          onExportPdf={() => generarPdfReporteInspeccionesOcularesPorTipo(filteredList, config)}
+          exportPdfLabel="Reporte Estadístico I.O. (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* Barra de Búsqueda y Filtros Colapsable por Campos del Formulario */}
       <CollapsibleFilterBar

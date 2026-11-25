@@ -36,13 +36,18 @@ import {
   Check,
   UserCheck,
   Filter,
+  AlertTriangle,
+  BarChart3,
 } from 'lucide-react';
 import { GuardiasTableView } from './GuardiasTableView';
 import { ParteGuardiaModal } from './ParteGuardiaModal';
 import { IntervencionModal } from './IntervencionModal';
+import { TipoLesionesCell } from './TipoLesionesCell';
 import { InspeccionModal } from '../inspecciones/InspeccionModal';
 import { ParteVisualPreview } from './ParteVisualPreview';
-import { generarPdfParteGuardia } from '../../services/pdfService';
+import { ModuleStatsPanel } from '../common/ModuleStatsPanel';
+import { generarPdfParteGuardia, generarPdfReporteGuardias } from '../../services/pdfService';
+import { getResumenLesionADeterminarIntervencion } from '../../utils/lesionesUtils';
 import {
   formatNroIO,
   getNextCorrelativoIntervencion,
@@ -97,10 +102,12 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
   const [isInspeccionModalOpen, setIsInspeccionModalOpen] = useState(false);
   const [selectedInterv, setSelectedInterv] = useState<IntervencionParte | null>(null);
   const [tipoIntervencionForzado, setTipoIntervencionForzado] = useState<TipoIntervencion | null>(null);
+  const [mostrarStats, setMostrarStats] = useState(false);
 
   // Estados para tabla oficial de intervenciones
   const [searchTermInterv, setSearchTermInterv] = useState('');
   const [filtroHechoInterv, setFiltroHechoInterv] = useState('todos');
+  const [soloLesionADeterminarInterv, setSoloLesionADeterminarInterv] = useState(false);
   const [confirmarFotosModal, setConfirmarFotosModal] = useState<{
     isOpen: boolean;
     interv: IntervencionParte;
@@ -188,9 +195,19 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
       const matchHecho =
         filtroHechoInterv === 'todos' || interv.hecho === filtroHechoInterv;
 
-      return matchGeneral && matchHecho;
+      const matchLesionPend =
+        !soloLesionADeterminarInterv ||
+        getResumenLesionADeterminarIntervencion(interv).tienePendiente;
+
+      return matchGeneral && matchHecho && matchLesionPend;
     });
-  }, [todasLasIntervenciones, searchTermInterv, filtroHechoInterv, añoActual]);
+  }, [todasLasIntervenciones, searchTermInterv, filtroHechoInterv, soloLesionADeterminarInterv, añoActual]);
+
+  const totalIntervConLesionADeterminar = useMemo(() => {
+    return todasLasIntervenciones.filter(
+      ({ interv }) => getResumenLesionADeterminarIntervencion(interv).tienePendiente
+    ).length;
+  }, [todasLasIntervenciones]);
 
   // Cargar una nueva Inspección Ocular
   const handleNuevaInspeccionOcular = () => {
@@ -228,7 +245,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
       };
     }
 
-    const esAcc = io.tipo.toLowerCase().includes('accid') || io.tipo.toLowerCase().includes('vial');
+    const esAcc = (io.tipo || '').toLowerCase().includes('accid') || (io.tipo || '').toLowerCase().includes('vial');
     const nuevoNro = esAcc ? siguienteCorrelativoAcc : siguienteCorrelativoLC;
     const siglas = config.siglasDependencia || 'DPC';
 
@@ -373,6 +390,88 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
     onDeleteIntervencion(intervId);
   };
 
+  const handleQuickUpdateIntervencion = (
+    parte: ParteNovedadesGuardia,
+    updatedInterv: IntervencionParte
+  ) => {
+    const nuevasInterv = (parte.intervenciones || []).map((i) =>
+      i.id === updatedInterv.id ? updatedInterv : i
+    );
+    onSaveParte({
+      ...parte,
+      intervenciones: nuevasInterv,
+      totalIntervenciones: nuevasInterv.length,
+      updatedAt: new Date().toISOString(),
+    });
+    onSaveIntervencion(updatedInterv);
+  };
+
+  const guardiasStats = useMemo(() => {
+    const totalPartes = partesList.length;
+    const totalInterv = partesList.reduce(
+      (acc, p) => acc + (p.intervenciones?.length || p.totalIntervenciones || 0),
+      0
+    );
+    const totalCiber = partesList.reduce(
+      (acc, p) => acc + (p.cibercrimenRegistros?.length || 0),
+      0
+    );
+    const cerrados = partesList.filter((p) => p.cerrado).length;
+
+    const grupoMap = new Map<string, { lc: number; vial: number }>();
+    let totalLc = 0;
+    let totalVial = 0;
+    partesList.forEach((p) => {
+      const g = p.grupoGuardia || 'Sin grupo';
+      const cur = grupoMap.get(g) || { lc: 0, vial: 0 };
+      (p.intervenciones || []).forEach((i) => {
+        if (i.tipoIntervencion === 'Accidentológica') {
+          cur.vial += 1;
+          totalVial += 1;
+        } else {
+          cur.lc += 1;
+          totalLc += 1;
+        }
+      });
+      grupoMap.set(g, cur);
+    });
+
+    return {
+      kpis: [
+        { label: 'Partes de Guardia', value: totalPartes, detail: `Cerrados: ${cerrados} · Abiertos: ${totalPartes - cerrados}`, tone: 'navy' as const },
+        { label: 'Intervenciones en Guardia', value: totalInterv, detail: `LC: ${totalLc} · Seg. Vial: ${totalVial}`, tone: 'blue' as const },
+        { label: 'Cibercrimen en Guardia', value: totalCiber, detail: 'Resguardos y extracciones', tone: 'slate' as const },
+        { label: 'Promedio Interv. / Turno', value: totalPartes > 0 ? Math.round((totalInterv / totalPartes) * 10) / 10 : 0, detail: 'Carga operativa media', tone: 'emerald' as const },
+      ],
+      charts: [
+        {
+          id: 'guardias-grupo',
+          title: 'Intervenciones por Grupo de Guardia',
+          subtitle: 'Comparativa de Criminalística (LC) vs Accidentológica',
+          type: 'bar' as const,
+          data: Array.from(grupoMap.entries()).map(([name, v]) => ({
+            name,
+            value: v.lc,
+            secondary: v.vial,
+          })),
+          valueLabel: 'Criminalística',
+          secondaryLabel: 'Accidentológica',
+        },
+        {
+          id: 'guardias-area',
+          title: 'Proporción Global de Actuaciones',
+          subtitle: 'Distribución acumulada por especialidad',
+          type: 'donut' as const,
+          data: [
+            { name: 'Criminalística (LC)', value: totalLc },
+            { name: 'Accidentológica Vial', value: totalVial },
+            { name: 'Cibercrimen', value: totalCiber },
+          ],
+        },
+      ],
+    };
+  }, [partesList]);
+
   return (
     <div className="space-y-4">
       {/* Selector de Modo de Vista y Título */}
@@ -387,19 +486,55 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMostrarStats((v) => !v)}
+            className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-300'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
+          {partesList.length > 0 && (
+            <button
+              type="button"
+              onClick={() => generarPdfReporteGuardias(partesList, config)}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Consolidado PDF</span>
+            </button>
+          )}
+
           <button
             onClick={() => {
               setSelectedParteId('');
               setIsParteModalOpen(true);
             }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>+ Nuevo Turno de Guardia</span>
           </button>
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas Consolidadas de Guardias"
+          subtitle="Rendimiento por grupo de guardia, intervenciones LC/Vial y cibercrimen"
+          kpis={guardiasStats.kpis}
+          charts={guardiasStats.charts}
+          onExportPdf={() => generarPdfReporteGuardias(partesList, config)}
+          exportPdfLabel="Exportar Consolidado de Guardias (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* VISTA 1: TABLA MATRIZ ESTILO EXACTO A LA IMAGEN (IMAGE A9942D96 & 13F44ED9) */}
       {viewMode === 'tabla' && (
@@ -462,7 +597,22 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {totalIntervConLesionADeterminar > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSoloLesionADeterminarInterv(!soloLesionADeterminarInterv)}
+                  className="px-3 py-1.5 rounded-lg bg-amber-300 hover:bg-amber-400 text-amber-950 border-2 border-amber-500 font-extrabold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-colors"
+                  title="Falta definir el Tipo de Lesiones en intervenciones marcadas como A Determinar"
+                >
+                  <AlertTriangle className="w-4 h-4 text-amber-900 shrink-0" />
+                  <span>
+                    {soloLesionADeterminarInterv
+                      ? `✓ Viendo ${totalIntervConLesionADeterminar} "A Determinar"`
+                      : `Falta Tipo de Lesión: ${totalIntervConLesionADeterminar} "A Determinar"`}
+                  </span>
+                </button>
+              )}
               <button
                 onClick={handleNuevaInspeccionOcular}
                 className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-md transition-colors cursor-pointer"
@@ -477,10 +627,15 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
           {/* Barra de Búsqueda y Filtros Colapsable */}
           <CollapsibleFilterBar
             title="Filtros de Intervenciones en Guardia"
-            activeFiltersCount={(searchTermInterv ? 1 : 0) + (filtroHechoInterv !== 'todos' ? 1 : 0)}
+            activeFiltersCount={
+              (searchTermInterv ? 1 : 0) +
+              (filtroHechoInterv !== 'todos' ? 1 : 0) +
+              (soloLesionADeterminarInterv ? 1 : 0)
+            }
             onClear={() => {
               setSearchTermInterv('');
               setFiltroHechoInterv('todos');
+              setSoloLesionADeterminarInterv(false);
             }}
           >
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
@@ -512,12 +667,40 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
             </div>
           </CollapsibleFilterBar>
 
+          {totalIntervConLesionADeterminar > 0 && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-xs">
+              <div className="flex items-start sm:items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0" />
+                <div>
+                  <span className="font-extrabold block">
+                    Aviso: {totalIntervConLesionADeterminar} intervención(es) con Tipo de Lesiones &ldquo;A Determinar&rdquo;
+                  </span>
+                  <span className="text-[11px] text-amber-900">
+                    Falta precisar el tipo de lesiones definitivo en los registros remarcados en amarillo.
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSoloLesionADeterminarInterv(!soloLesionADeterminarInterv)}
+                className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition-colors cursor-pointer shrink-0 ${
+                  soloLesionADeterminarInterv
+                    ? 'bg-amber-700 text-white border-amber-800'
+                    : 'bg-white text-amber-950 border-amber-400 hover:bg-amber-100'
+                }`}
+              >
+                {soloLesionADeterminarInterv
+                  ? '✓ Mostrando "A Determinar" (Ver todas)'
+                  : `Filtrar "A Determinar" (${totalIntervConLesionADeterminar})`}
+              </button>
+            </div>
+          )}
+
           {/* TABLA FORMAL ESTILO PARTE DE NOVEDADES */}
           <div className="bg-white rounded-xl border-2 border-slate-800 shadow-md overflow-hidden">
             {/* Encabezado Matriz Policial */}
             <div className="bg-slate-900 text-white px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b-2 border-slate-800">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="font-bold text-xs uppercase tracking-wider text-amber-300">
                   PARTE OFICIAL DE NOVEDADES — RELEVAMIENTO DE INTERVENCIONES Y ESCENAS
                 </span>
@@ -535,6 +718,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                     <th className="border border-slate-600 px-3 py-2.5 whitespace-nowrap">Fecha</th>
                     <th className="border border-slate-600 px-3 py-2.5">Dirección (Lugar de ocurrido)</th>
                     <th className="border border-slate-600 px-3 py-2.5">Hecho</th>
+                    <th className="border border-slate-600 px-3 py-2.5">Tipo de Lesiones</th>
                     <th className="border border-slate-600 px-3 py-2.5 text-center">Fotos (conforme fotógrafo)</th>
                     <th className="border border-slate-600 px-3 py-2.5">Perito</th>
                     <th className="border border-slate-600 px-3 py-2.5">Fotógrafo</th>
@@ -544,7 +728,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                 <tbody className="divide-y divide-slate-300">
                   {intervencionesFiltradas.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-slate-500 bg-slate-50">
+                      <td colSpan={9} className="p-8 text-center text-slate-500 bg-slate-50">
                         <Camera className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                         <span className="font-bold">No se encontraron intervenciones registradas</span>
                         <p className="text-xs text-slate-400 mt-1">
@@ -561,11 +745,18 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                       const perito = interv.perito || interv.personalTecnico?.peritoAuxiliar || 'Perito de Guardia';
                       const fotografo = interv.fotografo || interv.personalTecnico?.choferFotografo || 'Fotógrafo de Guardia';
                       const estaConfirmado = Boolean(interv.fotosConfirmadas);
+                      const resumenLesion = getResumenLesionADeterminarIntervencion(interv);
 
                       return (
                         <tr
                           key={interv.id}
-                          className={idx % 2 === 0 ? 'bg-white hover:bg-amber-50/50' : 'bg-slate-50 hover:bg-amber-50/50'}
+                          className={
+                            resumenLesion.tienePendiente
+                              ? 'bg-amber-100 hover:bg-amber-200/80 ring-1 ring-inset ring-amber-400'
+                              : idx % 2 === 0
+                              ? 'bg-white hover:bg-amber-50/50'
+                              : 'bg-slate-50 hover:bg-amber-50/50'
+                          }
                         >
                           {/* 1. N° I.O */}
                           <td className="border border-slate-300 px-3 py-2.5 font-mono whitespace-nowrap">
@@ -594,15 +785,41 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                           {/* 4. Hecho */}
                           <td className="border border-slate-300 px-3 py-2.5">
                             <span className="font-bold text-slate-900 block">{interv.hecho}</span>
-                            {interv.tipoIntervencion === 'Accidentológica' ? (
-                              <span className="text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded font-bold border border-amber-300">
-                                Seg. Vial (Siniestro)
-                              </span>
-                            ) : (
-                              <span className="text-[10px] bg-blue-100 text-blue-900 px-1.5 py-0.5 rounded font-bold border border-blue-300">
-                                Criminalística (LC)
-                              </span>
-                            )}
+                            <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                              {interv.tipoIntervencion === 'Accidentológica' ? (
+                                <span className="text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded font-bold border border-amber-300">
+                                  Seg. Vial (Siniestro)
+                                </span>
+                              ) : (
+                                <span className="text-[10px] bg-blue-100 text-blue-900 px-1.5 py-0.5 rounded font-bold border border-blue-300">
+                                  Criminalística (LC)
+                                </span>
+                              )}
+                              {resumenLesion.tienePendiente && (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] bg-amber-300 text-amber-950 px-1.5 py-0.5 rounded font-extrabold border border-amber-600"
+                                  title={resumenLesion.motivos.join(' | ')}
+                                >
+                                  <AlertTriangle className="w-3 h-3 text-amber-900 shrink-0" />
+                                  <span>Lesión A Determinar (Falta dato)</span>
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Tipo de Lesiones (editable y con carga rápida) */}
+                          <td className="border border-slate-300 px-3 py-2.5">
+                            <TipoLesionesCell
+                              intervencion={interv}
+                              config={config}
+                              readOnly={Boolean(
+                                currentUser?.esSoloLectura ||
+                                  currentUser?.rol === 'Solo Lectura (Auditor / Consulta)'
+                              )}
+                              onUpdateIntervencion={(updated) =>
+                                handleQuickUpdateIntervencion(parte, updated)
+                              }
+                            />
                           </td>
 
                           {/* 5. Fotos (conforme fotógrafo) - confirmado por otro usuario */}

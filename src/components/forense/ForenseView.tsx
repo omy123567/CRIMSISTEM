@@ -15,14 +15,22 @@ import {
   ClipboardList,
   X,
   Download,
+  BarChart3,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ModuleStatsPanel, StatKpiItem, StatChartConfig } from '../common/ModuleStatsPanel';
 import { GestionForenseGuardiaModal } from '../guardias/GestionForenseGuardiaModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderHorizontalBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface ForenseViewProps {
   forensesList: ForenseTurno[];
@@ -54,6 +62,7 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
   const [guardiaModalParte, setGuardiaModalParte] = useState<ParteNovedadesGuardia | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [customMedicoMode, setCustomMedicoMode] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   const medicosCatalogo = config.medicosForensesCatalogo || [];
 
@@ -154,6 +163,63 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
     guardiasConForense.reduce((acc, g) => acc + g.totalExaminados, 0) +
     filteredForenses.reduce((acc, f) => acc + (Number(f.totalExaminados) || 0), 0);
 
+  const forenseStats = useMemo(() => {
+    const porMedicoMap = new Map<string, number>();
+    let examGuardias = 0;
+    let examDirectos = 0;
+
+    guardiasConForense.forEach(({ medicos }) => {
+      medicos.forEach((m) => {
+        const cant = Number(m.totalExaminados) || 0;
+        examGuardias += cant;
+        porMedicoMap.set(m.medicoNombre, (porMedicoMap.get(m.medicoNombre) || 0) + cant);
+      });
+    });
+
+    filteredForenses.forEach((f) => {
+      const cant = Number(f.totalExaminados) || 0;
+      examDirectos += cant;
+      porMedicoMap.set(f.nombreMedico, (porMedicoMap.get(f.nombreMedico) || 0) + cant);
+    });
+
+    const porMedico = Array.from(porMedicoMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    const porOrigen = [
+      { name: 'Partes de Guardia', value: examGuardias },
+      { name: 'Registros Directos', value: examDirectos },
+    ].filter((d) => d.value > 0);
+
+    const kpis: StatKpiItem[] = [
+      { label: 'Total Examinados', value: totalExaminadosGlobal, detail: 'Acumulado en vista actual', tone: 'emerald' },
+      { label: 'Turnos en Guardias', value: guardiasConForense.length, detail: `${examGuardias} examinados`, tone: 'navy' },
+      { label: 'Registros Directos', value: filteredForenses.length, detail: `${examDirectos} examinados`, tone: 'blue' },
+      { label: 'Médicos Activos', value: porMedico.length, detail: `${medicosFiltroOpciones.length} en catálogo`, tone: 'slate' },
+    ];
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'forense-por-medico',
+        title: 'Examinados por Médico Forense',
+        subtitle: 'Cantidad total de examinaciones por profesional',
+        type: 'horizontal-bar',
+        data: porMedico,
+        valueLabel: 'Examinados',
+        primaryColor: '#0f766e',
+      },
+      {
+        id: 'forense-por-origen',
+        title: 'Origen de Registros Forenses',
+        subtitle: 'Examinados desde Guardia vs. Carga Directa',
+        type: 'donut',
+        data: porOrigen,
+      },
+    ];
+
+    return { examGuardias, examDirectos, porMedico, porOrigen, kpis, charts };
+  }, [guardiasConForense, filteredForenses, totalExaminadosGlobal, medicosFiltroOpciones.length]);
+
   const [formData, setFormData] = useState<ForenseTurno>({
     id: 'for-' + Date.now(),
     nombreMedico: medicosCatalogo[0] || '',
@@ -222,11 +288,47 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
           unit: 'mm',
           format: resolveJsPdfFormat(opts.paperSize),
         });
-        const startY = drawPoliceHeader(
+        let currentY = drawPoliceHeader(
           doc,
           config,
           'REGISTRO OFICIAL DE MÉDICOS FORENSES DE TURNO Y EXAMINADOS',
           10
+        );
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY + 2,
+          [
+            { label: 'Total Examinados', value: totalExaminadosGlobal, subtitle: 'Vista actual', accentColor: [15, 118, 110] },
+            { label: 'En Partes de Guardia', value: guardiasConForense.length, subtitle: `${forenseStats.examGuardias} examinados`, accentColor: [17, 38, 77] },
+            { label: 'Registros Directos', value: filteredForenses.length, subtitle: `${forenseStats.examDirectos} examinados`, accentColor: [29, 78, 216] },
+            { label: 'Médicos Registrados', value: forenseStats.porMedico.length, subtitle: 'Profesionales activos', accentColor: [71, 85, 105] },
+          ],
+          14
+        );
+
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            {
+              title: 'Examinados por Médico Forense',
+              subtitle: 'Ranking por profesional actuante',
+              imageDataUrl: renderHorizontalBarChartPng(
+                forenseStats.porMedico.map((d) => ({ label: d.name, value: d.value })),
+                { barColor: '#0f766e' }
+              ),
+            },
+            {
+              title: 'Distribución por Origen de Carga',
+              subtitle: 'Partes de Guardia vs. Registros Directos',
+              imageDataUrl: renderDonutChartPng(
+                forenseStats.porOrigen.map((d) => ({ label: d.name, value: d.value })),
+                { centerLabel: 'EXAM.' }
+              ),
+            },
+          ],
+          14
         );
 
         const rows: (string | number)[][] = [];
@@ -259,7 +361,7 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
         });
 
         autoTable(doc, {
-          startY: startY + 4,
+          startY: currentY + 2,
           head: [['N°', 'Origen', 'Fecha', 'Guardia / Turno', 'Médico Forense', 'Detalle Turno', 'Horario', 'Examinados']],
           body: rows.length > 0 ? rows : [['-', '-', '-', '-', 'Sin registros cargados', '-', '-', '0']],
           theme: 'grid',
@@ -296,11 +398,23 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setShowStats((prev) => !prev)}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+              showStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Estadísticas</span>
+          </button>
           <button
             type="button"
             onClick={handleExportPdf}
-            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer"
           >
             <Download className="w-4 h-4 text-slate-600" />
             <span>Exportar PDF</span>
@@ -308,13 +422,25 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
           <button
             type="button"
             onClick={() => handleOpenModal()}
-            className="flex items-center gap-1.5 bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Cargar Médico de Turno</span>
           </button>
         </div>
       </div>
+
+      {showStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Forense Policial de Turno"
+          subtitle="Consolidado de examinados por médico forense y origen de turno"
+          kpis={forenseStats.kpis}
+          charts={forenseStats.charts}
+          onExportPdf={handleExportPdf}
+          exportPdfLabel="Exportar Informe Forense (PDF)"
+          onClose={() => setShowStats(false)}
+        />
+      )}
 
       {/* Barra de Búsqueda Colapsable */}
       <CollapsibleFilterBar

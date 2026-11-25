@@ -37,6 +37,7 @@ import { AccidentologiaReportesView } from './AccidentologiaReportesView';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { generarPdfReporteAccidentologia } from '../../services/pdfService';
+import { esTipoLesionADeterminar } from '../../utils/lesionesUtils';
 
 interface AccidentologiaViewProps {
   accidentologiaList: AccidentologiaRegistro[];
@@ -98,16 +99,19 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
 
   // Detección de siniestros viales que tienen pendientes tipo de lesiones o alcohotest
   const esRegistroPendiente = (r: AccidentologiaRegistro) => {
+    const les = (r.tipoLesiones || '').toLowerCase();
+    const alc = (r.alcohotest || '').toLowerCase();
     return (
       r.faltaDatos ||
       !r.tipoLesiones ||
       r.tipoLesiones === 'Pendiente de registrar' ||
-      r.tipoLesiones.toLowerCase().includes('pendiente') ||
-      r.tipoLesiones.toLowerCase().includes('sin especificar') ||
+      les.includes('pendiente') ||
+      les.includes('sin especificar') ||
+      esTipoLesionADeterminar(r.tipoLesiones) ||
       !r.alcohotest ||
       r.alcohotest === 'Pendiente de registrar' ||
-      r.alcohotest.toLowerCase().includes('pendiente') ||
-      r.alcohotest.toLowerCase().includes('sin especificar') ||
+      alc.includes('pendiente') ||
+      alc.includes('sin especificar') ||
       r.alcohotest.trim() === ''
     );
   };
@@ -144,9 +148,10 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
         const tipoLesiones = polInvolucrado?.tipoLesion || iv.personalPolicial?.tipoLesion || '';
         const alcohotest = polInvolucrado?.alcohotest || '';
 
-        const faltanDatos = !tipoLesiones || !alcohotest;
+        const tipoLesionPendiente = !tipoLesiones || esTipoLesionADeterminar(tipoLesiones);
+        const faltanDatos = tipoLesionPendiente || !alcohotest;
         const datosFaltantes: string[] = [];
-        if (!tipoLesiones) datosFaltantes.push('tipoLesiones');
+        if (tipoLesionPendiente) datosFaltantes.push('tipoLesiones');
         if (!alcohotest) datosFaltantes.push('alcohotest');
 
         const fecha = iv.inspeccionFecha || new Date().toISOString().slice(0, 10);
@@ -214,7 +219,7 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
   }, [accidentologiaList]);
 
   const lesionesUnicas = useMemo(() => {
-    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'Fallecido', 'Pendiente de registrar']);
+    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'A Determinar', 'Fallecido', 'Pendiente de registrar']);
     accidentologiaList.forEach((r) => {
       if (r.tipoLesiones) set.add(r.tipoLesiones);
     });
@@ -280,7 +285,7 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
 
       // Filtro por mes
       if (filtroMes !== 'todos') {
-        if (!r.codigo.toLowerCase().startsWith(filtroMes.toLowerCase())) return false;
+        if (!(r.codigo || '').toLowerCase().startsWith(filtroMes.toLowerCase())) return false;
       }
 
       // Filtro por tipo de vía
@@ -319,13 +324,13 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase();
         const match =
-          r.codigo.toLowerCase().includes(term) ||
-          r.apellidoYNombre.toLowerCase().includes(term) ||
-          r.jerarquia.toLowerCase().includes(term) ||
-          r.lugarOcurrido.toLowerCase().includes(term) ||
-          r.localidad.toLowerCase().includes(term) ||
-          r.tipoRodadoPolicial.toLowerCase().includes(term) ||
-          r.tipoRodadoOtros.toLowerCase().includes(term) ||
+          (r.codigo || '').toLowerCase().includes(term) ||
+          (r.apellidoYNombre || '').toLowerCase().includes(term) ||
+          (r.jerarquia || '').toLowerCase().includes(term) ||
+          (r.lugarOcurrido || '').toLowerCase().includes(term) ||
+          (r.localidad || '').toLowerCase().includes(term) ||
+          (r.tipoRodadoPolicial || '').toLowerCase().includes(term) ||
+          (r.tipoRodadoOtros || '').toLowerCase().includes(term) ||
           (r.dependenciaInterviniente || '').toLowerCase().includes(term) ||
           (r.observacionesSiniestro || '').toLowerCase().includes(term);
         if (!match) return false;
@@ -1291,7 +1296,7 @@ const CompletarLesionesAlcohotestModal: React.FC<CompletarLesionesAlcohotestModa
   const [tipoLesiones, setTipoLesiones] = useState<string>(
     registro.tipoLesiones && !registro.tipoLesiones.toLowerCase().includes('pendiente')
       ? registro.tipoLesiones
-      : 'Sin Lesiones'
+      : 'A Determinar'
   );
   const [alcohotestOpcion, setAlcohotestOpcion] = useState<string>(
     registro.alcohotest && !registro.alcohotest.toLowerCase().includes('pendiente')
@@ -1305,13 +1310,14 @@ const CompletarLesionesAlcohotestModal: React.FC<CompletarLesionesAlcohotestModa
     const finalAlcohotest = alcohotestDetalle.trim()
       ? `${alcohotestOpcion} (${alcohotestDetalle.trim()})`
       : alcohotestOpcion;
+    const siguePendienteLesion = esTipoLesionADeterminar(tipoLesiones);
 
     onSave({
       ...registro,
       tipoLesiones,
       alcohotest: finalAlcohotest,
-      faltaDatos: false,
-      datosPendientes: [],
+      faltaDatos: siguePendienteLesion,
+      datosPendientes: siguePendienteLesion ? ['tipoLesiones'] : [],
       updatedAt: new Date().toISOString(),
     });
     onClose();
@@ -1359,6 +1365,7 @@ const CompletarLesionesAlcohotestModal: React.FC<CompletarLesionesAlcohotestModa
               <option value="Leves">Leves</option>
               <option value="Graves">Graves</option>
               <option value="Gravísimas">Gravísimas</option>
+              <option value="A Determinar">A Determinar (Falta precisar)</option>
               <option value="Óbito">Óbito (Fallecido)</option>
             </select>
           </div>

@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Paperclip,
   Bell,
+  BarChart3,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -33,6 +34,13 @@ import { CharlaModal, formatFechaDDMMAAAA } from './CharlaModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
+import { ModuleStatsPanel, StatChartConfig, StatKpiItem } from '../common/ModuleStatsPanel';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface CharlasPrevencionViewProps {
   charlasList: CharlaPrevencion[];
@@ -75,6 +83,7 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
   const [soloProximas, setSoloProximas] = useState<boolean>(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [mostrarStats, setMostrarStats] = useState(false);
   const [editingCharla, setEditingCharla] = useState<CharlaPrevencion | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{
     isOpen: boolean;
@@ -143,11 +152,11 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
     return charlasList
       .filter((c) => {
         if (filtroEstado !== 'todos' && c.estado !== filtroEstado) return false;
-        if (filtroMes !== 'todos' && !c.fecha.startsWith(filtroMes)) return false;
+        if (filtroMes !== 'todos' && !(c.fecha || '').startsWith(filtroMes)) return false;
         if (filtroLocalidad !== 'todas' && c.localidad !== filtroLocalidad) return false;
         if (filtroDisertante !== 'todos' && c.disertanteNombre !== filtroDisertante) return false;
-        if (fechaDesde && c.fecha < fechaDesde) return false;
-        if (fechaHasta && c.fecha > fechaHasta) return false;
+        if (fechaDesde && (c.fecha || '') < fechaDesde) return false;
+        if (fechaHasta && (c.fecha || '') > fechaHasta) return false;
         if (soloProximas) {
           const diff = getDiasHastaCharla(c.fecha);
           if (diff < 0 || diff > 7 || c.estado === 'Realizada' || c.estado === 'Suspendida') {
@@ -156,10 +165,10 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
         }
         if (q) {
           const match =
-            c.tema.toLowerCase().includes(q) ||
-            c.lugarInstitucion.toLowerCase().includes(q) ||
-            c.localidad.toLowerCase().includes(q) ||
-            c.disertanteNombre.toLowerCase().includes(q) ||
+            (c.tema || '').toLowerCase().includes(q) ||
+            (c.lugarInstitucion || '').toLowerCase().includes(q) ||
+            (c.localidad || '').toLowerCase().includes(q) ||
+            (c.disertanteNombre || '').toLowerCase().includes(q) ||
             (c.observaciones || '').toLowerCase().includes(q) ||
             formatFechaDDMMAAAA(c.fecha).includes(q);
           if (!match) return false;
@@ -193,6 +202,68 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
     setSoloProximas(false);
   };
 
+  const charlasChartStats = useMemo(() => {
+    const kpis: StatKpiItem[] = [
+      {
+        label: 'Total Charlas',
+        value: stats.total,
+        detail: `${filteredCharlas.length} en vista actual`,
+        tone: 'navy',
+      },
+      {
+        label: 'Agenda Activa',
+        value: stats.programadas,
+        detail: 'Programadas y reprogramadas',
+        tone: 'blue',
+      },
+      {
+        label: 'Próximos 7 Días',
+        value: stats.proximas,
+        detail: stats.hoyCount > 0 ? `${stats.hoyCount} jornada hoy` : 'Sin alertas hoy',
+        tone: 'amber',
+      },
+      {
+        label: 'Realizadas',
+        value: stats.realizadas,
+        detail: `${stats.total > 0 ? Math.round((stats.realizadas / stats.total) * 100) : 0}% cumplimiento`,
+        tone: 'emerald',
+      },
+    ];
+
+    const byLoc = new Map<string, number>();
+    const byEstado = new Map<string, number>();
+    charlasList.forEach((c) => {
+      const loc = c.localidad || 'Sin Localidad';
+      byLoc.set(loc, (byLoc.get(loc) || 0) + 1);
+      byEstado.set(c.estado, (byEstado.get(c.estado) || 0) + 1);
+    });
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'charlas-localidad',
+        title: 'Jornadas por Localidad',
+        subtitle: 'Cobertura territorial preventiva',
+        type: 'horizontal-bar',
+        data: Array.from(byLoc.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+        valueLabel: 'Jornadas',
+        primaryColor: '#0f766e',
+      },
+      {
+        id: 'charlas-estado',
+        title: 'Estado de Cumplimiento',
+        subtitle: 'Agenda programada vs realizada',
+        type: 'donut',
+        data: Array.from(byEstado.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+      },
+    ];
+
+    return { kpis, charts };
+  }, [charlasList, stats, filteredCharlas.length]);
+
   const handleExportPdf = () => {
     requestPdfExport({
       title: 'Registro de Charlas y Prevención Comunitaria',
@@ -205,15 +276,58 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
           unit: 'mm',
           format: resolveJsPdfFormat(paperSize),
         });
-        const startY = drawPoliceHeader(
+        let curY = drawPoliceHeader(
           doc,
           config,
           'REGISTRO DE CHARLAS Y PREVENCIÓN COMUNITARIA',
           12
         );
 
+        const filtReal = filteredCharlas.filter((c) => c.estado === 'Realizada').length;
+        const filtProg = filteredCharlas.filter(
+          (c) => c.estado === 'Programada' || c.estado === 'Reprogramada'
+        ).length;
+        const filtLocs = new Set(filteredCharlas.map((c) => c.localidad).filter(Boolean)).size;
+
+        curY = drawExecutiveKpiStrip(
+          doc,
+          curY + 1,
+          [
+            { label: 'Total Jornadas', value: filteredCharlas.length, subtitle: 'Incluidas en listado', accentColor: [17, 38, 77] },
+            { label: 'Realizadas', value: filtReal, subtitle: `${filteredCharlas.length > 0 ? Math.round((filtReal / filteredCharlas.length) * 100) : 0}% cumplimiento`, accentColor: [15, 118, 110] },
+            { label: 'Agenda Activa', value: filtProg, subtitle: 'Programadas / Reprog.', accentColor: [29, 78, 216] },
+            { label: 'Localidades', value: filtLocs, subtitle: 'Cobertura territorial', accentColor: [217, 119, 6] },
+          ],
+          12
+        );
+
+        const mapLoc = new Map<string, number>();
+        const mapEst = new Map<string, number>();
+        filteredCharlas.forEach((c) => {
+          const l = c.localidad || 'Sin Localidad';
+          mapLoc.set(l, (mapLoc.get(l) || 0) + 1);
+          mapEst.set(c.estado, (mapEst.get(c.estado) || 0) + 1);
+        });
+        const imgLoc = renderBarChartPng(
+          Array.from(mapLoc.entries()).map(([label, value]) => ({ label, value })),
+          { barColor: '#0f766e' }
+        );
+        const imgEst = renderDonutChartPng(
+          Array.from(mapEst.entries()).map(([label, value]) => ({ label, value })),
+          { centerLabel: 'CHARLAS' }
+        );
+        curY = drawChartSectionGrid(
+          doc,
+          curY,
+          [
+            { title: 'Charlas por Localidad', subtitle: 'Alcance comunitario', imageDataUrl: imgLoc },
+            { title: 'Distribución por Estado', subtitle: 'Estado de ejecución', imageDataUrl: imgEst },
+          ],
+          12
+        );
+
         autoTable(doc, {
-          startY: startY + 2,
+          startY: curY + 1,
           head: [
             [
               'Fecha',
@@ -278,9 +392,22 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           <button
             type="button"
+            onClick={() => setMostrarStats((prev) => !prev)}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleExportPdf}
             disabled={filteredCharlas.length === 0}
-            className="flex items-center gap-1.5 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-800 border border-slate-300 text-xs font-semibold px-3.5 py-2 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-800 border border-slate-300 text-xs font-semibold px-3.5 py-2 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-slate-600" />
             <span>Exportar PDF</span>
@@ -293,7 +420,7 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
                 setEditingCharla(null);
                 setIsModalOpen(true);
               }}
-              className="flex items-center gap-1.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Nueva Charla</span>
@@ -301,6 +428,18 @@ export const CharlasPrevencionView: React.FC<CharlasPrevencionViewProps> = ({
           )}
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Charlas y Prevención"
+          subtitle="Cobertura territorial por localidad y grado de ejecución"
+          kpis={charlasChartStats.kpis}
+          charts={charlasChartStats.charts}
+          onExportPdf={filteredCharlas.length > 0 ? handleExportPdf : undefined}
+          exportPdfLabel="Exportar Reporte Estadístico (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* KPIs en 1 sola elevación plana */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">

@@ -58,9 +58,16 @@ import { UsuariosView } from './components/usuarios/UsuariosView';
 import { AuditoriaView } from './components/auditoria/AuditoriaView';
 import { LicenciasPolicialesView } from './components/licencias/LicenciasPolicialesView';
 import { MemosNotasView } from './components/memos/MemosNotasView';
+import { esTipoLesionADeterminar, getResumenLesionADeterminarIntervencion } from './utils/lesionesUtils';
 import {
+  extractNumeroFolioFromText,
+  findMemoForFolio,
+  findSerieForMemo,
+  formatCodigoFolioConAnio,
   normalizeTiposMemoCatalogo,
   isMemoVisibleForUser,
+  isJefeControlFoliosUser,
+  sortSeriesNumerarioByOrden,
 } from './utils/memosCatalogUtils';
 import { PdfPreviewModal } from './components/common/PdfPreviewModal';
 import { LoginView } from './components/auth/LoginView';
@@ -529,9 +536,10 @@ export default function App() {
   }, [informesTecnicosList, activeDelegacionId]);
 
   const filteredSeriesNumerario = useMemo(() => {
-    return seriesNumerarioList.filter(
+    const scoped = seriesNumerarioList.filter(
       (s) => !s.delegacionId || s.delegacionId === activeDelegacionId
     );
+    return sortSeriesNumerarioByOrden(scoped);
   }, [seriesNumerarioList, activeDelegacionId]);
 
   const filteredFolios = useMemo(() => {
@@ -568,9 +576,9 @@ export default function App() {
     return memosNotasList.filter(
       (m) =>
         (!m.delegacionId || m.delegacionId === activeDelegacionId) &&
-        isMemoVisibleForUser(m, currentUser)
+        isMemoVisibleForUser(m, currentUser, seriesNumerarioList, config)
     );
-  }, [memosNotasList, activeDelegacionId, currentUser]);
+  }, [memosNotasList, activeDelegacionId, currentUser, seriesNumerarioList, config]);
 
   // Intervenciones de la delegación activa (combinadas de partes de guardia e independientes)
   const filteredIntervenciones = useMemo(() => {
@@ -1181,9 +1189,10 @@ export default function App() {
       const tipoLesiones = polInvolucrado?.tipoLesion || inter.personalPolicial?.tipoLesion || '';
       const alcohotest = polInvolucrado?.alcohotest || '';
 
-      const faltanDatos = !tipoLesiones || !alcohotest;
+      const tipoLesionPendiente = !tipoLesiones || esTipoLesionADeterminar(tipoLesiones);
+      const faltanDatos = tipoLesionPendiente || !alcohotest;
       const datosFaltantes: string[] = [];
-      if (!tipoLesiones) datosFaltantes.push('tipoLesiones');
+      if (tipoLesionPendiente) datosFaltantes.push('tipoLesiones');
       if (!alcohotest) datosFaltantes.push('alcohotest');
 
       const accReg: AccidentologiaRegistro = {
@@ -1553,7 +1562,10 @@ export default function App() {
   };
 
   // --- CRUD NUMERARIO Y CONTROL DE FOLIOS ---
-  const handleSaveFolios = async (newFolios: FolioAsignado[]) => {
+  const handleSaveFolios = async (
+    newFolios: FolioAsignado[],
+    options?: { createLinkedMemo?: boolean }
+  ) => {
     const withDelegacion = newFolios.map((f) => ({
       ...f,
       delegacionId: f.delegacionId || activeDelegacionId,
@@ -1569,6 +1581,47 @@ export default function App() {
       return Array.from(map.values());
     });
 
+    if (options?.createLinkedMemo && withDelegacion.length === 1) {
+      const fol = withDelegacion[0];
+      const alreadyLinked = findMemoForFolio(fol, memosNotasList, seriesNumerarioList);
+      if (!alreadyLinked) {
+        const ser = seriesNumerarioList.find((s) => s.id === fol.serieId);
+        const tipoDoc = ser?.nombre || fol.categoriaDocumento || 'Memorandum';
+        const delId = fol.delegacionId || activeDelegacionId;
+        const activeDel = delegacionesList.find((d) => d.id === delId);
+        const nowIso = new Date().toISOString();
+        const linkedMemo: MemoNota = {
+          id: `memo-fol-${fol.id}`,
+          tipo: tipoDoc,
+          serieFolioId: ser?.id || fol.serieId,
+          serieFolioNombre: ser?.nombre || tipoDoc,
+          folioId: fol.id,
+          nroFolioMemo:
+            fol.caratulaPersonalizada ||
+            fol.codigoCaratula ||
+            formatCodigoFolioConAnio(ser?.prefijo || `${tipoDoc} N°`, fol.numero, fol.anio),
+          anio: fol.anio || new Date().getFullYear(),
+          fecha: fol.fechaAsignacion || nowIso.slice(0, 10),
+          asunto: fol.asunto,
+          destino: fol.destinatario || 'Dependencia / Destinatario',
+          remitenteArea: fol.solicitante || activeDel?.nombre || config.dependencia || '',
+          estado: 'Emitido',
+          prioridad: 'Normal',
+          observaciones: fol.observaciones || undefined,
+          delegacionId: delId,
+          delegacionNombre: activeDel?.nombre || config.dependencia,
+          usuarioRegistroId: currentUser?.id,
+          usuarioRegistroNombre:
+            currentUser?.apellidoYNombre || currentUser?.username || fol.usuarioRegistro,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        await db.memosNotas.put(linkedMemo);
+        saveItemToServer('memosNotas', linkedMemo);
+        setMemosNotasList((prev) => [linkedMemo, ...prev]);
+      }
+    }
+
     await registrarAuditoria({
       currentUser: currentUser || undefined,
       modulo: 'Numerario',
@@ -1583,11 +1636,29 @@ export default function App() {
     saveItemToServer('folios', folio);
     setFoliosList((prev) => prev.map((f) => (f.id === folio.id ? folio : f)));
 
+    const linkedMemo = memosNotasList.find((m) => m.folioId === folio.id);
+    if (
+      linkedMemo &&
+      folio.codigoCaratula &&
+      linkedMemo.nroFolioMemo !== folio.codigoCaratula
+    ) {
+      const updatedMemo: MemoNota = {
+        ...linkedMemo,
+        nroFolioMemo: folio.codigoCaratula,
+        updatedAt: new Date().toISOString(),
+      };
+      await db.memosNotas.put(updatedMemo);
+      saveItemToServer('memosNotas', updatedMemo);
+      setMemosNotasList((prev) =>
+        prev.map((m) => (m.id === updatedMemo.id ? updatedMemo : m))
+      );
+    }
+
     await registrarAuditoria({
       currentUser: currentUser || undefined,
       modulo: 'Numerario',
       accion: 'MODIFICAR',
-      descripcion: `Actualización de Folio N° ${folio.numero} (${folio.caratulaPersonalizada || folio.categoriaDocumento})`,
+      descripcion: `Actualización de Folio N° ${folio.numero} (${folio.caratulaPersonalizada || folio.codigoCaratula || folio.categoriaDocumento})`,
       delegacionId: folio.delegacionId || activeDelegacionId,
     });
   };
@@ -1631,6 +1702,10 @@ export default function App() {
   const handleSaveSerie = async (serie: SerieNumerario) => {
     const entity: SerieNumerario = {
       ...serie,
+      orden:
+        typeof serie.orden === 'number'
+          ? serie.orden
+          : filteredSeriesNumerario.length + 1,
       delegacionId: serie.delegacionId || activeDelegacionId,
     };
     await db.seriesNumerario.put(entity);
@@ -1650,6 +1725,32 @@ export default function App() {
       modulo: 'Numerario',
       accion: 'CREAR',
       descripcion: `Guardado / actualización de Serie de Numerario "${entity.nombre}" (${entity.anio})`,
+      delegacionId: activeDelegacionId,
+    });
+  };
+
+  const handleReorderSeries = async (orderedSeries: SerieNumerario[]) => {
+    if (!isJefeControlFoliosUser(currentUser)) return;
+    const nowIso = new Date().toISOString();
+    const updatedList = orderedSeries.map((s, idx) => ({
+      ...s,
+      orden: idx + 1,
+      updatedAt: nowIso,
+    }));
+    await db.seriesNumerario.bulkPut(updatedList);
+    for (const s of updatedList) {
+      await saveItemToServer('seriesNumerario', s);
+    }
+    const updatedMap = new Map(updatedList.map((s) => [s.id, s]));
+    setSeriesNumerarioList((prev) =>
+      prev.map((s) => updatedMap.get(s.id) || s)
+    );
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Numerario',
+      accion: 'MODIFICAR',
+      descripcion: `Reordenamiento de Folios por Jefe: ${updatedList.map((s) => `${s.orden}.${s.nombre}`).join(', ')}`,
       delegacionId: activeDelegacionId,
     });
   };
@@ -1925,11 +2026,75 @@ export default function App() {
   };
 
   // --- CRUD MEMOS Y NOTAS ---
-  const handleSaveMemoNota = async (memo: MemoNota) => {
+  const handleSaveMemoNota = async (
+    memo: MemoNota,
+    options?: { syncControlFolios?: boolean }
+  ) => {
     const isNew = !memosNotasList.some((m) => m.id === memo.id);
+    const delId = memo.delegacionId || activeDelegacionId;
+    const matchedSerie = findSerieForMemo(
+      memo.tipo,
+      seriesNumerarioList,
+      memo.serieFolioId,
+      delId
+    );
+    const resolvedAnio =
+      memo.anio || Number((memo.fecha || '').slice(0, 4)) || new Date().getFullYear();
+    const extractedNum = extractNumeroFolioFromText(memo.nroFolioMemo);
+
+    let resolvedFolioId = memo.folioId;
+
+    if (options?.syncControlFolios !== false && matchedSerie && extractedNum !== null) {
+      const matchingExistingFolio = foliosList.find(
+        (f) =>
+          f.serieId === matchedSerie.id &&
+          f.numero === extractedNum &&
+          (!f.anio || f.anio === resolvedAnio)
+      );
+
+      if (matchingExistingFolio) {
+        resolvedFolioId = matchingExistingFolio.id;
+      } else {
+        const now = new Date();
+        const createdFolio: FolioAsignado = {
+          id: `fol-${matchedSerie.id}-${extractedNum}-${Date.now()}`,
+          serieId: matchedSerie.id,
+          numero: extractedNum,
+          codigoCaratula:
+            memo.nroFolioMemo.trim() ||
+            formatCodigoFolioConAnio(matchedSerie.prefijo, extractedNum, resolvedAnio),
+          categoriaDocumento: matchedSerie.nombre,
+          anio: resolvedAnio,
+          asunto: memo.asunto,
+          destinatario: memo.destino || '',
+          solicitante: memo.remitenteArea || '',
+          observaciones: memo.observaciones || '',
+          esRango: false,
+          usuarioRegistro:
+            memo.usuarioRegistroNombre ||
+            currentUser?.apellidoYNombre ||
+            currentUser?.username,
+          fechaAsignacion: memo.fecha || now.toISOString().slice(0, 10),
+          horaAsignacion: now.toLocaleTimeString('es-AR', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+          delegacionId: delId,
+          createdAt: now.toISOString(),
+        };
+        await db.folios.put(createdFolio);
+        saveItemToServer('folios', createdFolio);
+        setFoliosList((prev) => [...prev, createdFolio]);
+        resolvedFolioId = createdFolio.id;
+      }
+    }
+
     const entity: MemoNota = {
       ...memo,
-      delegacionId: memo.delegacionId || activeDelegacionId,
+      delegacionId: delId,
+      serieFolioId: memo.serieFolioId || matchedSerie?.id,
+      serieFolioNombre: memo.serieFolioNombre || matchedSerie?.nombre,
+      folioId: resolvedFolioId,
     };
     await db.memosNotas.put(entity);
     saveItemToServer('memosNotas', entity);
@@ -2209,9 +2374,13 @@ export default function App() {
         novedadesList={novedadesList}
         movilesList={movilesList}
         charlasList={filteredCharlas}
+        intervencionesADeterminarCount={
+          filteredIntervenciones.filter((i) => getResumenLesionADeterminarIntervencion(i).tienePendiente).length
+        }
         onNavigateToNovedades={() => setActiveTab('novedades-delegaciones')}
         onNavigateToMoviles={() => setActiveTab('moviles')}
         onNavigateToCharlas={() => setActiveTab('charlas-prevencion')}
+        onNavigateToIntervenciones={() => setActiveTab('intervenciones')}
         onSelectDelegacion={(newDelId) => setActiveDelegacionId(newDelId)}
         onOpenCambiarPassword={() => setIsPasswordModalOpen(true)}
         onOpenTwoFactor={() => setIsTwoFactorModalOpen(true)}
@@ -2270,6 +2439,22 @@ export default function App() {
               partesGuardiaList={filteredPartesGuardia}
               inspeccionesList={filteredInspecciones}
               charlasList={filteredCharlas}
+              intervencionesList={filteredIntervenciones}
+              recargosList={filteredRecargos}
+              memosNotasList={filteredMemosNotas}
+              foliosList={filteredFolios}
+              seriesNumerarioList={filteredSeriesNumerario}
+              accidentologiaList={accidentologiaList.filter(
+                (a) => !a.delegacionId || a.delegacionId === activeDelegacionId
+              )}
+              licenciasPolicialesList={filteredLicenciasPoliciales}
+              saldosLicenciasList={filteredSaldosLicencias}
+              informesTecnicosList={filteredInformesTecnicos}
+              reparacionesList={reparacionesList}
+              novedadesList={novedadesList}
+              gruposList={filteredGrupos}
+              forensesList={filteredForenses}
+              currentUser={currentUser || undefined}
               config={config}
               onNavigate={(tab) => setActiveTab(tab)}
             />
@@ -2401,6 +2586,7 @@ export default function App() {
               config={config}
               personalList={filteredPersonal}
               gruposList={filteredGrupos}
+              currentUser={currentUser || undefined}
               onSaveIntervencion={handleSaveIntervencion}
               onDeleteIntervencion={handleDeleteIntervencion}
               onSaveConfig={handleSaveConfig}
@@ -2487,6 +2673,7 @@ export default function App() {
             <NumerarioView
               seriesList={filteredSeriesNumerario}
               foliosList={filteredFolios}
+              memosList={filteredMemosNotas}
               config={config}
               personalList={personalList}
               currentUser={currentUser || undefined}
@@ -2498,6 +2685,7 @@ export default function App() {
               onSaveSerie={handleSaveSerie}
               onDeleteSerie={handleDeleteSerie}
               onResetSerie={handleResetSerie}
+              onReorderSeries={handleReorderSeries}
             />
           )}
 

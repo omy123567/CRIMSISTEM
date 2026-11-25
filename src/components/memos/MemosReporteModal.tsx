@@ -14,6 +14,22 @@ import {
 } from '../../services/pdfExportBus';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  drawReportFilterBanner,
+  renderBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from 'recharts';
+import {
   X,
   FileBarChart2,
   Printer,
@@ -213,37 +229,44 @@ export const MemosReporteModal: React.FC<MemosReporteModalProps> = ({
           `Destinatario: ${destinatarioFiltro.trim() || 'Todos'}`,
           `Estado: ${estadoFiltro === 'todos' ? 'Todos' : estadoFiltro}`,
           `Prioridad: ${prioridadFiltro === 'todas' ? 'Todas' : prioridadFiltro}`,
+          `Total: ${reportRecords.length} doc.`,
         ].join('   |   ');
 
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(71, 85, 105);
-        const splitCrit = doc.splitTextToSize(
-          `${filtrosActivosTexto}   |   Total documentos: ${reportRecords.length}`,
-          doc.internal.pageSize.getWidth() - 28
-        );
-        doc.text(splitCrit, 14, y);
-        y += splitCrit.length * 3.8 + 2;
+        y = drawReportFilterBanner(doc, y, filtrosActivosTexto, 14);
 
         if (incluirResumen && reportRecords.length > 0) {
-          const summaryRows: Array<[string, string, string]> = [];
-          statsResumen.porTipo.forEach(([k, v]) => summaryRows.push(['Por Tipo / Serie', k, String(v)]));
-          statsResumen.porEstado.forEach(([k, v]) => summaryRows.push(['Por Estado', k, String(v)]));
+          const conAnexo = reportRecords.filter((m) => Boolean(m.archivoDataUrl || (m.adjuntos && m.adjuntos.length > 0))).length;
+          const urgentes = reportRecords.filter((m) => m.prioridad === 'Urgente' || m.prioridad === 'Reservado').length;
 
-          autoTable(doc, {
-            startY: y,
-            head: [['Agrupación', 'Categoría', 'Cantidad']],
-            body: summaryRows,
-            styles: { fontSize: 7.5, cellPadding: 2, textColor: [15, 23, 42] },
-            headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold' },
-            columnStyles: {
-              0: { fontStyle: 'bold', cellWidth: 42 },
-              2: { halign: 'right', fontStyle: 'bold', cellWidth: 25 },
-            },
-            tableWidth: Math.min(160, doc.internal.pageSize.getWidth() - 28),
-            margin: { left: 14, right: 14 },
-          });
-          y = ((doc as any).lastAutoTable?.finalY || y + 20) + 6;
+          y = drawExecutiveKpiStrip(
+            doc,
+            y,
+            [
+              { label: 'Documentos Filtrados', value: reportRecords.length, subtitle: describePeriodo(), accentColor: [17, 38, 77] },
+              { label: 'Tipos / Series', value: statsResumen.porTipo.length, subtitle: 'Categorías utilizadas', accentColor: [29, 78, 216] },
+              { label: 'Con Anexo Digital', value: conAnexo, subtitle: `${Math.round((conAnexo / reportRecords.length) * 100)}% respaldados`, accentColor: [15, 118, 110] },
+              { label: 'Urgentes / Reservados', value: urgentes, subtitle: 'Prioridad especial', accentColor: [217, 119, 6] },
+            ],
+            14
+          );
+
+          const chartTipos = renderBarChartPng(
+            statsResumen.porTipo.map(([label, value]) => ({ label, value })),
+            { width: 560, height: 235, barColor: '#11264d' }
+          );
+          const chartEstados = renderDonutChartPng(
+            statsResumen.porEstado.map(([label, value]) => ({ label, value })),
+            { width: 560, height: 235, centerLabel: 'MEMOS/NOTAS' }
+          );
+          y = drawChartSectionGrid(
+            doc,
+            y,
+            [
+              { title: 'Distribución por Tipo / Serie de Folio', subtitle: 'Volumen de despachos emitidos', imageDataUrl: chartTipos },
+              { title: 'Estado de Tramitación', subtitle: 'Borradores, Emitidos, Enviados y Recepcionados', imageDataUrl: chartEstados },
+            ],
+            14
+          );
         }
 
         autoTable(doc, {
@@ -571,40 +594,70 @@ export const MemosReporteModal: React.FC<MemosReporteModalProps> = ({
             </div>
 
             {reportRecords.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]">
-                <div className="bg-white rounded-lg border border-blue-200/80 p-2.5">
-                  <div className="font-bold text-slate-800 mb-1">Por Tipo / Serie</div>
-                  <div className="space-y-0.5 max-h-24 overflow-y-auto">
-                    {statsResumen.porTipo.map(([k, v]) => (
-                      <div key={k} className="flex justify-between gap-2">
-                        <span className="truncate text-slate-600">{k}</span>
-                        <span className="font-mono font-bold text-slate-900">{v}</span>
-                      </div>
-                    ))}
+              <div className="space-y-3">
+                <div className="bg-white rounded-lg border border-blue-200/80 p-3">
+                  <div className="font-bold text-slate-800 mb-2 text-[11px] uppercase tracking-wide">
+                    Gráfico Comparativo por Tipo / Serie de Folio
+                  </div>
+                  <div className="h-36 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={statsResumen.porTipo.map(([name, value]) => ({ name, value }))}
+                        margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#475569' }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#0f172a',
+                            borderColor: '#334155',
+                            borderRadius: '8px',
+                            color: '#f8fafc',
+                            fontSize: '11px',
+                          }}
+                        />
+                        <Bar dataKey="value" name="Documentos" fill="#11264d" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
 
-                <div className="bg-white rounded-lg border border-blue-200/80 p-2.5">
-                  <div className="font-bold text-slate-800 mb-1">Por Estado</div>
-                  <div className="space-y-0.5 max-h-24 overflow-y-auto">
-                    {statsResumen.porEstado.map(([k, v]) => (
-                      <div key={k} className="flex justify-between gap-2">
-                        <span className="truncate text-slate-600">{k}</span>
-                        <span className="font-mono font-bold text-slate-900">{v}</span>
-                      </div>
-                    ))}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]">
+                  <div className="bg-white rounded-lg border border-blue-200/80 p-2.5">
+                    <div className="font-bold text-slate-800 mb-1">Por Tipo / Serie</div>
+                    <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                      {statsResumen.porTipo.map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-2">
+                          <span className="truncate text-slate-600">{k}</span>
+                          <span className="font-mono tabular-nums font-bold text-slate-900">{v}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                <div className="bg-white rounded-lg border border-blue-200/80 p-2.5">
-                  <div className="font-bold text-slate-800 mb-1">Principales Destinatarios</div>
-                  <div className="space-y-0.5 max-h-24 overflow-y-auto">
-                    {statsResumen.porDestino.slice(0, 6).map(([k, v]) => (
-                      <div key={k} className="flex justify-between gap-2">
-                        <span className="truncate text-slate-600">{k}</span>
-                        <span className="font-mono font-bold text-slate-900">{v}</span>
-                      </div>
-                    ))}
+                  <div className="bg-white rounded-lg border border-blue-200/80 p-2.5">
+                    <div className="font-bold text-slate-800 mb-1">Por Estado</div>
+                    <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                      {statsResumen.porEstado.map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-2">
+                          <span className="truncate text-slate-600">{k}</span>
+                          <span className="font-mono tabular-nums font-bold text-slate-900">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg border border-blue-200/80 p-2.5">
+                    <div className="font-bold text-slate-800 mb-1">Principales Destinatarios</div>
+                    <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                      {statsResumen.porDestino.slice(0, 6).map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-2">
+                          <span className="truncate text-slate-600">{k}</span>
+                          <span className="font-mono tabular-nums font-bold text-slate-900">{v}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>

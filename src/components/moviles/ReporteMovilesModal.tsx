@@ -6,6 +6,13 @@ import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { PdfPaperSize } from '../../types/police';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  drawReportFilterBanner,
+  renderBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface ReporteMovilesModalProps {
   isOpen: boolean;
@@ -45,11 +52,12 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
     currentUser?.rol === 'superusuario' || currentUser?.puedeVerOtrasDelegaciones
   );
 
-  // Tipos disponibles
+  // Tipos disponibles (normalizando m.tipoVehiculo || m.tipo)
   const tiposDisponibles = useMemo(() => {
     const set = new Set<string>();
     movilesList.forEach((m) => {
-      if (m.tipoVehiculo) set.add(m.tipoVehiculo);
+      const t = m.tipoVehiculo || m.tipo;
+      if (t) set.add(t);
     });
     return Array.from(set).sort();
   }, [movilesList]);
@@ -71,22 +79,26 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
       const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
       limiteHasta = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
     } else if (rangoTipo === 'semana') {
-      const d = new Date();
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      limiteDesde = new Date(d.setDate(diff)).toISOString().slice(0, 10);
-      limiteHasta = new Date(d.setDate(diff + 6)).toISOString().slice(0, 10);
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const start = new Date(now.getFullYear(), now.getMonth(), diff);
+      const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+      const toYmd = (dt: Date) =>
+        `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+      limiteDesde = toYmd(start);
+      limiteHasta = toYmd(end);
     }
 
     return movilesList.filter((m) => {
       // Tipo
-      if (filtroTipo !== 'todos' && m.tipoVehiculo !== filtroTipo) return false;
+      const tipoActual = m.tipoVehiculo || m.tipo || '';
+      if (filtroTipo !== 'todos' && tipoActual !== filtroTipo) return false;
 
       // Estado operativo
       if (filtroEstado !== 'todos' && m.estadoOperativo !== filtroEstado) return false;
 
       // Combustible
-      if (filtroCombustible !== 'todos' && m.tipoCombustible !== filtroCombustible) return false;
+      if (filtroCombustible !== 'todos' && (m.tipoCombustible || 'Nafta') !== filtroCombustible) return false;
 
       // Delegación (si tiene privilegio de ver otras)
       if (puedeVerOtras && filtroDelegacion !== 'todas') {
@@ -125,13 +137,59 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
         const doc = new jsPDF(resolveJsPdfOrientation(opts.orientation), 'mm', resolveJsPdfFormat(opts.paperSize));
 
         const titulo = `REPORTE OFICIAL DEL PARQUE AUTOMOTOR Y MÓVILES POLICIALES`;
-        const currentY = drawPoliceHeader(doc, config, titulo, 10);
+        let currentY = drawPoliceHeader(doc, config, titulo, 10);
 
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(80, 80, 80);
-        const filtrosTxt = `Filtros: Tipo: ${filtroTipo} | Estado: ${filtroEstado} | Período: ${rangoTipo.toUpperCase()} | Unidades listadas: ${filteredList.length}`;
-        doc.text(filtrosTxt, 10, currentY + 3);
+        const filtrosTxt = `Filtros: Tipo: ${filtroTipo} | Estado: ${filtroEstado} | Combustible: ${filtroCombustible} | Período: ${rangoTipo.toUpperCase()} | Unidades listadas: ${filteredList.length}`;
+        currentY = drawReportFilterBanner(doc, currentY, filtrosTxt, 10);
+
+        const enServicio = filteredList.filter((m) => m.estadoOperativo === 'En Servicio').length;
+        const enTaller = filteredList.filter((m) => m.estadoOperativo === 'En Taller Mecánico' || m.estadoOperativo === 'Fuera de Servicio').length;
+        const movilesIds = new Set(filteredList.map((m) => m.id));
+        const totalReps = reparacionesList.filter((r) => movilesIds.has(r.movilId)).length;
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY,
+          [
+            { label: 'Unidades Listadas', value: filteredList.length, subtitle: 'Parque automotor filtrado', accentColor: [17, 38, 77] },
+            { label: 'En Servicio', value: enServicio, subtitle: `${filteredList.length > 0 ? Math.round((enServicio / filteredList.length) * 100) : 0}% operatividad`, accentColor: [15, 118, 110] },
+            { label: 'Taller / Fuera Serv.', value: enTaller, subtitle: 'Unidades con novedad', accentColor: [217, 119, 6] },
+            { label: 'Reparaciones Hist.', value: totalReps, subtitle: 'Intervenciones mecánicas', accentColor: [29, 78, 216] },
+          ],
+          10
+        );
+
+        const estadoCounts: Record<string, number> = {};
+        const tipoCounts: Record<string, number> = {};
+        filteredList.forEach((m) => {
+          const est = m.estadoOperativo || 'En Servicio';
+          estadoCounts[est] = (estadoCounts[est] || 0) + 1;
+          const tp = m.tipoVehiculo || m.tipo || 'Otro';
+          tipoCounts[tp] = (tipoCounts[tp] || 0) + 1;
+        });
+
+        const chartEstado = renderDonutChartPng(
+          Object.entries(estadoCounts).map(([label, value]) => ({
+            label,
+            value,
+            color: label === 'En Servicio' ? '#0f766e' : label === 'En Taller Mecánico' ? '#d97706' : '#dc2626',
+          })),
+          { width: 560, height: 235, centerLabel: 'FLOTA' }
+        );
+        const chartTipo = renderBarChartPng(
+          Object.entries(tipoCounts).map(([label, value]) => ({ label, value })),
+          { width: 560, height: 235, barColor: '#1d4ed8' }
+        );
+
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            { title: 'Estado Operativo de la Flota', subtitle: 'Disponibilidad de unidades', imageDataUrl: chartEstado },
+            { title: 'Unidades por Tipo de Vehículo', subtitle: 'Patrulleros, Camionetas, Utilitarios y Motos', imageDataUrl: chartTipo },
+          ],
+          10
+        );
 
         const rows: (string | number)[][] = filteredList.map((m, i) => [
           i + 1,
@@ -148,7 +206,7 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
         ]);
 
         autoTable(doc, {
-          startY: currentY + 6,
+          startY: currentY,
           head: [[
             'N°',
             'Interno',
@@ -216,11 +274,11 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
                 {tiposDisponibles.map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
-                <option value="Patrullero / Móvil Pericial">Patrullero / Móvil Pericial</option>
-                <option value="Camioneta / Pick-Up">Camioneta / Pick-Up</option>
-                <option value="Automóvil">Automóvil</option>
-                <option value="Motocicleta">Motocicleta</option>
-                <option value="Furgón Pericial / Morguera">Furgón Pericial / Morguera</option>
+                {['Patrullero', 'Camioneta', 'Utilitario', 'Motovehículo']
+                  .filter((t) => !tiposDisponibles.includes(t))
+                  .map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
               </select>
             </div>
 
@@ -233,9 +291,9 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
               >
                 <option value="todos">Todos los Estados</option>
                 <option value="En Servicio">En Servicio (Operativo)</option>
-                <option value="En Taller / Reparación">En Taller / Reparación</option>
+                <option value="En Taller Mecánico">En Taller Mecánico</option>
                 <option value="Fuera de Servicio">Fuera de Servicio</option>
-                <option value="En Espera de Repuestos">En Espera de Repuestos</option>
+                <option value="Baja definitiva">Baja definitiva</option>
               </select>
             </div>
 
@@ -352,15 +410,26 @@ export const ReporteMovilesModal: React.FC<ReporteMovilesModalProps> = ({
             </div>
           </div>
 
-          {/* Contador de coincidencias */}
-          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 font-bold flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-              <span>Móviles que coinciden con los criterios:</span>
+          {/* Resumen estadístico en vivo */}
+          <div className="grid grid-cols-3 gap-2.5 border border-slate-200 rounded-xl bg-slate-50 p-3">
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-slate-500">Móviles Filtrados</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-slate-900">
+                {filteredList.length}
+              </div>
             </div>
-            <span className="text-sm font-mono bg-emerald-200/80 px-2.5 py-0.5 rounded-full">
-              {filteredList.length} unidades
-            </span>
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-slate-500">En Servicio</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-emerald-700">
+                {filteredList.filter((m) => m.estadoOperativo === 'En Servicio').length}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-slate-500">Taller / F.S.</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-amber-700">
+                {filteredList.filter((m) => m.estadoOperativo !== 'En Servicio').length}
+              </div>
+            </div>
           </div>
         </div>
 

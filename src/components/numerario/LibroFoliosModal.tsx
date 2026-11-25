@@ -18,6 +18,12 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface LibroFoliosModalProps {
   isOpen: boolean;
@@ -42,8 +48,6 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
-
-  if (!isOpen) return null;
 
   const activeSerie = seriesList.find((s) => s.id === selectedSerieId);
 
@@ -89,6 +93,8 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
 
     return list.sort((a, b) => a.numero - b.numero);
   }, [foliosList, alcance, selectedSerieId, searchTerm, filtroCategoria, fechaDesde, fechaHasta]);
+
+  if (!isOpen) return null;
 
   // Exportar a CSV / Excel con codificación UTF-8
   const handleExportCsv = () => {
@@ -158,10 +164,79 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
           unit: 'mm',
           format: resolveJsPdfFormat(opts.paperSize),
         });
-        const startY = drawPoliceHeader(
+        let currentY = drawPoliceHeader(
           doc,
           config,
           `LIBRO OFICIAL DE REGISTRO DE FOLIOS (${alcance === 'serie' ? activeSerie?.nombre || '' : 'UNIFICADO'})`,
+          10
+        );
+
+        const porSerieCounts: Record<string, number> = {};
+        const porCategoriaCounts: Record<string, number> = {};
+        const destinatariosUnicos = new Set<string>();
+        foliosFiltrados.forEach((f) => {
+          const sName = seriesMap.get(f.serieId) || 'Serie';
+          porSerieCounts[sName] = (porSerieCounts[sName] || 0) + 1;
+          const cat = f.categoriaDocumento || 'Sin categoría';
+          porCategoriaCounts[cat] = (porCategoriaCounts[cat] || 0) + 1;
+          if (f.destinatario?.trim()) destinatariosUnicos.add(f.destinatario.trim());
+        });
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY,
+          [
+            {
+              label: 'Folios Filtrados',
+              value: foliosFiltrados.length,
+              subtitle: `Sobre ${foliosList.length} asignados totales`,
+              accentColor: [17, 38, 77],
+            },
+            {
+              label: 'Series Activas',
+              value: Object.keys(porSerieCounts).length || (alcance === 'serie' ? 1 : seriesList.length),
+              subtitle: alcance === 'serie' ? (activeSerie?.nombre || 'Serie') : 'Alcance unificado',
+              accentColor: [29, 78, 216],
+            },
+            {
+              label: 'Categorías Distintas',
+              value: Object.keys(porCategoriaCounts).length,
+              subtitle: 'Tipos documentales',
+              accentColor: [2, 132, 199],
+            },
+            {
+              label: 'Destinatarios',
+              value: destinatariosUnicos.size,
+              subtitle: 'Organismos receptores',
+              accentColor: [15, 118, 110],
+            },
+          ],
+          10
+        );
+
+        const chartSerieImg = renderBarChartPng(
+          Object.entries(porSerieCounts).map(([label, value]) => ({ label, value })),
+          { width: 560, height: 235, barColor: '#11264d' }
+        );
+        const chartCatImg = renderDonutChartPng(
+          Object.entries(porCategoriaCounts).map(([label, value]) => ({ label, value })),
+          { width: 560, height: 235, centerLabel: 'FOLIOS' }
+        );
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            {
+              title: 'Folios Asignados por Serie',
+              subtitle: 'Volumen de numerario utilizado',
+              imageDataUrl: chartSerieImg,
+            },
+            {
+              title: 'Distribución por Categoría Documental',
+              subtitle: 'Proporción según tipo de trámite',
+              imageDataUrl: chartCatImg,
+            },
+          ],
           10
         );
 
@@ -177,7 +252,7 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
         ]);
 
         autoTable(doc, {
-          startY: startY + 4,
+          startY: currentY,
           head: [['Folio N°', 'Serie', 'Carátula / Cód.', 'Categoría', 'Fecha / Hora', 'Asunto / Objeto', 'Destinatario', 'Solicitante']],
           body: body.length > 0 ? body : [['-', '-', 'Sin folios para los filtros actuales', '-', '-', '-', '-', '-']],
           theme: 'grid',
@@ -321,6 +396,12 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
                 className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium"
               >
                 <option value="todas">Todas las Categorías</option>
+                <option value="Memorandum">Memorandum</option>
+                <option value="Nota V">Nota V</option>
+                <option value="Oficio J">Oficio J</option>
+                <option value="Oficio V">Oficio V</option>
+                <option value="Memorandum R">Memorandum R</option>
+                <option value="Radiograma">Radiograma</option>
                 <option value="Oficio Judicial">Oficio Judicial</option>
                 <option value="Oficio Vicedirección">Oficio Vicedirección</option>
                 <option value="Memorándum">Memorándum</option>

@@ -31,14 +31,16 @@ import {
   X,
   Link,
   Users,
+  BarChart3,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ModuleStatsPanel } from '../common/ModuleStatsPanel';
 import { ModalOpcionesImpresion, OpcionesImpresion } from '../common/ModalOpcionesImpresion';
 import { FilePreviewModal } from '../common/FilePreviewModal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { drawPoliceHeader, drawPoliceFooter, generarPdfReporteInformesTecnicos } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 
 interface InformesTecnicosViewProps {
@@ -66,6 +68,7 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [soloPolicial, setSoloPolicial] = useState(false);
+  const [mostrarStats, setMostrarStats] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   // Modal State
@@ -290,12 +293,12 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
     const term = searchTerm.toLowerCase();
     const matchSearch =
       !term ||
-      inf.caratula.toLowerCase().includes(term) ||
-      inf.oficioNro.toLowerCase().includes(term) ||
-      inf.nroExpediente.toLowerCase().includes(term) ||
-      inf.juzgado.toLowerCase().includes(term) ||
-      inf.dependenciaInterviniente.toLowerCase().includes(term) ||
-      inf.licenciadoACargoNombre.toLowerCase().includes(term);
+      (inf.caratula || '').toLowerCase().includes(term) ||
+      (inf.oficioNro || '').toLowerCase().includes(term) ||
+      (inf.nroExpediente || '').toLowerCase().includes(term) ||
+      (inf.juzgado || '').toLowerCase().includes(term) ||
+      (inf.dependenciaInterviniente || '').toLowerCase().includes(term) ||
+      (inf.licenciadoACargoNombre || '').toLowerCase().includes(term);
 
     const matchEstado = filtroEstado === 'todos' || inf.estado === filtroEstado;
     const matchTipo = filtroTipo === 'todos' || inf.tipoExpediente === filtroTipo;
@@ -307,6 +310,51 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
 
     return matchSearch && matchEstado && matchTipo && matchDep && matchLic && matchDesde && matchHasta && matchPolicial;
   });
+
+  const infStats = useMemo(() => {
+    const total = informesList.length;
+    const confeccion = informesList.filter((i) => i.estado === 'En Confección').length;
+    const elevados = informesList.filter((i) => i.estado === 'Elevado').length;
+    const recepcionados = informesList.filter((i) => i.estado === 'Recepcionado').length;
+
+    const tipoMap = new Map<string, number>();
+    informesList.forEach((inf) => {
+      const t = inf.tipoExpediente || 'Otro';
+      tipoMap.set(t, (tipoMap.get(t) || 0) + 1);
+    });
+
+    return {
+      kpis: [
+        { label: 'Total Informes', value: total, detail: 'Peritajes registrados', tone: 'navy' as const },
+        { label: 'En Confección', value: confeccion, detail: 'Pendientes de elevación', tone: 'amber' as const },
+        { label: 'Elevados', value: elevados, detail: 'Remitidos a destino', tone: 'blue' as const },
+        { label: 'Recepcionados', value: recepcionados, detail: 'Con constancia de entrega', tone: 'emerald' as const },
+      ],
+      charts: [
+        {
+          id: 'inf-estado',
+          title: 'Estado de Tramitación',
+          subtitle: 'Confección vs Elevado vs Recepcionado',
+          type: 'donut' as const,
+          data: [
+            { name: 'En Confección', value: confeccion },
+            { name: 'Elevado', value: elevados },
+            { name: 'Recepcionado', value: recepcionados },
+          ],
+        },
+        {
+          id: 'inf-tipos',
+          title: 'Distribución por Tipo de Sumario / Expediente',
+          subtitle: 'IPP, Causas Penales y Sumarios Judiciales',
+          type: 'horizontal-bar' as const,
+          data: Array.from(tipoMap.entries())
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value),
+          valueLabel: 'Informes',
+        },
+      ],
+    };
+  }, [informesList]);
 
   const handleExportListPdf = (opciones?: OpcionesImpresion) => {
     const fileName = `Informes_Tecnicos_${new Date().toISOString().split('T')[0]}.pdf`;
@@ -406,7 +454,7 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
 
         doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
-        doc.text(`OFICIO N°: ${inf.oficioNro.toUpperCase()}`, 15, finalY + 6);
+        doc.text(`OFICIO N°: ${(inf.oficioNro || '').toUpperCase()}`, 15, finalY + 6);
         doc.setFont('helvetica', 'normal');
         doc.text(`Fecha de Registro: ${inf.fecha}`, pageWidth - 70, finalY + 6);
 
@@ -544,11 +592,34 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMostrarStats((v) => !v)}
+            className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-300'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
+          {informesList.length > 0 && (
+            <button
+              onClick={() => generarPdfReporteInformesTecnicos(filteredList, config)}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Reporte Estadístico PDF</span>
+            </button>
+          )}
+
           {informesList.length > 0 && (
             <button
               onClick={() => setPrintModalState({ isOpen: true, mode: 'list' })}
-              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               <Download className="w-4 h-4 text-slate-600" />
               <span>Libro en PDF</span>
@@ -557,13 +628,25 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
 
           <button
             onClick={() => handleOpenModal()}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>+ Cargar Informe Técnico</span>
           </button>
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Informes Técnicos y Periciales"
+          subtitle="Seguimiento de confección, elevación y recepción ante magistrados"
+          kpis={infStats.kpis}
+          charts={infStats.charts}
+          onExportPdf={() => generarPdfReporteInformesTecnicos(filteredList, config)}
+          exportPdfLabel="Exportar Reporte Estadístico (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* Filtros Colapsables */}
       <CollapsibleFilterBar
@@ -1253,7 +1336,7 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
                         involucraPersonalPolicial: checked,
                         personalPolicial: checked
                           ? formData.personalPolicial || {
-                              jerarquia: config.jerarquias[0] || 'Oficial Principal',
+                              jerarquia: config.jerarquias?.[0] || 'Oficial Principal',
                               plaza: '',
                               apellidoYNombre: '',
                               rol: 'Imputado',

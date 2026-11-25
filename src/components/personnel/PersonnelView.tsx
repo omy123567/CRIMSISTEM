@@ -18,6 +18,7 @@ import {
   FilePenLine,
   CheckCircle2,
   X,
+  BarChart3,
 } from 'lucide-react';
 import { PersonnelModal } from './PersonnelModal';
 import { UpcomingBirthdaysModal } from './UpcomingBirthdaysModal';
@@ -31,6 +32,13 @@ import autoTable from 'jspdf-autotable';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { ReportePersonalModal } from './ReportePersonalModal';
+import { ModuleStatsPanel, StatChartConfig, StatKpiItem } from '../common/ModuleStatsPanel';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderDonutChartPng,
+  renderHorizontalBarChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface PersonnelViewProps {
   personalList: Personal[];
@@ -86,6 +94,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
   // Modal de Aviso de Próximos Cumpleaños
   const [isBirthdayModalOpen, setIsBirthdayModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [mostrarStats, setMostrarStats] = useState(false);
 
   // Alertas de Cumpleaños
   const todayBirthdays = useMemo(() => getTodayBirthdays(personalList), [personalList]);
@@ -93,13 +102,15 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
 
   // Filtrado reactivo en tiempo real
   const filteredList = useMemo(() => {
+    const term = searchTerm.toLowerCase();
     return personalList.filter((p) => {
       const matchSearch =
-        p.apellidoYNombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.dni.includes(searchTerm) ||
-        Boolean(p.cedulaProvincial && p.cedulaProvincial.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        p.jerarquia.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.plaza.toLowerCase().includes(searchTerm.toLowerCase());
+        !term ||
+        (p.apellidoYNombre || '').toLowerCase().includes(term) ||
+        (p.dni || '').includes(searchTerm) ||
+        Boolean(p.cedulaProvincial && p.cedulaProvincial.toLowerCase().includes(term)) ||
+        (p.jerarquia || '').toLowerCase().includes(term) ||
+        (p.plaza || '').toLowerCase().includes(term);
 
       const matchJerarquia =
         filtroJerarquia === 'todas' || p.jerarquia === filtroJerarquia;
@@ -123,6 +134,78 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
     });
   }, [personalList, searchTerm, filtroJerarquia, filtroGrupo, filtroEstado, filtroArmamento, filtroEsLicenciado]);
 
+  const personalStats = useMemo(() => {
+    const total = personalList.length;
+    const activos = personalList.filter((p) => p.estado === 'Activo').length;
+    const enLicencia = personalList.filter(
+      (p) => p.estado === 'Licencia Médica' || p.estado === 'Licencia Anual'
+    ).length;
+    const conRetencion = personalList.filter(
+      (p) => Boolean(p.armamento?.secuestradoORetenido || p.chaleco?.secuestradoORetenido)
+    ).length;
+
+    const kpis: StatKpiItem[] = [
+      {
+        label: 'Dotación Total',
+        value: total,
+        detail: `${filteredList.length} en vista filtrada`,
+        tone: 'navy',
+      },
+      {
+        label: 'En Servicio Activo',
+        value: activos,
+        detail: `${total > 0 ? Math.round((activos / total) * 100) : 0}% de la dotación`,
+        tone: 'emerald',
+      },
+      {
+        label: 'En Licencia',
+        value: enLicencia,
+        detail: 'Médica / Anual ordinaria',
+        tone: 'amber',
+      },
+      {
+        label: 'Con Retención Arma/Chaleco',
+        value: conRetencion,
+        detail: 'Novedad de armamento',
+        tone: 'rose',
+      },
+    ];
+
+    const byJerarquia = new Map<string, number>();
+    const byEstado = new Map<string, number>();
+    personalList.forEach((p) => {
+      const jer = p.jerarquia || 'Sin Jerarquía';
+      byJerarquia.set(jer, (byJerarquia.get(jer) || 0) + 1);
+      const est = p.estado || 'Sin Estado';
+      byEstado.set(est, (byEstado.get(est) || 0) + 1);
+    });
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'jerarquias',
+        title: 'Distribución por Jerarquía',
+        subtitle: 'Efectivos agrupados por grado policial',
+        type: 'horizontal-bar',
+        data: Array.from(byJerarquia.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+        valueLabel: 'Efectivos',
+        primaryColor: '#11264d',
+      },
+      {
+        id: 'estado-revista',
+        title: 'Situación de Revista',
+        subtitle: 'Proporción por estado administrativo',
+        type: 'donut',
+        data: Array.from(byEstado.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+      },
+    ];
+
+    return { kpis, charts };
+  }, [personalList, filteredList.length]);
+
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     if (searchTerm.trim()) count++;
@@ -143,7 +226,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
     setFiltroEsLicenciado('todos');
   };
 
-  // Exportar Nómina Completa a PDF con selector y vista previa
+  // Exportar Nómina Completa a PDF con selector, gráficos y vista previa
   const handleExportNominaPdf = () => {
     requestPdfExport({
       title: 'Nómina General de Personal Policial',
@@ -152,10 +235,59 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
       defaultPaperSize: 'a4',
       buildDoc: ({ orientation, paperSize }) => {
         const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
-        const currentY = drawPoliceHeader(
+        let currentY = drawPoliceHeader(
           doc,
           config,
           'NÓMINA GENERAL DE PERSONAL POLICIAL Y ESTADO DE REVISTA',
+          10
+        );
+
+        const total = filteredList.length;
+        const activos = filteredList.filter((p) => p.estado === 'Activo').length;
+        const licencias = filteredList.filter(
+          (p) => p.estado === 'Licencia Médica' || p.estado === 'Licencia Anual'
+        ).length;
+        const retenciones = filteredList.filter(
+          (p) => Boolean(p.armamento?.secuestradoORetenido || p.chaleco?.secuestradoORetenido)
+        ).length;
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY + 1,
+          [
+            { label: 'Total Nómina', value: total, subtitle: 'Efectivos incluidos', accentColor: [17, 38, 77] },
+            { label: 'Activos', value: activos, subtitle: `${total > 0 ? Math.round((activos / total) * 100) : 0}% operativo`, accentColor: [15, 118, 110] },
+            { label: 'En Licencia', value: licencias, subtitle: 'Médica / Anual', accentColor: [217, 119, 6] },
+            { label: 'Con Retención', value: retenciones, subtitle: 'Arma / Chaleco', accentColor: [220, 38, 38] },
+          ],
+          10
+        );
+
+        const mapJer = new Map<string, number>();
+        const mapEst = new Map<string, number>();
+        filteredList.forEach((p) => {
+          const j = p.jerarquia || 'Sin Jerarquía';
+          mapJer.set(j, (mapJer.get(j) || 0) + 1);
+          const e = p.estado || 'Sin Estado';
+          mapEst.set(e, (mapEst.get(e) || 0) + 1);
+        });
+
+        const imgJer = renderHorizontalBarChartPng(
+          Array.from(mapJer.entries()).map(([label, value]) => ({ label, value })),
+          { barColor: '#11264d' }
+        );
+        const imgEst = renderDonutChartPng(
+          Array.from(mapEst.entries()).map(([label, value]) => ({ label, value })),
+          { centerLabel: 'EFECTIVOS' }
+        );
+
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            { title: 'Distribución por Jerarquía', subtitle: 'Dotación incluida en nómina', imageDataUrl: imgJer },
+            { title: 'Situación de Revista', subtitle: 'Estados administrativos', imageDataUrl: imgEst },
+          ],
           10
         );
 
@@ -195,6 +327,9 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
           headStyles: { fillColor: [17, 38, 77], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5 },
           styles: { fontSize: 7, cellPadding: 1.8, lineColor: [200, 210, 225], lineWidth: 0.1 },
           margin: { left: 10, right: 10 },
+          didDrawPage: () => {
+            drawPoliceFooter(doc, config);
+          },
         });
 
         drawPoliceFooter(doc, config);
@@ -261,8 +396,8 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
             <Cake className="w-3.5 h-3.5" />
             <span>Próximos Cumpleaños</span>
             {todayBirthdays.length > 0 ? (
-              <span className="bg-rose-600 text-white font-extrabold text-[10px] px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
-                {todayBirthdays.length} ¡Hoy!
+              <span className="bg-rose-600 text-white font-extrabold text-[10px] px-1.5 py-0.2 rounded-full">
+                {todayBirthdays.length} Hoy
               </span>
             ) : (
               <span className="bg-amber-700/60 text-amber-100 text-[10px] px-1.5 py-0.2 rounded-full">
@@ -272,8 +407,21 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
           </button>
 
           <button
+            type="button"
+            onClick={() => setMostrarStats((prev) => !prev)}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
+          <button
             onClick={() => generarPdfFormularioRegistroMano(config)}
-            className="flex items-center gap-1.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+            className="flex items-center gap-1.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs whitespace-nowrap shrink-0"
             title="Descargar Formulario Oficial en blanco con firma a la izquierda para ser completado a mano"
           >
             <FilePenLine className="w-3.5 h-3.5 text-emerald-200" />
@@ -282,7 +430,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
 
           <button
             onClick={() => setIsReportModalOpen(true)}
-            className="flex items-center gap-1.5 bg-blue-800 hover:bg-blue-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+            className="flex items-center gap-1.5 bg-blue-800 hover:bg-blue-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs whitespace-nowrap shrink-0"
             title="Generar reportes oficiales filtrados por categoría (sexo, arma, jerarquía, sección, delegación) y rango de fechas"
           >
             <FileText className="w-3.5 h-3.5 text-blue-200" />
@@ -291,7 +439,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
 
           <button
             onClick={handleExportNominaPdf}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Nómina PDF</span>
@@ -301,7 +449,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
             <button
               type="button"
               onClick={() => setTrasladarModal({ isOpen: true, personal: null })}
-              className="flex items-center gap-1.5 bg-indigo-800 hover:bg-indigo-900 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 bg-indigo-800 hover:bg-indigo-900 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap shrink-0"
               title="Trasladar un efectivo a otra Delegación y enviar notificación oficial a destino"
             >
               <ArrowRightLeft className="w-3.5 h-3.5 text-amber-300" />
@@ -314,13 +462,25 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
               setSelectedPersonal(null);
               setIsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>Nuevo Efectivo</span>
           </button>
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Personal y Legajos Policiales"
+          subtitle="Composición jerárquica, situación de revista y estado de dotación"
+          kpis={personalStats.kpis}
+          charts={personalStats.charts}
+          onExportPdf={() => setIsReportModalOpen(true)}
+          exportPdfLabel="Abrir Generador Reporte PDF"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* Confirmación visual de traslado y notificación enviada */}
       {transferNotice && (

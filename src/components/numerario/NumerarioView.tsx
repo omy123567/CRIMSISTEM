@@ -6,6 +6,7 @@ import {
   Personal,
   UsuarioSistema,
   DelegacionPolicial,
+  MemoNota,
 } from '../../types/police';
 import {
   Hash,
@@ -32,6 +33,10 @@ import {
   Edit2,
   Check,
   X,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpDown,
+  BarChart3,
 } from 'lucide-react';
 import { AsignarFolioModal } from './AsignarFolioModal';
 import { DetalleFolioModal } from './DetalleFolioModal';
@@ -40,22 +45,33 @@ import { LibroFoliosModal } from './LibroFoliosModal';
 import { ReinicioSerieModal } from './ReinicioSerieModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { ConfirmModal } from '../common/ConfirmModal';
-import { isSerieHiddenForUser } from '../../utils/memosCatalogUtils';
+import { ModuleStatsPanel, StatChartConfig, StatKpiItem } from '../common/ModuleStatsPanel';
+import {
+  isSerieHiddenForUser,
+  findMemoForFolio,
+  isJefeControlFoliosUser,
+  sortSeriesNumerarioByOrden,
+} from '../../utils/memosCatalogUtils';
 
 interface NumerarioViewProps {
   seriesList: SerieNumerario[];
   foliosList: FolioAsignado[];
+  memosList?: MemoNota[];
   config: ConfiguracionSistema;
   personalList: Personal[];
   currentUser?: UsuarioSistema;
   delegacionesList?: DelegacionPolicial[];
   activeDelegacionId?: string;
-  onSaveFolios: (folios: FolioAsignado[]) => Promise<void> | void;
+  onSaveFolios: (
+    folios: FolioAsignado[],
+    options?: { createLinkedMemo?: boolean }
+  ) => Promise<void> | void;
   onUpdateFolio: (folio: FolioAsignado) => Promise<void> | void;
   onLiberarFolio: (folio: FolioAsignado, liberarRangoCompleto?: boolean) => Promise<void> | void;
   onSaveSerie: (serie: SerieNumerario) => Promise<void> | void;
   onDeleteSerie: (id: string) => Promise<void> | void;
   onResetSerie: (serieId: string) => Promise<void> | void;
+  onReorderSeries?: (orderedSeries: SerieNumerario[]) => Promise<void> | void;
 }
 
 export type GridDensity = 'compacta' | 'estandar' | 'grande';
@@ -63,6 +79,7 @@ export type GridDensity = 'compacta' | 'estandar' | 'grande';
 export const NumerarioView: React.FC<NumerarioViewProps> = ({
   seriesList,
   foliosList,
+  memosList = [],
   config,
   personalList,
   currentUser,
@@ -74,16 +91,24 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
   onSaveSerie,
   onDeleteSerie,
   onResetSerie,
+  onReorderSeries,
 }) => {
+  const isJefeUser = isJefeControlFoliosUser(currentUser);
+
   const canManageSeriesVisibility =
     currentUser?.rol === 'superusuario' ||
     currentUser?.rol === 'Administrador' ||
     Boolean(currentUser?.accionesPersonalizadas?.puedeGestionarUsuarios) ||
     Boolean(currentUser?.puedeAdministrarModulos);
 
+  const sortedSeriesList = useMemo(
+    () => sortSeriesNumerarioByOrden(seriesList),
+    [seriesList]
+  );
+
   const visibleSeries = useMemo(() => {
-    return seriesList.filter((s) => !isSerieHiddenForUser(s, currentUser));
-  }, [seriesList, currentUser]);
+    return sortedSeriesList.filter((s) => !isSerieHiddenForUser(s, currentUser));
+  }, [sortedSeriesList, currentUser]);
 
   const visibleSerieIds = useMemo(
     () => new Set(visibleSeries.map((s) => s.id)),
@@ -96,7 +121,7 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
 
   // Serie activa seleccionada
   const [activeSerieId, setActiveSerieId] = useState<string>(() => {
-    return visibleSeries[0]?.id || seriesList[0]?.id || 'serie-oficio-jefatura';
+    return visibleSeries[0]?.id || sortedSeriesList[0]?.id || 'serie-memorandums';
   });
 
   // Asegurar que activeSerieId sea válida si cambia la lista visible
@@ -110,8 +135,10 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
     return visibleSeries.find((s) => s.id === activeSerieId) || visibleSeries[0];
   }, [visibleSeries, activeSerieId]);
 
-  // Densidad de visualización de la cuadrícula
+  // Densidad de visualización de la cuadrícula y orden exclusivo Jefe
   const [density, setDensity] = useState<GridDensity>('estandar');
+  const [isReorderingSeries, setIsReorderingSeries] = useState<boolean>(false);
+  const [gridOrder, setGridOrder] = useState<'asc' | 'desc'>('asc');
 
   // Límite dinámico de números (+100 números)
   const [limiteDinamico, setLimiteDinamico] = useState<number>(() => {
@@ -144,6 +171,7 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
   const [isGestionSeriesOpen, setIsGestionSeriesOpen] = useState(false);
   const [isLibroFoliosOpen, setIsLibroFoliosOpen] = useState(false);
   const [isReinicioOpen, setIsReinicioOpen] = useState(false);
+  const [mostrarStats, setMostrarStats] = useState(false);
 
   // Filtros de Búsqueda de Folios
   const [folioSearch, setFolioSearch] = useState('');
@@ -174,6 +202,7 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
       limiteFolios: 1000,
       columnas: 20,
       color: 'blue',
+      orden: sortedSeriesList.length + 1,
       delegacionId: activeDelegacionId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -182,6 +211,23 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
     setActiveSerieId(nueva.id);
     setNuevaSerieNombre('');
     setMostrarNuevaSerieInput(false);
+  };
+
+  const handleMoveVisibleSerie = async (serieId: string, direction: -1 | 1) => {
+    if (!isJefeUser || !onReorderSeries) return;
+    const idx = visibleSeries.findIndex((s) => s.id === serieId);
+    const targetIdx = idx + direction;
+    if (idx < 0 || targetIdx < 0 || targetIdx >= visibleSeries.length) return;
+
+    const reorderedVisible = [...visibleSeries];
+    const [moved] = reorderedVisible.splice(idx, 1);
+    reorderedVisible.splice(targetIdx, 0, moved);
+
+    let vPtr = 0;
+    const merged = sortedSeriesList.map((s) =>
+      visibleSerieIds.has(s.id) ? reorderedVisible[vPtr++] : s
+    );
+    await onReorderSeries(merged);
   };
 
   const handleEliminarSerieDirecto = (serieId: string, nombre: string) => {
@@ -234,6 +280,76 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
     }
     return max;
   }, [folioMap]);
+
+  // Estadísticas estrictamente sobre series y folios visibles para el usuario conectado
+  const numerarioStats = useMemo(() => {
+    const ocupacionPct = totalFolios > 0 ? Math.round((totalOcupados / totalFolios) * 100) : 0;
+
+    const kpis: StatKpiItem[] = [
+      {
+        label: 'Folios Asignados (Visibles)',
+        value: visibleFolios.length,
+        detail: `En ${visibleSeries.length} serie(s) habilitada(s)`,
+        tone: 'navy',
+      },
+      {
+        label: 'Series Habilitadas',
+        value: visibleSeries.length,
+        detail: activeSerie ? `Activa: ${activeSerie.nombre}` : 'Sin serie activa',
+        tone: 'blue',
+      },
+      {
+        label: 'Ocupación Serie Activa',
+        value: `${ocupacionPct}%`,
+        detail: `${totalOcupados} / ${totalFolios} folios`,
+        tone: 'emerald',
+      },
+      {
+        label: `Siguiente Libre (${activeSerie?.prefijo || 'Serie'})`,
+        value: `#${primerNumeroLibre}`,
+        detail: ultimoNumeroOcupado > 0 ? `Último ocupado: #${ultimoNumeroOcupado}` : 'Serie sin asignaciones',
+        tone: 'amber',
+      },
+    ];
+
+    const seriesOcupacionData = visibleSeries.map((s) => {
+      const occ = visibleFolios.filter((f) => f.serieId === s.id).length;
+      const lim = s.limiteFolios || 1000;
+      return {
+        name: s.nombre,
+        value: occ,
+        secondary: Math.max(0, lim - occ),
+      };
+    });
+
+    const seriesParticipacionData = visibleSeries.map((s) => ({
+      name: s.nombre,
+      value: visibleFolios.filter((f) => f.serieId === s.id).length,
+    }));
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'numerario-ocupacion',
+        title: 'Folios Ocupados vs Libres por Serie',
+        subtitle: 'Calculado sobre series autorizadas para su perfil',
+        type: 'bar',
+        data: seriesOcupacionData,
+        valueLabel: 'Ocupados',
+        secondaryLabel: 'Libres',
+        primaryColor: '#11264d',
+        secondaryColor: '#cbd5e1',
+      },
+      {
+        id: 'numerario-participacion',
+        title: 'Participación de Emisión por Serie',
+        subtitle: 'Proporción de folios asignados',
+        type: 'donut',
+        data: seriesParticipacionData,
+      },
+    ];
+
+    return { kpis, charts };
+  }, [visibleFolios, visibleSeries, activeSerie, totalFolios, totalOcupados, primerNumeroLibre, ultimoNumeroOcupado]);
 
   const activeFolioFiltersCount = useMemo(() => {
     let count = 0;
@@ -436,9 +552,22 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
         <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
           <button
             type="button"
+            onClick={() => setMostrarStats((prev) => !prev)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              mostrarStats
+                ? 'bg-white text-slate-900 border-white'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Estadísticas</span>
+          </button>
+
+          <button
+            type="button"
             disabled={!activeSerie}
             onClick={handleAsignarSiguienteLibre}
-            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             title="Asignar automáticamente el primer número libre"
           >
             <Sparkles className="w-4 h-4 text-emerald-200" />
@@ -449,32 +578,44 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
             type="button"
             disabled={!activeSerie}
             onClick={() => setIsLibroFoliosOpen(true)}
-            className="bg-blue-800 hover:bg-blue-900 disabled:opacity-45 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            className="bg-blue-800 hover:bg-blue-900 disabled:opacity-45 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             title="Ver Libro de Folios consolidado y exportar a Excel / CSV"
           >
             <FileSpreadsheet className="w-4 h-4 text-blue-200" />
             <span>Libro de Folios</span>
           </button>
 
-          {canManageSeriesVisibility && (
+          {(canManageSeriesVisibility || isJefeUser) && (
             <button
               type="button"
               onClick={() => setIsGestionSeriesOpen(true)}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Administrar o agregar nuevas series de numerario"
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              title="Administrar o reordenar series de numerario"
             >
               <Layers className="w-4 h-4 text-slate-400" />
-              <span>Series ({seriesList.length})</span>
+              <span>Series ({sortedSeriesList.length})</span>
             </button>
           )}
         </div>
       </div>
 
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Control de Folios y Numerario"
+          subtitle="Ocupación, disponibilidad y volumen emitido en series autorizadas"
+          kpis={numerarioStats.kpis}
+          charts={numerarioStats.charts}
+          onExportPdf={activeSerie ? () => setIsLibroFoliosOpen(true) : undefined}
+          exportPdfLabel="Libro Oficial de Folios (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
+
       {/* 2. Pestañas / Solapas de Series Independientes con agregar / editar / eliminar nombres */}
       <div className="flex flex-col gap-2.5 pb-2 border-b border-slate-200">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1 py-1">
-            {visibleSeries.map((serie) => {
+            {visibleSeries.map((serie, sIdx) => {
               const countOcupadosSerie = visibleFolios.filter((f) => f.serieId === serie.id).length;
               const isActive = serie.id === activeSerie?.id;
               const isEditing = editingSerieId === serie.id;
@@ -518,6 +659,20 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
                       : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 >
+                  {isJefeUser && isReorderingSeries && visibleSeries.length > 1 && (
+                    <button
+                      type="button"
+                      disabled={sIdx === 0}
+                      onClick={() => handleMoveVisibleSerie(serie.id, -1)}
+                      className={`p-1.5 ml-1 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                        isActive ? 'hover:bg-blue-800 text-blue-200' : 'hover:bg-slate-200 text-slate-600'
+                      }`}
+                      title={`Mover "${serie.nombre}" a la izquierda`}
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => {
@@ -535,6 +690,20 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
                       {countOcupadosSerie}
                     </span>
                   </button>
+
+                  {isJefeUser && isReorderingSeries && visibleSeries.length > 1 && (
+                    <button
+                      type="button"
+                      disabled={sIdx === visibleSeries.length - 1}
+                      onClick={() => handleMoveVisibleSerie(serie.id, 1)}
+                      className={`p-1.5 mr-1 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                        isActive ? 'hover:bg-blue-800 text-blue-200' : 'hover:bg-slate-200 text-slate-600'
+                      }`}
+                      title={`Mover "${serie.nombre}" a la derecha`}
+                    >
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
 
                   {/* Acciones directas para la serie activa */}
                   {isActive && (
@@ -604,18 +773,36 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
             )}
           </div>
 
-          {/* Botón de Reinicio Seguro de la Serie Activa */}
-          {activeSerie && (
-            <button
-              type="button"
-              onClick={() => setIsReinicioOpen(true)}
-              className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
-              title={`Reiniciar numerario de la serie "${activeSerie.nombre}"`}
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-red-600" />
-              <span className="hidden md:inline">Reiniciar Serie</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {isJefeUser && visibleSeries.length > 1 && onReorderSeries && (
+              <button
+                type="button"
+                onClick={() => setIsReorderingSeries((prev) => !prev)}
+                className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors border ${
+                  isReorderingSeries
+                    ? 'bg-blue-900 text-white border-blue-950 shadow-xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                }`}
+                title="Cambiar el orden de los Folios (exclusivo usuarios Jefe)"
+              >
+                <ArrowUpDown className="w-3.5 h-3.5" />
+                <span>{isReorderingSeries ? 'Listo Orden' : 'Ordenar Folios'}</span>
+              </button>
+            )}
+
+            {/* Botón de Reinicio Seguro de la Serie Activa */}
+            {activeSerie && (
+              <button
+                type="button"
+                onClick={() => setIsReinicioOpen(true)}
+                className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
+                title={`Reiniciar numerario de la serie "${activeSerie.nombre}"`}
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-red-600" />
+                <span className="hidden md:inline">Reiniciar Serie</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -706,43 +893,75 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
           </div>
         </div>
 
-        {/* Controles: Densidad de la grilla */}
-        <div className="flex items-center gap-2 self-end sm:self-auto">
-          <span className="text-slate-500 font-medium">Densidad Grilla:</span>
-          <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 shadow-2xs">
-            <button
-              type="button"
-              onClick={() => setDensity('compacta')}
-              className={`px-2.5 py-1 rounded font-semibold text-[11px] transition-colors cursor-pointer ${
-                density === 'compacta'
-                  ? 'bg-blue-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Compacta
-            </button>
-            <button
-              type="button"
-              onClick={() => setDensity('estandar')}
-              className={`px-2.5 py-1 rounded font-semibold text-[11px] transition-colors cursor-pointer ${
-                density === 'estandar'
-                  ? 'bg-blue-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Estándar
-            </button>
-            <button
-              type="button"
-              onClick={() => setDensity('grande')}
-              className={`px-2.5 py-1 rounded font-semibold text-[11px] transition-colors cursor-pointer ${
-                density === 'grande'
-                  ? 'bg-blue-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Grande
-            </button>
+        {/* Controles: Orden de Folios (solo Jefe) y Densidad de la grilla */}
+        <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
+          {isJefeUser && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 font-medium">Orden Folios:</span>
+              <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setGridOrder('asc')}
+                  className={`px-2 py-1 rounded font-semibold text-[11px] transition-colors cursor-pointer ${
+                    gridOrder === 'asc'
+                      ? 'bg-blue-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Ascendente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGridOrder('desc')}
+                  className={`px-2 py-1 rounded font-semibold text-[11px] transition-colors cursor-pointer ${
+                    gridOrder === 'desc'
+                      ? 'bg-blue-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Descendente
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 font-medium">Densidad Grilla:</span>
+            <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setDensity('compacta')}
+                className={`px-2.5 py-1 rounded font-semibold text-[11px] transition-colors cursor-pointer ${
+                  density === 'compacta'
+                    ? 'bg-blue-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Compacta
+              </button>
+              <button
+                type="button"
+                onClick={() => setDensity('estandar')}
+                className={`px-2.5 py-1 rounded font-semibold text-[11px] transition-colors cursor-pointer ${
+                  density === 'estandar'
+                    ? 'bg-blue-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Estándar
+              </button>
+              <button
+                type="button"
+                onClick={() => setDensity('grande')}
+                className={`px-2.5 py-1 rounded font-semibold text-[11px] transition-colors cursor-pointer ${
+                  density === 'grande'
+                    ? 'bg-blue-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Grande
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -751,7 +970,7 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
       {selectedRange && (
         <div className="p-3 bg-blue-950 text-white rounded-xl shadow-lg border border-blue-800 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 text-xs">
           <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
             <span>
               Rango seleccionado: <strong>Folios #{selectedRange.desde} al #{selectedRange.hasta}</strong>{' '}
               ({selectedRange.hasta - selectedRange.desde + 1} casillas seleccionadas)
@@ -828,12 +1047,17 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
             {/* Filas continuas de 20 casillas numéricas puras sin encabezados */}
             <tbody className="divide-y divide-slate-200">
               {Array.from({ length: Math.ceil(limiteDinamico / 20) }).map((_, filaIdx) => {
+                const effectiveOrder = isJefeUser ? gridOrder : 'asc';
                 return (
                   <tr key={filaIdx} className="hover:bg-slate-50/50">
                     {/* 20 Columnas Numéricas Puras */}
                     {Array.from({ length: 20 }).map((__, colIdx) => {
-                      const num = filaIdx * 20 + colIdx + 1;
-                      if (num > limiteDinamico) {
+                      const offset = filaIdx * 20 + colIdx;
+                      const num =
+                        effectiveOrder === 'desc'
+                          ? limiteDinamico - offset
+                          : offset + 1;
+                      if (num < 1 || num > limiteDinamico) {
                         return (
                           <td
                             key={colIdx}
@@ -879,33 +1103,44 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
                           </button>
 
                           {/* Hover / Tooltip flotante oficial con información del trámite */}
-                          {isOccupied && (
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 pointer-events-none w-64 animate-in fade-in duration-150">
-                              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-2xl border border-slate-700 text-left text-xs space-y-1">
-                                <div className="flex items-center justify-between border-b border-slate-800 pb-1 font-mono">
-                                  <span className="font-bold text-red-400">Folio #{num}</span>
-                                  <span className="text-[10px] text-slate-400">
-                                    {folioOcupado.fechaAsignacion}
-                                  </span>
+                          {isOccupied && (() => {
+                            const linkedMemo = findMemoForFolio(folioOcupado, memosList, seriesList);
+                            return (
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 pointer-events-none w-64 animate-in fade-in duration-150">
+                                <div className="bg-slate-900 text-white p-3 rounded-xl shadow-2xl border border-slate-700 text-left text-xs space-y-1">
+                                  <div className="flex items-center justify-between border-b border-slate-800 pb-1 font-mono">
+                                    <span className="font-bold text-red-400">Folio #{num}</span>
+                                    <span className="text-[10px] text-slate-400">
+                                      {folioOcupado.fechaAsignacion}
+                                    </span>
+                                  </div>
+                                  <div className="font-bold text-blue-300 font-mono text-xs">
+                                    {folioOcupado.codigoCaratula}
+                                  </div>
+                                  <p className="text-[11px] text-slate-200 line-clamp-2 leading-relaxed">
+                                    {folioOcupado.asunto}
+                                  </p>
+                                  <div className="text-[10px] text-slate-400 pt-0.5">
+                                    <span className="text-slate-500">Dest.:</span>{' '}
+                                    {folioOcupado.destinatario || '---'}
+                                  </div>
+                                  {linkedMemo && (
+                                    <div className="text-[10px] text-sky-300 font-semibold pt-0.5 flex items-center gap-1">
+                                      <BookmarkCheck className="w-3 h-3 shrink-0" />
+                                      <span className="truncate">
+                                        En Memos y Notas: {linkedMemo.nroFolioMemo}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="text-[9px] text-emerald-400 font-semibold pt-1">
+                                    ✓ Clic para abrir ficha de detalle y liberación
+                                  </div>
                                 </div>
-                                <div className="font-bold text-blue-300 font-mono text-xs">
-                                  {folioOcupado.codigoCaratula}
-                                </div>
-                                <p className="text-[11px] text-slate-200 line-clamp-2 leading-relaxed">
-                                  {folioOcupado.asunto}
-                                </p>
-                                <div className="text-[10px] text-slate-400 pt-0.5">
-                                  <span className="text-slate-500">Dest.:</span>{' '}
-                                  {folioOcupado.destinatario || '---'}
-                                </div>
-                                <div className="text-[9px] text-emerald-400 font-semibold pt-1">
-                                  ✓ Clic para abrir ficha de detalle y liberación
-                                </div>
+                                {/* Flecha del tooltip */}
+                                <div className="w-2.5 h-2.5 bg-slate-900 border-r border-b border-slate-700 transform rotate-45 mx-auto -mt-1.5" />
                               </div>
-                              {/* Flecha del tooltip */}
-                              <div className="w-2.5 h-2.5 bg-slate-900 border-r border-b border-slate-700 transform rotate-45 mx-auto -mt-1.5" />
-                            </div>
-                          )}
+                            );
+                          })()}
                         </td>
                       );
                     })}
@@ -956,7 +1191,13 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
         <DetalleFolioModal
           folio={selectedFolioDetalle}
           serie={activeSerie}
-          onUpdate={onUpdateFolio}
+          linkedMemo={findMemoForFolio(selectedFolioDetalle, memosList, sortedSeriesList)}
+          canChangeFolioNumber={isJefeUser}
+          existingFolios={visibleFolios}
+          onUpdate={async (updated) => {
+            await onUpdateFolio(updated);
+            setSelectedFolioDetalle(updated);
+          }}
           onLiberar={onLiberarFolio}
           onClose={() => setSelectedFolioDetalle(null)}
         />
@@ -966,8 +1207,11 @@ export const NumerarioView: React.FC<NumerarioViewProps> = ({
       {isGestionSeriesOpen && (
         <GestionSeriesModal
           isOpen={isGestionSeriesOpen}
-          seriesList={canManageSeriesVisibility ? seriesList : visibleSeries}
+          seriesList={canManageSeriesVisibility ? sortedSeriesList : visibleSeries}
           activeSerieId={activeSerie?.id || ''}
+          canReorderSeries={isJefeUser}
+          canEditVisibility={canManageSeriesVisibility}
+          onReorderSeries={onReorderSeries}
           onSaveSerie={onSaveSerie}
           onDeleteSerie={onDeleteSerie}
           onSelectSerie={(id) => {

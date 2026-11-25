@@ -1,6 +1,7 @@
 import React from 'react';
 import { ParteNovedadesGuardia, IntervencionParte } from '../../types/police';
-import { X, ShieldAlert, Plus, Eye, Car, MapPin, Clock, Building2 } from 'lucide-react';
+import { X, ShieldAlert, Plus, Eye, Car, MapPin, Clock, Building2, AlertTriangle } from 'lucide-react';
+import { getResumenLesionADeterminarIntervencion } from '../../utils/lesionesUtils';
 
 interface DetalleIntervencionesTipoModalProps {
   parte: ParteNovedadesGuardia;
@@ -105,16 +106,33 @@ export const DetalleIntervencionesTipoModal: React.FC<DetalleIntervencionesTipoM
             </div>
           ) : (
             <div className="space-y-3">
-              {intervencionesFiltradas.map((interv) => (
+              {intervencionesFiltradas.map((interv) => {
+                const resumenPend = getResumenLesionADeterminarIntervencion(interv);
+                return (
                 <div
                   key={interv.id}
-                  className="p-4 bg-white border border-slate-200 hover:border-blue-300 rounded-xl shadow-2xs space-y-2 transition-all"
+                  className={`p-4 border rounded-xl shadow-2xs space-y-2 transition-all ${
+                    resumenPend.tienePendiente
+                      ? 'bg-amber-50/80 border-amber-400 hover:border-amber-500 ring-1 ring-amber-300'
+                      : 'bg-white border-slate-200 hover:border-blue-300'
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2">
                     <div>
-                      <span className="font-mono font-bold text-blue-900 text-xs bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                        {interv.codigoIntervencion || `INTERVENCIÓN Nº ${interv.nroCorrelativo}`}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono font-bold text-blue-900 text-xs bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                          {interv.codigoIntervencion || `INTERVENCIÓN Nº ${interv.nroCorrelativo}`}
+                        </span>
+                        {resumenPend.tienePendiente && (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-200 text-amber-950 border border-amber-500 text-[10px] font-extrabold"
+                            title={resumenPend.motivos.join(' | ')}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-800 shrink-0" />
+                            <span>Falta Tipo de Lesión (A Determinar)</span>
+                          </span>
+                        )}
+                      </div>
                       <h4 className="font-bold text-slate-900 text-sm mt-1">
                         {interv.hecho}
                       </h4>
@@ -158,7 +176,8 @@ export const DetalleIntervencionesTipoModal: React.FC<DetalleIntervencionesTipoM
                     </p>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

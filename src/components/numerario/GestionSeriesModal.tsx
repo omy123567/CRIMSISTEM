@@ -4,6 +4,7 @@ import {
   ALL_PERFILES_ACCESO_FOLIO,
   PERFILES_ACCESO_FOLIO_INFO,
   normalizePerfilesVisibles,
+  sortSeriesNumerarioByOrden,
 } from '../../utils/memosCatalogUtils';
 import {
   X,
@@ -17,6 +18,8 @@ import {
   Eye,
   EyeOff,
   AlertCircle,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 
@@ -24,6 +27,9 @@ interface GestionSeriesModalProps {
   isOpen: boolean;
   seriesList: SerieNumerario[];
   activeSerieId: string;
+  canReorderSeries?: boolean;
+  canEditVisibility?: boolean;
+  onReorderSeries?: (orderedSeries: SerieNumerario[]) => Promise<void> | void;
   onSaveSerie: (serie: SerieNumerario) => Promise<void> | void;
   onDeleteSerie: (id: string) => Promise<void> | void;
   onSelectSerie: (id: string) => void;
@@ -45,11 +51,15 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
   isOpen,
   seriesList,
   activeSerieId,
+  canReorderSeries = false,
+  canEditVisibility = true,
+  onReorderSeries,
   onSaveSerie,
   onDeleteSerie,
   onSelectSerie,
   onClose,
 }) => {
+  const orderedSeries = sortSeriesNumerarioByOrden(seriesList);
   const [editingSerie, setEditingSerie] = useState<SerieNumerario | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [nombre, setNombre] = useState('');
@@ -98,6 +108,16 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
     );
   };
 
+  const handleMoveSerie = async (index: number, direction: -1 | 1) => {
+    if (!canReorderSeries || !onReorderSeries) return;
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= orderedSeries.length) return;
+    const next = [...orderedSeries];
+    const [moved] = next.splice(index, 1);
+    next.splice(targetIdx, 0, moved);
+    await onReorderSeries(next);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -114,9 +134,15 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
       limiteFolios: limiteFolios || 1000,
       columnas: 20,
       color: color || 'blue',
+      orden:
+        typeof editingSerie?.orden === 'number'
+          ? editingSerie.orden
+          : orderedSeries.length + 1,
       descripcion: descripcion.trim(),
       delegacionId: editingSerie?.delegacionId,
-      perfilesVisibles: [...perfilesVisibles],
+      perfilesVisibles: canEditVisibility
+        ? [...perfilesVisibles]
+        : editingSerie?.perfilesVisibles,
       createdAt: editingSerie?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -151,7 +177,7 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
             <>
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-800 text-xs">
-                  Series Registradas ({seriesList.length})
+                  Series Registradas ({orderedSeries.length})
                 </span>
                 <button
                   type="button"
@@ -164,7 +190,7 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
               </div>
 
               <div className="space-y-2">
-                {seriesList.map((s) => {
+                {orderedSeries.map((s, idx) => {
                   const perfiles = normalizePerfilesVisibles(s.perfilesVisibles);
                   return (
                     <div
@@ -177,6 +203,9 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 font-mono font-bold text-[10px]">
+                            #{idx + 1}
+                          </span>
                           <span className="w-3 h-3 rounded-full bg-blue-600 shrink-0" />
                           <span className="font-bold text-slate-900 text-sm">{s.nombre}</span>
                           {s.id === activeSerieId && (
@@ -216,6 +245,28 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                        {canReorderSeries && onReorderSeries && orderedSeries.length > 1 && (
+                          <div className="flex items-center gap-0.5 mr-1 border border-slate-200 rounded-lg bg-slate-50 p-0.5">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => handleMoveSerie(idx, -1)}
+                              className="p-1 text-slate-700 hover:bg-white hover:text-blue-900 rounded cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Subir orden del folio"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx === orderedSeries.length - 1}
+                              onClick={() => handleMoveSerie(idx, 1)}
+                              className="p-1 text-slate-700 hover:bg-white hover:text-blue-900 rounded cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Bajar orden del folio"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                         {s.id !== activeSerieId && (
                           <button
                             type="button"
@@ -233,7 +284,7 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        {seriesList.length > 1 && (
+                        {orderedSeries.length > 1 && (
                           <button
                             type="button"
                             onClick={() => setSerieToDelete(s)}
@@ -397,7 +448,9 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                     return (
                       <label
                         key={p.id}
-                        className={`p-2 rounded-lg border flex items-start gap-2 cursor-pointer text-[11px] ${
+                        className={`p-2 rounded-lg border flex items-start gap-2 text-[11px] ${
+                          canEditVisibility ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'
+                        } ${
                           checked
                             ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-bold'
                             : 'bg-red-50 border-red-300 text-red-900 font-semibold'
@@ -405,8 +458,9 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                       >
                         <input
                           type="checkbox"
+                          disabled={!canEditVisibility}
                           checked={checked}
-                          onChange={() => togglePerfil(p.id)}
+                          onChange={() => canEditVisibility && togglePerfil(p.id)}
                           className="w-3.5 h-3.5 mt-0.5 accent-emerald-700 shrink-0"
                         />
                         <div className="min-w-0">
@@ -419,6 +473,11 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                     );
                   })}
                 </div>
+                {!canEditVisibility && (
+                  <p className="text-[10px] text-amber-800 italic">
+                    Solo Administradores o Superusuarios pueden modificar las reglas de visibilidad por perfil.
+                  </p>
+                )}
               </div>
 
               <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">

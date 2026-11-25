@@ -6,13 +6,11 @@ import {
   CheckCircle2,
   AlertTriangle,
   Sparkles,
-  Layers,
-  Calendar,
-  Building,
-  User,
-  Tag,
   FileText,
+  BookmarkCheck,
+  Building,
 } from 'lucide-react';
+import { normalizeTipoKey } from '../../utils/memosCatalogUtils';
 
 interface AsignarFolioModalProps {
   isOpen: boolean;
@@ -21,7 +19,10 @@ interface AsignarFolioModalProps {
   initialRangoHasta?: number;
   existingFolios: FolioAsignado[];
   personalList: Personal[];
-  onSave: (folios: FolioAsignado[]) => Promise<void> | void;
+  onSave: (
+    folios: FolioAsignado[],
+    options?: { createLinkedMemo?: boolean }
+  ) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -35,10 +36,20 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
   onSave,
   onClose,
 }) => {
+  const isMemoSerieDefault = useMemo(() => {
+    const norm = normalizeTipoKey(serie.nombre);
+    return (
+      norm === 'memorandum' ||
+      norm === 'memorandums' ||
+      norm === 'memorandum r' ||
+      norm === 'nota v'
+    );
+  }, [serie.nombre]);
+
   const [modo, setModo] = useState<'individual' | 'rango'>('individual');
   const [numero, setNumero] = useState<number>(initialNumero || 1);
   const [rangoHasta, setRangoHasta] = useState<number>(initialRangoHasta || initialNumero || 1);
-  const [categoria, setCategoria] = useState<string>('Oficio Judicial');
+  const [categoria, setCategoria] = useState<string>(serie.nombre || 'Oficio Judicial');
   const [anio, setAnio] = useState<number>(serie.anio || new Date().getFullYear());
   const [asunto, setAsunto] = useState<string>('');
   const [destinatario, setDestinatario] = useState<string>('');
@@ -46,6 +57,8 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
   const [observaciones, setObservaciones] = useState<string>('');
   const [codigoPersonalizado, setCodigoPersonalizado] = useState<string>('');
   const [usarCodigoAuto, setUsarCodigoAuto] = useState<boolean>(true);
+  const [createLinkedMemo, setCreateLinkedMemo] = useState<boolean>(isMemoSerieDefault);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Mapa de folios ocupados para detección de colisiones
   const occupiedNumbers = useMemo(() => {
@@ -65,6 +78,18 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
   }, [occupiedNumbers, serie.limiteFolios]);
 
   useEffect(() => {
+    if (!isOpen) return;
+    setFormError(null);
+    setCategoria(serie.nombre || 'Oficio Judicial');
+    setAnio(serie.anio || new Date().getFullYear());
+    setAsunto('');
+    setDestinatario('');
+    setSolicitante('');
+    setObservaciones('');
+    setCodigoPersonalizado('');
+    setUsarCodigoAuto(true);
+    setCreateLinkedMemo(isMemoSerieDefault);
+
     if (initialNumero !== undefined) {
       setNumero(initialNumero);
       if (initialRangoHasta !== undefined && initialRangoHasta > initialNumero) {
@@ -75,10 +100,11 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
         setRangoHasta(initialNumero);
       }
     } else {
+      setModo('individual');
       setNumero(primerNumeroLibre);
       setRangoHasta(primerNumeroLibre);
     }
-  }, [initialNumero, initialRangoHasta, primerNumeroLibre, isOpen]);
+  }, [initialNumero, initialRangoHasta, primerNumeroLibre, isOpen, serie.id, serie.nombre, serie.anio, isMemoSerieDefault]);
 
   // Generación en vivo de la carátula / código oficial
   const codigoGenerado = useMemo(() => {
@@ -120,8 +146,9 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!asunto.trim()) {
-      alert('Por favor ingrese el Asunto u Objeto del trámite.');
+      setFormError('Por favor ingrese el Asunto u Objeto del trámite.');
       return;
     }
     if (colisiones.length > 0) {
@@ -129,7 +156,7 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
         colisiones.length === 1
           ? `El folio #${colisiones[0]} ya se encuentra ocupado. Debe liberar el folio o seleccionar un número disponible.`
           : `Los folios #${colisiones.join(', #')} ya se encuentran ocupados dentro del rango solicitado. Corrija los números antes de continuar.`;
-      alert(msg);
+      setFormError(msg);
       return;
     }
 
@@ -185,7 +212,9 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
       }
     }
 
-    await onSave(foliosAGuardar);
+    await onSave(foliosAGuardar, {
+      createLinkedMemo: modo === 'individual' && createLinkedMemo,
+    });
     onClose();
   };
 
@@ -223,6 +252,12 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
 
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="p-5 sm:p-6 overflow-y-auto space-y-4 text-xs">
+          {formError && (
+            <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-red-900 flex items-start gap-2 font-semibold">
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <span>{formError}</span>
+            </div>
+          )}
           {/* Modalidad de asignación: Individual o Rango */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div className="flex items-center gap-2">
@@ -377,7 +412,7 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
 
           {/* Asunto / Objeto del Trámite (Requerido) */}
           <div>
-            <label className="block font-bold text-slate-800 mb-1 flex items-center gap-1">
+            <label className="font-bold text-slate-800 mb-1 flex items-center gap-1">
               <FileText className="w-3.5 h-3.5 text-blue-700" />
               <span>Asunto / Objeto del Trámite *</span>
             </label>
@@ -390,6 +425,54 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
               className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none font-medium text-slate-800"
             />
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                <Building className="w-3.5 h-3.5 text-blue-700" />
+                <span>Destinatario / Organismo</span>
+              </label>
+              <input
+                type="text"
+                value={destinatario}
+                onChange={(e) => setDestinatario(e.target.value)}
+                placeholder="Ej. Jefatura / Comisaría / Juzgado..."
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none font-medium text-slate-800"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Observaciones (opcional)
+              </label>
+              <input
+                type="text"
+                value={observaciones}
+                onChange={(e) => setObservaciones(e.target.value)}
+                placeholder="Anotación adicional..."
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none text-slate-800"
+              />
+            </div>
+          </div>
+
+          {modo === 'individual' && (
+            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-blue-50/70 border border-blue-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={createLinkedMemo}
+                onChange={(e) => setCreateLinkedMemo(e.target.checked)}
+                className="w-4 h-4 mt-0.5 accent-blue-900 shrink-0"
+              />
+              <div>
+                <div className="font-bold text-blue-950 flex items-center gap-1.5">
+                  <BookmarkCheck className="w-4 h-4 text-blue-700" />
+                  <span>Registrar también en el módulo &ldquo;Memos y Notas&rdquo;</span>
+                </div>
+                <p className="text-[11px] text-blue-800 mt-0.5">
+                  Crea automáticamente el registro vinculado en Memos y Notas con el mismo número de {serie.nombre} para adjuntar archivos y generar reportes.
+                </p>
+              </div>
+            </label>
+          )}
 
           {/* Botones de acción */}
           <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">

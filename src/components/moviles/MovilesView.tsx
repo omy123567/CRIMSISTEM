@@ -21,6 +21,7 @@ import {
   Edit2,
   Trash2,
   Calendar,
+  BarChart3,
 } from 'lucide-react';
 import { MovilModal } from './MovilModal';
 import { ReparacionModal } from './ReparacionModal';
@@ -29,6 +30,7 @@ import { ReporteMovilesModal } from './ReporteMovilesModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { DelegacionPolicial, UsuarioSistema } from '../../types/police';
+import { ModuleStatsPanel, StatChartConfig, StatKpiItem } from '../common/ModuleStatsPanel';
 
 interface MovilesViewProps {
   movilesList: MovilPolicial[];
@@ -76,6 +78,7 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
   const [isFichaPdfOpen, setIsFichaPdfOpen] = useState(false);
   const [movilParaFicha, setMovilParaFicha] = useState<MovilPolicial | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [mostrarStats, setMostrarStats] = useState(false);
 
   const [movilHistorialId, setMovilHistorialId] = useState<string | null>(null);
 
@@ -93,13 +96,15 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
 
   // Filtrado reactivo
   const filteredList = useMemo(() => {
+    const term = searchTerm.toLowerCase();
     return movilesList.filter((m) => {
       const matchSearch =
-        m.nroMovilInterno.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        m.dominioPatente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        m.marca.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        m.modelo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        m.dependenciaAsignada.toLowerCase().includes(searchTerm.toLowerCase());
+        !term ||
+        (m.nroMovilInterno || '').toLowerCase().includes(term) ||
+        (m.dominioPatente || '').toLowerCase().includes(term) ||
+        (m.marca || '').toLowerCase().includes(term) ||
+        (m.modelo || '').toLowerCase().includes(term) ||
+        (m.dependenciaAsignada || '').toLowerCase().includes(term);
 
       const matchTipo = filtroTipo === 'todos' || m.tipo === filtroTipo;
       const matchEstado = filtroEstado === 'todos' || m.estadoOperativo === filtroEstado;
@@ -203,6 +208,75 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
     });
   }, [movilesList, diasAvisoRto, kmAvisoService, intervaloServiceKm]);
 
+  const movilesStats = useMemo(() => {
+    const total = movilesList.length;
+    const enServicio = movilesList.filter((m) => m.estadoOperativo === 'En Servicio').length;
+    const enTaller = movilesList.filter(
+      (m) => m.estadoOperativo === 'En Taller Mecánico' || m.estadoOperativo === 'Fuera de Servicio'
+    ).length;
+
+    const kpis: StatKpiItem[] = [
+      {
+        label: 'Total Flota',
+        value: total,
+        detail: `${filteredList.length} en vista actual`,
+        tone: 'navy',
+      },
+      {
+        label: 'En Servicio',
+        value: enServicio,
+        detail: `${total > 0 ? Math.round((enServicio / total) * 100) : 0}% disponibilidad`,
+        tone: 'emerald',
+      },
+      {
+        label: 'En Taller / F.S.',
+        value: enTaller,
+        detail: 'Mantenimiento o baja temporal',
+        tone: 'amber',
+      },
+      {
+        label: 'Reparaciones Registradas',
+        value: reparacionesList.length,
+        detail: `${movilesConAlerta.length} alerta(s) RTO/Service`,
+        tone: 'rose',
+      },
+    ];
+
+    const byEstado = new Map<string, number>();
+    const byTipo = new Map<string, number>();
+    movilesList.forEach((m) => {
+      const est = m.estadoOperativo || 'Sin Estado';
+      byEstado.set(est, (byEstado.get(est) || 0) + 1);
+      const tipo = (m as any).tipoVehiculo || m.tipo || 'Otro';
+      byTipo.set(tipo, (byTipo.get(tipo) || 0) + 1);
+    });
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'moviles-estado',
+        title: 'Estado Operativo de Flota',
+        subtitle: 'Disponibilidad de unidades policiales',
+        type: 'donut',
+        data: Array.from(byEstado.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+      },
+      {
+        id: 'moviles-tipo',
+        title: 'Unidades por Tipo de Vehículo',
+        subtitle: 'Composición del parque automotor',
+        type: 'bar',
+        data: Array.from(byTipo.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+        valueLabel: 'Unidades',
+        primaryColor: '#11264d',
+      },
+    ];
+
+    return { kpis, charts };
+  }, [movilesList, reparacionesList.length, movilesConAlerta.length, filteredList.length]);
+
   return (
     <div className="space-y-5">
       {/* Header y Acciones */}
@@ -263,8 +337,21 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
             </div>
 
             <button
+              type="button"
+              onClick={() => setMostrarStats((prev) => !prev)}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                mostrarStats
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Estadísticas</span>
+            </button>
+
+            <button
               onClick={() => setIsReportModalOpen(true)}
-              className="flex items-center gap-1.5 bg-blue-800 hover:bg-blue-900 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 bg-blue-800 hover:bg-blue-900 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
               title="Generar reportes del parque automotor filtrados por tipo, estado, delegación y fechas"
             >
               <Download className="w-3.5 h-3.5" />
@@ -276,13 +363,25 @@ export const MovilesView: React.FC<MovilesViewProps> = ({
                 setSelectedMovil(null);
                 setIsMovilModalOpen(true);
               }}
-              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               <Plus className="w-4 h-4" />
               <span>Nuevo Móvil</span>
             </button>
           </div>
         </div>
+
+        {mostrarStats && (
+          <ModuleStatsPanel
+            title="Estadísticas del Parque Automotor"
+            subtitle="Disponibilidad operativa, composición vehicular y reparaciones"
+            kpis={movilesStats.kpis}
+            charts={movilesStats.charts}
+            onExportPdf={() => setIsReportModalOpen(true)}
+            exportPdfLabel="Reporte Estadístico Flota (PDF)"
+            onClose={() => setMostrarStats(false)}
+          />
+        )}
 
         {/* Banner de Alertas Preventivas: RTO & Services Próximos */}
         {movilesConAlerta.length > 0 && (

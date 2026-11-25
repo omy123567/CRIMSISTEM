@@ -1,10 +1,8 @@
-import React, { useState } from 'react';
-import { SerieNumerario, FolioAsignado } from '../../types/police';
+import React, { useState, useEffect } from 'react';
+import { SerieNumerario, FolioAsignado, MemoNota } from '../../types/police';
 import {
   X,
-  FileText,
   Calendar,
-  Clock,
   Building,
   User,
   Tag,
@@ -12,13 +10,18 @@ import {
   Trash2,
   CheckCircle2,
   Layers,
-  ShieldAlert,
+  BookmarkCheck,
+  AlertCircle,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { formatCodigoFolioConAnio } from '../../utils/memosCatalogUtils';
 
 interface DetalleFolioModalProps {
   folio: FolioAsignado | null;
   serie?: SerieNumerario | null;
+  linkedMemo?: MemoNota | null;
+  canChangeFolioNumber?: boolean;
+  existingFolios?: FolioAsignado[];
   onUpdate: (updated: FolioAsignado) => Promise<void> | void;
   onLiberar: (folio: FolioAsignado, liberarRangoCompleto?: boolean) => Promise<void> | void;
   onClose: () => void;
@@ -27,28 +30,86 @@ interface DetalleFolioModalProps {
 export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
   folio,
   serie,
+  linkedMemo,
+  canChangeFolioNumber = false,
+  existingFolios = [],
   onUpdate,
   onLiberar,
   onClose,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [numeroFolio, setNumeroFolio] = useState<number>(folio?.numero || 1);
   const [asunto, setAsunto] = useState(folio?.asunto || '');
   const [destinatario, setDestinatario] = useState(folio?.destinatario || '');
   const [solicitante, setSolicitante] = useState(folio?.solicitante || '');
   const [observaciones, setObservaciones] = useState(folio?.observaciones || '');
-  const [categoria, setCategoria] = useState(folio?.categoriaDocumento || 'Oficio Judicial');
+  const [categoria, setCategoria] = useState(
+    folio?.categoriaDocumento || serie?.nombre || 'Memorandum'
+  );
+  const [formError, setFormError] = useState<string | null>(null);
   const [isConfirmLiberarOpen, setIsConfirmLiberarOpen] = useState(false);
   const [liberarRango, setLiberarRango] = useState(false);
+
+  useEffect(() => {
+    if (!folio) return;
+    setNumeroFolio(folio.numero);
+    setAsunto(folio.asunto || '');
+    setDestinatario(folio.destinatario || '');
+    setSolicitante(folio.solicitante || '');
+    setObservaciones(folio.observaciones || '');
+    setCategoria(folio.categoriaDocumento || serie?.nombre || 'Memorandum');
+    setFormError(null);
+    setIsEditing(false);
+  }, [folio?.id, folio?.numero, serie?.nombre]);
 
   if (!folio) return null;
 
   const handleSaveEdit = async () => {
+    setFormError(null);
     if (!asunto.trim()) {
-      alert('El asunto no puede quedar vacío');
+      setFormError('El asunto no puede quedar vacío.');
       return;
     }
+
+    let nextNumero = folio.numero;
+    let nextCodigoCaratula = folio.codigoCaratula;
+    let nextCaratulaPersonalizada = folio.caratulaPersonalizada;
+
+    if (canChangeFolioNumber && !folio.esRango && numeroFolio !== folio.numero) {
+      if (!Number.isInteger(numeroFolio) || numeroFolio < 1) {
+        setFormError('El número de folio debe ser un entero positivo mayor o igual a 1.');
+        return;
+      }
+      const conflict = existingFolios.find(
+        (f) =>
+          f.id !== folio.id &&
+          f.serieId === folio.serieId &&
+          (!f.anio || !folio.anio || f.anio === folio.anio) &&
+          f.numero === numeroFolio
+      );
+      if (conflict) {
+        setFormError(
+          `El Folio #${numeroFolio} ya se encuentra ocupado en esta serie (${conflict.codigoCaratula}).`
+        );
+        return;
+      }
+      nextNumero = numeroFolio;
+      const targetAnio = folio.anio || serie?.anio || new Date().getFullYear();
+      nextCodigoCaratula = formatCodigoFolioConAnio(
+        serie?.prefijo || `${categoria || 'Folio'} N°`,
+        nextNumero,
+        targetAnio
+      );
+      if (folio.caratulaPersonalizada && folio.caratulaPersonalizada === folio.codigoCaratula) {
+        nextCaratulaPersonalizada = nextCodigoCaratula;
+      }
+    }
+
     await onUpdate({
       ...folio,
+      numero: nextNumero,
+      codigoCaratula: nextCodigoCaratula,
+      caratulaPersonalizada: nextCaratulaPersonalizada,
       asunto: asunto.trim(),
       destinatario: destinatario.trim(),
       solicitante: solicitante.trim(),
@@ -127,6 +188,39 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
             </div>
           )}
 
+          {linkedMemo && (
+            <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl space-y-1 text-sky-950">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold flex items-center gap-1.5 text-sky-900">
+                  <BookmarkCheck className="w-4 h-4 text-sky-700 shrink-0" />
+                  <span>Documento Vinculado en Memos y Notas</span>
+                </span>
+                <span className="px-2 py-0.5 rounded bg-white border border-sky-200 text-[10px] font-bold text-sky-800">
+                  {linkedMemo.estado}
+                </span>
+              </div>
+              <div className="text-[11px] font-mono font-bold text-sky-900">
+                {linkedMemo.tipo} · {linkedMemo.nroFolioMemo}
+              </div>
+              <div className="text-[11px] text-slate-700">
+                <strong>Asunto:</strong> {linkedMemo.asunto}
+                {linkedMemo.destino ? ` · Destino: ${linkedMemo.destino}` : ''}
+              </div>
+              {linkedMemo.archivoNombre && (
+                <div className="text-[10px] text-emerald-700 font-semibold">
+                  Anexo adjunto: {linkedMemo.archivoNombre}
+                </div>
+              )}
+            </div>
+          )}
+
+          {formError && (
+            <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-red-800 font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
+
           {!isEditing ? (
             /* Vista de Lectura */
             <div className="space-y-3.5">
@@ -183,6 +277,34 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
           ) : (
             /* Modo Edición */
             <div className="space-y-3 pt-1">
+              {canChangeFolioNumber && !folio.esRango && (
+                <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-xl">
+                  <label className="block font-bold text-blue-950 mb-1">
+                    Número de Orden del Folio (Exclusivo Jefe)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={Math.max(serie?.limiteFolios || 1000, 10000)}
+                      value={numeroFolio}
+                      onChange={(e) => setNumeroFolio(parseInt(e.target.value, 10) || 1)}
+                      className="w-32 px-3 py-1.5 rounded-lg border border-blue-300 bg-white font-mono font-bold text-xs text-blue-950"
+                    />
+                    <span className="text-[11px] font-mono text-blue-800">
+                      Vista previa:{' '}
+                      <strong>
+                        {formatCodigoFolioConAnio(
+                          serie?.prefijo || `${categoria || 'Folio'} N°`,
+                          numeroFolio,
+                          folio.anio || serie?.anio || new Date().getFullYear()
+                        )}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Categoría</label>
                 <select
@@ -190,6 +312,12 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
                   onChange={(e) => setCategoria(e.target.value)}
                   className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white font-semibold text-xs"
                 >
+                  <option value="Memorandum">Memorandum</option>
+                  <option value="Nota V">Nota V</option>
+                  <option value="Oficio J">Oficio J</option>
+                  <option value="Oficio V">Oficio V</option>
+                  <option value="Memorandum R">Memorandum R</option>
+                  <option value="Radiograma">Radiograma</option>
                   <option value="Oficio Judicial">Oficio Judicial</option>
                   <option value="Oficio Vicedirección">Oficio Vicedirección</option>
                   <option value="Memorándum">Memorándum</option>

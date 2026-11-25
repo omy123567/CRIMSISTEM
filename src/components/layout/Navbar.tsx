@@ -46,9 +46,11 @@ interface NavbarProps {
   novedadesList?: AvisoNovedad[];
   movilesList?: MovilPolicial[];
   charlasList?: CharlaPrevencion[];
+  intervencionesADeterminarCount?: number;
   onNavigateToNovedades?: () => void;
   onNavigateToMoviles?: () => void;
   onNavigateToCharlas?: () => void;
+  onNavigateToIntervenciones?: () => void;
   onSelectDelegacion: (delegacionId: string) => void;
   onOpenCambiarPassword: () => void;
   onOpenTwoFactor?: () => void;
@@ -66,9 +68,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   novedadesList = [],
   movilesList = [],
   charlasList = [],
+  intervencionesADeterminarCount = 0,
   onNavigateToNovedades,
   onNavigateToMoviles,
   onNavigateToCharlas,
+  onNavigateToIntervenciones,
   onSelectDelegacion,
   onOpenCambiarPassword,
   onOpenTwoFactor,
@@ -354,6 +358,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   ))}
                 </select>
               </div>
+            )}
+
+            {/* Recordatorio en parte superior derecha cuando hay intervenciones con Tipo de Lesiones "A Determinar" */}
+            {intervencionesADeterminarCount > 0 && onNavigateToIntervenciones && (
+              <button
+                type="button"
+                onClick={onNavigateToIntervenciones}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 border border-amber-500 text-xs font-extrabold shadow-sm transition-colors cursor-pointer shrink-0"
+                title={`Falta definir el Tipo de Lesión en ${intervencionesADeterminarCount} intervención(es) marcadas como "A Determinar"`}
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-950 shrink-0" />
+                <span className="hidden md:inline">
+                  {intervencionesADeterminarCount} Lesión &ldquo;A Determinar&rdquo;
+                </span>
+                <span className="md:hidden font-mono">{intervencionesADeterminarCount}</span>
+              </button>
             )}
 
             {/* Notificaciones de Novedades e Inter-Delegaciones & Alertas de Parque Automotor */}

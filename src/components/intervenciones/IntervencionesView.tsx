@@ -6,6 +6,7 @@ import {
   Personal,
   GrupoPersonal,
   ParteNovedadesGuardia,
+  UsuarioSistema,
 } from '../../types/police';
 import {
   Activity,
@@ -31,15 +32,16 @@ import {
   ChevronRight,
   Sparkles,
   Hash,
+  BarChart3,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ModuleStatsPanel } from '../common/ModuleStatsPanel';
 import { IntervencionModal } from '../guardias/IntervencionModal';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
-import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import { TipoLesionesCell } from '../guardias/TipoLesionesCell';
+import { generarPdfReporteIntervenciones } from '../../services/pdfService';
 import { getNextCorrelativoIntervencion } from '../../utils/numeracionUtils';
+import { esTipoLesionADeterminar, getResumenLesionADeterminarIntervencion } from '../../utils/lesionesUtils';
 
 interface IntervencionesViewProps {
   intervencionesList: IntervencionParte[];
@@ -47,6 +49,7 @@ interface IntervencionesViewProps {
   config: ConfiguracionSistema;
   personalList: Personal[];
   gruposList?: GrupoPersonal[];
+  currentUser?: UsuarioSistema;
   onSaveIntervencion: (interv: IntervencionParte) => void;
   onDeleteIntervencion: (id: string) => void;
   onSaveConfig: (cfg: ConfiguracionSistema) => void;
@@ -58,6 +61,7 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
   config,
   personalList,
   gruposList = [],
+  currentUser,
   onSaveIntervencion,
   onDeleteIntervencion,
   onSaveConfig,
@@ -73,6 +77,7 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
   const [soloFallecidos, setSoloFallecidos] = useState(false);
   const [soloPolicial, setSoloPolicial] = useState(false);
   const [mostrarControlContadores, setMostrarControlContadores] = useState(true);
+  const [mostrarStats, setMostrarStats] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const [confirmResetTipo, setConfirmResetTipo] = useState<'lc' | 'acc' | null>(null);
 
@@ -145,14 +150,48 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
   }, [baseTabList]);
 
   const lesionesUnicas = useMemo(() => {
-    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas']);
+    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'A Determinar']);
     baseTabList.forEach((int) => {
       (int.involucrados || []).forEach((inv) => {
         if (inv.tipoLesion) set.add(inv.tipoLesion);
       });
+      (int.vehiculosSiniestro || []).forEach((v) => {
+        if (v.lesiones) set.add(v.lesiones);
+      });
+      if (int.tipoLesionesLC) set.add(int.tipoLesionesLC);
+      if (int.personalPolicial?.tipoLesion) set.add(int.personalPolicial.tipoLesion);
     });
     return Array.from(set);
   }, [baseTabList]);
+
+  const intervencionesConLesionPendiente = useMemo(() => {
+    return baseTabList.filter((int) => getResumenLesionADeterminarIntervencion(int).tienePendiente);
+  }, [baseTabList]);
+
+  const pendientesLC = useMemo(() => {
+    return intervencionesLC.filter((int) => getResumenLesionADeterminarIntervencion(int).tienePendiente);
+  }, [intervencionesLC]);
+
+  const pendientesAcc = useMemo(() => {
+    return intervencionesSiniestros.filter((int) => getResumenLesionADeterminarIntervencion(int).tienePendiente);
+  }, [intervencionesSiniestros]);
+
+  const todasPendientesLesion = useMemo(() => {
+    return [...pendientesLC, ...pendientesAcc];
+  }, [pendientesLC, pendientesAcc]);
+
+  const handleToggleFiltroPendientesGlobal = () => {
+    if (filtroTipoLesion === 'A Determinar') {
+      setFiltroTipoLesion('todas');
+      return;
+    }
+    if (activeTab === 'criminalistica' && pendientesLC.length === 0 && pendientesAcc.length > 0) {
+      setActiveTab('accidentologia');
+    } else if (activeTab === 'accidentologia' && pendientesAcc.length === 0 && pendientesLC.length > 0) {
+      setActiveTab('criminalistica');
+    }
+    setFiltroTipoLesion('A Determinar');
+  };
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -186,14 +225,14 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
       const term = searchTerm.toLowerCase();
       const matchSearch =
         !term ||
-        int.codigoIntervencion.toLowerCase().includes(term) ||
-        int.hecho.toLowerCase().includes(term) ||
-        int.inspeccionLugar.toLowerCase().includes(term) ||
-        int.dependencia.toLowerCase().includes(term) ||
-        int.personalTecnico.peritoAuxiliar.toLowerCase().includes(term) ||
-        int.personalTecnico.choferFotografo.toLowerCase().includes(term) ||
-        (int.involucrados || []).some((i) => i.apellidoYNombre.toLowerCase().includes(term) || (i.dni || '').includes(term)) ||
-        String(int.nroCorrelativo).includes(searchTerm);
+        (int.codigoIntervencion || '').toLowerCase().includes(term) ||
+        (int.hecho || '').toLowerCase().includes(term) ||
+        (int.inspeccionLugar || '').toLowerCase().includes(term) ||
+        (int.dependencia || '').toLowerCase().includes(term) ||
+        (int.personalTecnico?.peritoAuxiliar || '').toLowerCase().includes(term) ||
+        (int.personalTecnico?.choferFotografo || '').toLowerCase().includes(term) ||
+        (int.involucrados || []).some((i) => (i.apellidoYNombre || '').toLowerCase().includes(term) || (i.dni || '').includes(term)) ||
+        String(int.nroCorrelativo ?? '').includes(searchTerm);
 
       const matchDesde = !fechaDesde || (int.inspeccionFecha && int.inspeccionFecha >= fechaDesde);
       const matchHasta = !fechaHasta || (int.inspeccionFecha && int.inspeccionFecha <= fechaHasta);
@@ -202,10 +241,16 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
 
       const matchLesion =
         filtroTipoLesion === 'todas' ||
-        (int.involucrados || []).some((i) => (i.tipoLesion || 'Sin Lesiones') === filtroTipoLesion) ||
-        (int.vehiculosSiniestro || []).some((v) =>
-          (v.lesiones || '').toLowerCase().includes(filtroTipoLesion.toLowerCase())
-        );
+        (esTipoLesionADeterminar(filtroTipoLesion)
+          ? getResumenLesionADeterminarIntervencion(int).tienePendiente
+          : (int.involucrados || []).some((i) =>
+              (i.tipoLesion || 'Sin Lesiones').toLowerCase().includes(filtroTipoLesion.toLowerCase())
+            ) ||
+            (int.vehiculosSiniestro || []).some((v) =>
+              (v.lesiones || '').toLowerCase().includes(filtroTipoLesion.toLowerCase())
+            ) ||
+            (int.tipoLesionesLC || '').toLowerCase().includes(filtroTipoLesion.toLowerCase()) ||
+            (int.personalPolicial?.tipoLesion || '').toLowerCase().includes(filtroTipoLesion.toLowerCase()));
 
       const matchFallecido =
         !soloFallecidos ||
@@ -338,178 +383,212 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
   const siguienteCorrelativo =
     tipoForzadoModal === 'Accidentológica' ? siguienteCorrelativoAcc : siguienteCorrelativoLC;
 
-  // Exportar Listado Oficial a PDF con orientación, tamaño de papel y vista previa
-  const handleExportPdf = () => {
-    const titulo =
-      activeTab === 'criminalistica'
-        ? 'REGISTRO OFICIAL DE LABORES CRIMINALÍSTICAS (LC)'
-        : 'REGISTRO OFICIAL DE SINIESTROS Y HECHOS VIALES (ACCIDENTOLOGÍA)';
-    const fileName = `Registro_${activeTab === 'criminalistica' ? 'LC_Criminalistica' : 'Siniestros_Viales'}_${
-      new Date().toISOString().split('T')[0]
-    }.pdf`;
+  const intervStats = useMemo(() => {
+    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const mapMes = new Map<string, { lc: number; acc: number }>();
+    meses.forEach((m) => mapMes.set(m, { lc: 0, acc: 0 }));
 
-    requestPdfExport({
-      title: titulo,
-      fileName,
-      defaultOrientation: 'landscape',
-      defaultPaperSize: 'a4',
-      buildDoc: (opts) => {
-        const doc = new jsPDF(resolveJsPdfOrientation(opts.orientation), 'mm', resolveJsPdfFormat(opts.paperSize));
-        const finalY = drawPoliceHeader(doc, config, titulo);
-
-        const rows = currentList.map((int, idx) => {
-          const personal = `${int.personalTecnico.peritoAuxiliar} | ${int.personalTecnico.choferFotografo}`;
-          const detalles =
-            int.tipoIntervencion === 'Accidentológica' && int.vehiculosSiniestro?.length
-              ? int.vehiculosSiniestro
-                  .map((v) => `${v.identificador}: ${v.marca || ''} ${v.modelo || ''} (${v.dominio || 's/p'})`)
-                  .join('; ')
-              : int.sintesisHecho;
-
-          return [
-            String(idx + 1),
-            int.codigoIntervencion,
-            int.inspeccionFecha,
-            int.inspeccionHora,
-            int.hecho,
-            int.inspeccionLugar,
-            int.dependencia,
-            personal,
-            detalles,
-          ];
-        });
-
-        autoTable(doc, {
-          startY: finalY + 4,
-          head: [
-            [
-              'N°',
-              'Código Intervención',
-              'Fecha',
-              'Hora',
-              'Hecho / Causa',
-              'Lugar de Ocurrido',
-              'Dependencia',
-              'Perito / Chofer',
-              activeTab === 'accidentologia' ? 'Vehículos Involucrados' : 'Síntesis',
-            ],
-          ],
-          body: rows,
-          theme: 'grid',
-          headStyles: {
-            fillColor: activeTab === 'criminalistica' ? [30, 41, 59] : [15, 76, 129],
-            textColor: 255,
-            fontSize: 7.5,
-            fontStyle: 'bold',
-            halign: 'center',
-          },
-          styles: {
-            fontSize: 6.8,
-            cellPadding: 2,
-            valign: 'middle',
-          },
-          columnStyles: {
-            0: { halign: 'center', cellWidth: 7 },
-            1: { cellWidth: 32 },
-            2: { halign: 'center', cellWidth: 16 },
-            3: { halign: 'center', cellWidth: 14 },
-            4: { cellWidth: 35 },
-            5: { cellWidth: 40 },
-            6: { cellWidth: 30 },
-            7: { cellWidth: 40 },
-            8: { cellWidth: 'auto' },
-          },
-        });
-
-        drawPoliceFooter(doc, config);
-        return doc;
-      },
+    intervencionesList.forEach((i) => {
+      if (!i.inspeccionFecha) return;
+      const d = new Date(i.inspeccionFecha + 'T12:00:00');
+      if (!isNaN(d.getTime())) {
+        const cur = mapMes.get(meses[d.getMonth()])!;
+        if (i.tipoIntervencion === 'Accidentológica') cur.acc += 1;
+        else cur.lc += 1;
+      }
     });
+
+    const hechoMap = new Map<string, number>();
+    baseTabList.forEach((i) => {
+      const h = i.hecho || 'Sin especificar';
+      hechoMap.set(h, (hechoMap.get(h) || 0) + 1);
+    });
+
+    return {
+      kpis: [
+        { label: 'Total Intervenciones', value: intervencionesList.length, detail: 'Actuaciones registradas', tone: 'navy' as const },
+        { label: 'Criminalística (LC)', value: intervencionesLC.length, detail: 'Escenas no viales', tone: 'blue' as const },
+        { label: 'Siniestros Viales', value: intervencionesSiniestros.length, detail: 'Accidentología vial', tone: 'emerald' as const },
+        { label: 'Lesiones "A Determinar"', value: todasPendientesLesion.length, detail: 'Pendientes de clasificación', tone: 'amber' as const },
+      ],
+      charts: [
+        {
+          id: 'interv-mes',
+          title: 'Evolución Mensual (LC vs Seg. Vial)',
+          subtitle: 'Comparativa mensual entre áreas periciales',
+          type: 'area' as const,
+          data: meses.map((m) => ({
+            name: m,
+            value: mapMes.get(m)?.lc || 0,
+            secondary: mapMes.get(m)?.acc || 0,
+          })),
+          valueLabel: 'Criminalística (LC)',
+          secondaryLabel: 'Siniestros Viales',
+        },
+        {
+          id: 'interv-hechos',
+          title: `Principales Hechos (${activeTab === 'criminalistica' ? 'LC' : 'Vial'})`,
+          subtitle: 'Tipologías con mayor frecuencia en la pestaña activa',
+          type: 'horizontal-bar' as const,
+          data: Array.from(hechoMap.entries())
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value),
+          valueLabel: 'Intervenciones',
+        },
+      ],
+    };
+  }, [intervencionesList, intervencionesLC.length, intervencionesSiniestros.length, todasPendientesLesion.length, baseTabList, activeTab]);
+
+  // Exportar Listado Oficial Estadístico a PDF con KPIs, gráficos y tabla completa
+  const handleExportPdf = () => {
+    const tituloExtra =
+      activeTab === 'criminalistica'
+        ? 'Labores Criminalísticas (LC)'
+        : 'Siniestros y Hechos Viales';
+    generarPdfReporteIntervenciones(currentList, config, tituloExtra);
   };
 
   return (
     <div className="space-y-5">
       {/* Header Principal */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-slate-900 text-white rounded-lg">
-              <Activity className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                  Módulo de Intervenciones Policiales
-                </h1>
-                <span className="bg-slate-100 text-slate-800 text-xs px-2.5 py-0.5 rounded-full font-bold">
-                  Registros Separados
-                </span>
+      <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+        <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-slate-900 text-white rounded-lg">
+                <Activity className="w-5 h-5" />
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Seguimiento diferenciado de Labores Criminalísticas (LC) y Siniestros Viales, con control de contadores integrado.
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                    Módulo de Intervenciones Policiales
+                  </h1>
+                  <span className="bg-slate-100 text-slate-800 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                    Registros Separados
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Seguimiento diferenciado de Labores Criminalísticas (LC) y Siniestros Viales, con control de contadores integrado.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-stretch sm:items-end gap-2">
+            {/* Cartel Recordatorio en Parte Superior Derecha cuando faltan definir Tipos de Lesiones */}
+            {todasPendientesLesion.length > 0 && (
+              <div className="flex items-center justify-between gap-3 px-3.5 py-2 rounded-xl bg-amber-100 border-2 border-amber-500 text-amber-950 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                  <div className="text-left leading-tight">
+                    <div className="text-[11px] font-extrabold uppercase tracking-wide text-amber-950">
+                      Falta definir Tipo de Lesión ({todasPendientesLesion.length})
+                    </div>
+                    <div className="text-[10px] font-semibold text-amber-900">
+                      Lesiones &ldquo;A Determinar&rdquo; — LC: {pendientesLC.length} • Seg. Vial: {pendientesAcc.length}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleFiltroPendientesGlobal}
+                  className={`px-2.5 py-1 rounded-lg font-bold text-[11px] border cursor-pointer transition-colors shrink-0 ${
+                    filtroTipoLesion === 'A Determinar'
+                      ? 'bg-amber-700 text-white border-amber-800'
+                      : 'bg-white text-amber-950 border-amber-500 hover:bg-amber-50'
+                  }`}
+                >
+                  {filtroTipoLesion === 'A Determinar' ? '✓ Ver todas' : 'Ver pendientes'}
+                </button>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMostrarStats((v) => !v)}
+                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  mostrarStats
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-300'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                <span>Estadísticas</span>
+              </button>
+
+              <button
+                onClick={() => setMostrarControlContadores(!mostrarControlContadores)}
+                className={`flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-lg border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  mostrarControlContadores
+                    ? 'bg-amber-400 text-slate-950 border-amber-500 font-extrabold ring-2 ring-amber-300'
+                    : 'bg-slate-900 text-amber-300 border-slate-700 hover:bg-slate-800'
+                }`}
+                title="Control oficial de contadores y numeradores para Labor Criminalística (LC) y Siniestros Viales"
+              >
+                <Hash className="w-4 h-4" />
+                <span>CONTADOR</span>
+              </button>
+
+              {currentList.length > 0 && (
+                <button
+                  onClick={handleExportPdf}
+                  className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Download className="w-4 h-4 text-slate-600" />
+                  <span>Reporte PDF</span>
+                </button>
+              )}
+
+              {activeTab === 'criminalistica' ? (
+                <button
+                  onClick={() => handleAbrirCrear('Criminalística')}
+                  className="flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Cargar Labor Criminalística (LC)</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleAbrirCrear('Accidentológica')}
+                  className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Cargar Siniestro Vial</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setMostrarControlContadores(!mostrarControlContadores)}
-            className={`flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-lg border transition-colors cursor-pointer shadow-xs ${
-              mostrarControlContadores
-                ? 'bg-amber-400 text-slate-950 border-amber-500 font-extrabold ring-2 ring-amber-300'
-                : 'bg-slate-900 text-amber-300 border-slate-700 hover:bg-slate-800'
-            }`}
-            title="Control oficial de contadores y numeradores para Labor Criminalística (LC) y Siniestros Viales"
-          >
-            <Hash className="w-4 h-4" />
-            <span>CONTADOR</span>
-          </button>
-
-          {currentList.length > 0 && (
+        {feedbackMsg && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{feedbackMsg}</span>
+            </div>
             <button
-              onClick={handleExportPdf}
-              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+              type="button"
+              onClick={() => setFeedbackMsg(null)}
+              className="text-emerald-700 hover:text-emerald-950 font-bold cursor-pointer"
             >
-              <Download className="w-4 h-4 text-slate-600" />
-              <span>Exportar PDF</span>
+              ✕
             </button>
-          )}
-
-          {activeTab === 'criminalistica' ? (
-            <button
-              onClick={() => handleAbrirCrear('Criminalística')}
-              className="flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>+ Cargar Labor Criminalística (LC)</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => handleAbrirCrear('Accidentológica')}
-              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>+ Cargar Siniestro Vial</span>
-            </button>
-          )}
-        </div>
-      {feedbackMsg && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{feedbackMsg}</span>
           </div>
-          <button
-            type="button"
-            onClick={() => setFeedbackMsg(null)}
-            className="text-emerald-700 hover:text-emerald-950 font-bold cursor-pointer"
-          >
-            ✕
-          </button>
-        </div>
-      )}
+        )}
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Intervenciones Periciales"
+          subtitle="Comparativa mensual de Labores Criminalísticas (LC) y Siniestros Viales"
+          kpis={intervStats.kpis}
+          charts={intervStats.charts}
+          onExportPdf={handleExportPdf}
+          exportPdfLabel="Exportar Reporte Estadístico (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* PANEL DE CONTROL DE CONTADORES (REQUERIMIENTO: "en este modulo permite controlar el contador de cada uno. NO en otra seccion.") */}
       {mostrarControlContadores && (
@@ -801,6 +880,38 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
         </div>
       </CollapsibleFilterBar>
 
+      {/* Aviso Pericial si existen intervenciones con Tipo de Lesiones "A Determinar" */}
+      {intervencionesConLesionPendiente.length > 0 && (
+        <div className="p-3.5 rounded-xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-xs">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0" />
+            <div>
+              <span className="font-extrabold block">
+                Atención: {intervencionesConLesionPendiente.length} intervención(es) con Tipo de Lesiones &ldquo;A Determinar&rdquo;
+              </span>
+              <span className="text-[11px] text-amber-900">
+                Falta precisar el carácter definitivo de las lesiones en los registros remarcados en amarillo.
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setFiltroTipoLesion(filtroTipoLesion === 'A Determinar' ? 'todas' : 'A Determinar')
+            }
+            className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition-colors cursor-pointer shrink-0 ${
+              filtroTipoLesion === 'A Determinar'
+                ? 'bg-amber-700 text-white border-amber-800'
+                : 'bg-white text-amber-950 border-amber-400 hover:bg-amber-100'
+            }`}
+          >
+            {filtroTipoLesion === 'A Determinar'
+              ? '✓ Mostrando "A Determinar" (Ver todas)'
+              : `Filtrar "A Determinar" (${intervencionesConLesionPendiente.length})`}
+          </button>
+        </div>
+      )}
+
       {/* Tabla Principal de Intervenciones */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         {currentList.length === 0 ? (
@@ -829,17 +940,28 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                   <th className="py-2.5 px-3">Dependencia</th>
                   <th className="py-2.5 px-3 min-w-[160px]">Personal Técnico</th>
                   {activeTab === 'accidentologia' && (
-                    <th className="py-2.5 px-3">Vehículos Siniestrados</th>
+                    <th className="py-2.5 px-3">Vehículos Siniestrados / Involucrados</th>
                   )}
                   {activeTab === 'criminalistica' && (
                     <th className="py-2.5 px-3">Involucrados</th>
                   )}
+                  <th className="py-2.5 px-3 min-w-[165px]">Tipo de Lesiones</th>
                   <th className="py-2.5 px-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
-                {currentList.map((int) => (
-                  <tr key={int.id} className="hover:bg-slate-50 transition-colors">
+                {currentList.map((int) => {
+                  const resumenLesion = getResumenLesionADeterminarIntervencion(int);
+
+                  return (
+                  <tr
+                    key={int.id}
+                    className={`transition-colors ${
+                      resumenLesion.tienePendiente
+                        ? 'bg-amber-100 hover:bg-amber-200/80 border-y border-amber-400 ring-1 ring-inset ring-amber-400'
+                        : 'hover:bg-slate-50'
+                    }`}
+                  >
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
                         <span
@@ -852,7 +974,7 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                           #{int.nroCorrelativo}
                         </span>
                       </div>
-                      <div className="text-[10px] font-mono text-slate-500 mt-0.5 max-w-[200px] truncate">
+                      <div className="text-[10px] font-mono text-slate-600 mt-0.5 max-w-[200px] truncate">
                         {int.codigoIntervencion}
                       </div>
                     </td>
@@ -868,9 +990,20 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                       <span className="font-bold text-slate-900 block uppercase">
                         {int.hecho}
                       </span>
-                      <span className="text-[11px] text-slate-500 line-clamp-1">
+                      <span className="text-[11px] text-slate-600 line-clamp-1">
                         {int.sintesisHecho}
                       </span>
+                      {resumenLesion.tienePendiente && (
+                        <div className="mt-1">
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-300 text-amber-950 border border-amber-600"
+                            title={resumenLesion.motivos.join(' | ')}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-900 shrink-0" />
+                            <span>Falta Tipo de Lesión (A Determinar)</span>
+                          </span>
+                        </div>
+                      )}
                       {(int.involucraPersonalPolicial || (int.involucrados || []).some((i) => i.esPersonalPolicial)) && (
                         <div className="mt-1">
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
@@ -902,7 +1035,7 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
 
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       <span className="text-slate-800 font-medium">{int.dependencia}</span>
-                      <div className="text-[10px] text-slate-400">
+                      <div className="text-[10px] text-slate-500">
                         Vía: {int.solicitudVia}
                       </div>
                     </td>
@@ -920,17 +1053,34 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                       <td className="py-2.5 px-3">
                         {int.vehiculosSiniestro && int.vehiculosSiniestro.length > 0 ? (
                           <div className="space-y-1">
-                            {int.vehiculosSiniestro.map((v, i) => (
+                            {int.vehiculosSiniestro.map((v, i) => {
+                              const esLesPend = esTipoLesionADeterminar(v.lesiones);
+                              return (
                               <div
                                 key={v.id || i}
-                                className="text-[10px] bg-blue-50 text-blue-900 px-1.5 py-0.5 rounded border border-blue-100"
+                                className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                                  esLesPend
+                                    ? 'bg-amber-200 text-amber-950 border-amber-500 font-bold'
+                                    : 'bg-blue-50 text-blue-900 border-blue-100'
+                                }`}
                               >
                                 <strong>{v.identificador}:</strong> {v.marca || ''} {v.modelo || ''} ({v.dominio || 's/p'}) - {v.lesiones}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <span className="text-slate-400 text-[10px]">Sin vehículos cargados</span>
+                        )}
+                        {int.involucrados && int.involucrados.length > 0 && (
+                          <div className="mt-1 space-y-0.5">
+                            {int.involucrados.map((inv, idx) => (
+                              <div key={inv.id || idx} className="text-[10px] text-slate-800">
+                                <span className="font-semibold">{inv.apellidoYNombre}</span>{' '}
+                                <span className="text-slate-500">({inv.condicion || inv.funcionEnHecho})</span>
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </td>
                     )}
@@ -943,11 +1093,6 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                               <div key={inv.id || idx} className="text-[10px] flex flex-wrap items-center gap-1">
                                 <span className="font-semibold text-slate-800">{inv.apellidoYNombre}</span>
                                 <span className="text-slate-500">({inv.condicion || inv.funcionEnHecho})</span>
-                                {inv.tipoLesion && inv.tipoLesion !== 'Sin Lesiones' && (
-                                  <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-800 border border-rose-200 font-bold text-[9px]">
-                                    {inv.tipoLesion}
-                                  </span>
-                                )}
                                 {inv.fallecido && (
                                   <span className="px-1 py-0.2 rounded bg-slate-900 text-rose-200 border border-rose-500 font-extrabold text-[9px]">
                                     FALLECIDO
@@ -961,6 +1106,22 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                         )}
                       </td>
                     )}
+
+                    {/* Columna dedicada: Tipo de Lesiones (editable y con carga rápida) */}
+                    <td className="py-2.5 px-3">
+                      <TipoLesionesCell
+                        intervencion={int}
+                        config={config}
+                        readOnly={Boolean(
+                          currentUser?.esSoloLectura ||
+                            currentUser?.rol === 'Solo Lectura (Auditor / Consulta)'
+                        )}
+                        onUpdateIntervencion={(updated) => {
+                          onSaveIntervencion(updated);
+                          showNotice('Tipo de lesión actualizado correctamente.');
+                        }}
+                      />
+                    </td>
 
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
@@ -988,7 +1149,8 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1017,6 +1179,23 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
             </div>
 
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              {(() => {
+                const detPend = getResumenLesionADeterminarIntervencion(detalleIntervencion);
+                if (!detPend.tienePendiente) return null;
+                return (
+                  <div className="p-3 bg-amber-50 border-2 border-amber-400 rounded-lg text-amber-950 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-extrabold block">
+                        Aviso: Falta definir Tipo de Lesiones (&ldquo;A Determinar&rdquo;)
+                      </span>
+                      <span className="text-[11px] text-amber-900">
+                        {detPend.motivos.join(' • ')}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">Hecho / Causa</span>
@@ -1112,7 +1291,15 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                         </span>
                         <div className="flex items-center gap-1.5">
                           {inv.tipoLesion && (
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${inv.tipoLesion === 'Sin Lesiones' ? 'bg-white text-slate-600 border-slate-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                esTipoLesionADeterminar(inv.tipoLesion)
+                                  ? 'bg-amber-200 text-amber-950 border-amber-500'
+                                  : inv.tipoLesion === 'Sin Lesiones'
+                                  ? 'bg-white text-slate-600 border-slate-200'
+                                  : 'bg-rose-50 text-rose-800 border-rose-200'
+                              }`}
+                            >
                               {inv.tipoLesion}
                             </span>
                           )}
@@ -1202,6 +1389,7 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
           personalList={personalList}
           gruposList={gruposList}
           partesList={partesList}
+          currentUser={currentUser}
           onSave={(interv) => {
             onSaveIntervencion(interv);
             setIsIntervencionModalOpen(false);

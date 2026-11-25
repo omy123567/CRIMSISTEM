@@ -34,6 +34,7 @@ import {
   Stethoscope,
   Sparkles,
   Download,
+  AlertTriangle,
 } from 'lucide-react';
 
 import { GestionPersonalGuardiaModal } from './GestionPersonalGuardiaModal';
@@ -46,6 +47,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { Cpu, ArrowLeftRight } from 'lucide-react';
 import { generarPdfParteGuardia } from '../../services/pdfService';
+import { getResumenLesionADeterminarParte } from '../../utils/lesionesUtils';
 
 interface GuardiasTableViewProps {
   partesList: ParteNovedadesGuardia[];
@@ -379,28 +381,29 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
       const term = searchTerm.toLowerCase();
 
       // Búsqueda por personal asignado a la guardia
-      const matchPersonal = p.funcionesPersonal.some(
+      const matchPersonal = (p.funcionesPersonal || []).some(
         (f) =>
-          f.personalNombre.toLowerCase().includes(term) ||
-          f.funcion.toLowerCase().includes(term)
+          (f.personalNombre || '').toLowerCase().includes(term) ||
+          (f.funcion || '').toLowerCase().includes(term)
       );
 
       // Búsqueda por contenido de las intervenciones de esa guardia
-      const matchContenido = p.intervenciones.some(
+      const matchContenido = (p.intervenciones || []).some(
         (i) =>
-          i.hecho.toLowerCase().includes(term) ||
-          i.sintesisHecho.toLowerCase().includes(term) ||
-          i.laborCriminalistica.toLowerCase().includes(term) ||
-          i.inspeccionLugar.toLowerCase().includes(term)
+          (i.hecho || '').toLowerCase().includes(term) ||
+          (i.sintesisHecho || '').toLowerCase().includes(term) ||
+          (i.laborCriminalistica || '').toLowerCase().includes(term) ||
+          (i.inspeccionLugar || '').toLowerCase().includes(term)
       );
 
       // Búsqueda general
       const tipo = p.tipoGuardia || 'Pericial';
-      const dep = p.dependencia || p.grupoGuardia;
+      const dep = p.dependencia || p.grupoGuardia || '';
       const matchGeneral =
+        !term ||
         tipo.toLowerCase().includes(term) ||
         dep.toLowerCase().includes(term) ||
-        p.grupoGuardia.toLowerCase().includes(term);
+        (p.grupoGuardia || '').toLowerCase().includes(term);
 
       // Filtro por Fechas mejorado
       const fInicio = (p.fechaInicio || (p.fechaHoraDesde || '').slice(0, 10)).trim();
@@ -423,10 +426,22 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
 
       const matchTipoLesion =
         filtroTipoLesion === 'todas' ||
-        p.intervenciones.some(
+        (p.intervenciones || []).some(
           (i) =>
-            (i.tipoLesionesLC && i.tipoLesionesLC === filtroTipoLesion) ||
-            (i.involucrados || []).some((inv) => inv.tipoLesion === filtroTipoLesion)
+            (i.tipoLesionesLC &&
+              i.tipoLesionesLC.toLowerCase().includes(filtroTipoLesion.toLowerCase())) ||
+            (i.involucrados || []).some((inv) =>
+              (inv.tipoLesion || 'Sin Lesiones')
+                .toLowerCase()
+                .includes(filtroTipoLesion.toLowerCase())
+            ) ||
+            (i.vehiculosSiniestro || []).some((v) =>
+              (v.lesiones || '').toLowerCase().includes(filtroTipoLesion.toLowerCase())
+            ) ||
+            (i.personalPolicial?.tipoLesion &&
+              i.personalPolicial.tipoLesion
+                .toLowerCase()
+                .includes(filtroTipoLesion.toLowerCase()))
         );
 
       const matchFallecido =
@@ -454,6 +469,10 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
     filtroTipoLesion,
     soloFallecidos,
   ]);
+
+  const partesConLesionPendiente = useMemo(() => {
+    return partesList.filter((p) => getResumenLesionADeterminarParte(p).cantidadIntervenciones > 0);
+  }, [partesList]);
 
   // Paginación calculada
   const totalRecords = filteredPartes.length;
@@ -576,6 +595,25 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
         }}
         summaryRight={
           <div className="flex flex-wrap items-center gap-2">
+            {partesConLesionPendiente.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setFiltroTipoLesion(filtroTipoLesion === 'A Determinar' ? 'todas' : 'A Determinar')
+                }
+                className={`px-2.5 py-1 rounded-lg font-extrabold text-[11px] border flex items-center gap-1 cursor-pointer transition-colors ${
+                  filtroTipoLesion === 'A Determinar'
+                    ? 'bg-amber-700 text-white border-amber-800'
+                    : 'bg-amber-200 text-amber-950 border-amber-500 hover:bg-amber-300'
+                }`}
+                title="Partes con intervenciones cuya lesión está A Determinar"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {partesConLesionPendiente.length} c/ lesión &ldquo;A Determinar&rdquo;
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -776,11 +814,44 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                 <option value="Leves">Leves</option>
                 <option value="Graves">Graves</option>
                 <option value="Gravísimas">Gravísimas</option>
+                <option value="A Determinar">A Determinar (Falta precisar)</option>
               </select>
             </div>
           </div>
         </div>
       </CollapsibleFilterBar>
+
+      {/* Aviso si existen Partes de Novedades con intervenciones cuya lesión está "A Determinar" */}
+      {partesConLesionPendiente.length > 0 && (
+        <div className="p-3.5 rounded-xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-xs">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0" />
+            <div>
+              <span className="font-extrabold block">
+                Aviso: {partesConLesionPendiente.length} parte(s) de guardia tienen intervenciones con Tipo de Lesiones &ldquo;A Determinar&rdquo;
+              </span>
+              <span className="text-[11px] text-amber-900">
+                Falta completar el carácter de las lesiones en los registros remarcados en amarillo.
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setFiltroTipoLesion(filtroTipoLesion === 'A Determinar' ? 'todas' : 'A Determinar')
+            }
+            className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition-colors cursor-pointer shrink-0 ${
+              filtroTipoLesion === 'A Determinar'
+                ? 'bg-amber-700 text-white border-amber-800'
+                : 'bg-white text-amber-950 border-amber-400 hover:bg-amber-100'
+            }`}
+          >
+            {filtroTipoLesion === 'A Determinar'
+              ? '✓ Mostrando "A Determinar" (Ver todos)'
+              : `Filtrar "A Determinar" (${partesConLesionPendiente.length})`}
+          </button>
+        </div>
+      )}
 
       {/* TABLA PRINCIPAL DE GUARDIAS (Estilo fiel a imagen image_13f44ed9.png) */}
       <div className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden text-xs">
@@ -869,12 +940,18 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                 paginatedPartes.map((p, idx) => {
                   const counts = getCountsForGuardia(p);
                   const isChecked = selectedIds.includes(p.id);
+                  const resumenPend = getResumenLesionADeterminarParte(p);
+                  const tieneLesionPendiente = resumenPend.cantidadIntervenciones > 0;
 
                   return (
                     <tr
                       key={p.id}
-                      className={`hover:bg-blue-50/60 transition-colors ${
-                        idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'
+                      className={`transition-colors ${
+                        tieneLesionPendiente
+                          ? 'bg-amber-100 hover:bg-amber-200/80 border-y-2 border-amber-400 border-l-4 border-l-amber-600'
+                          : idx % 2 === 1
+                          ? 'bg-slate-50/40 hover:bg-blue-50/60'
+                          : 'bg-white hover:bg-blue-50/60'
                       }`}
                     >
                       {/* Checkbox */}
@@ -895,7 +972,18 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                         onClick={() => onSelectGuardia(p)}
                         className="py-2.5 px-3 border-r border-slate-200 font-semibold text-slate-900 whitespace-nowrap cursor-pointer hover:underline"
                       >
-                        {p.tipoGuardia || 'Pericial'}
+                        <div>{p.tipoGuardia || 'Pericial'}</div>
+                        {tieneLesionPendiente && (
+                          <div className="mt-1">
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-200 text-amber-950 border border-amber-500"
+                              title="Hay intervenciones en este parte con Tipo de Lesiones marcado como A Determinar"
+                            >
+                              <AlertTriangle className="w-2.5 h-2.5 text-amber-800 shrink-0" />
+                              <span>{resumenPend.cantidadIntervenciones} lesión A Determinar</span>
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Dependencias */}

@@ -20,12 +20,21 @@ import {
   Layers,
   Sparkles,
   History,
+  BarChart3,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { esTipoLesionADeterminar } from '../../utils/lesionesUtils';
+import { ModuleStatsPanel, StatChartConfig, StatKpiItem } from '../common/ModuleStatsPanel';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderDonutChartPng,
+  renderHorizontalBarChartPng,
+} from '../../utils/pdfChartUtils';
 
 export interface PersonaRegistroConsolidado {
   id: string;
@@ -80,6 +89,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
   const [modoOrganizacion, setModoOrganizacion] = useState<'agrupado' | 'detallado'>('agrupado');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [mostrarStats, setMostrarStats] = useState(false);
 
   const toggleExpand = (key: string) => {
     setExpandedKeys((prev) => {
@@ -156,7 +166,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
       });
     });
 
-    return list.sort((a, b) => b.inspeccionFecha.localeCompare(a.inspeccionFecha));
+    return list.sort((a, b) => (b.inspeccionFecha || '').localeCompare(a.inspeccionFecha || ''));
   }, [partesGuardiaList]);
 
   // Agrupamiento por persona única (por DNI o Nombre normalizado)
@@ -165,7 +175,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
 
     personasConsolidadas.forEach((p) => {
       const cleanDni = p.dni && p.dni.trim() !== 'S/D' ? p.dni.trim() : null;
-      const cleanNombre = p.apellidoYNombre.trim().toUpperCase();
+      const cleanNombre = (p.apellidoYNombre || '').trim().toUpperCase();
       const key = cleanDni ? `DNI:${cleanDni}` : `NOM:${cleanNombre}`;
 
       if (!map.has(key)) {
@@ -201,7 +211,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
       }
     });
 
-    return Array.from(map.values()).sort((a, b) => b.totalHechos - a.totalHechos || a.apellidoYNombre.localeCompare(b.apellidoYNombre));
+    return Array.from(map.values()).sort((a, b) => b.totalHechos - a.totalHechos || (a.apellidoYNombre || '').localeCompare(b.apellidoYNombre || ''));
   }, [personasConsolidadas]);
 
   // Lista única de condiciones para el filtro
@@ -215,7 +225,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
 
   // Lista única de tipos de lesiones
   const lesionesUnicas = useMemo(() => {
-    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas']);
+    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'A Determinar']);
     personasConsolidadas.forEach((p) => {
       if (p.tipoLesion) set.add(p.tipoLesion);
     });
@@ -258,14 +268,15 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
     return personasAgrupadas.filter((p) => {
       const term = searchTerm.toLowerCase();
       const matchSearch =
-        p.apellidoYNombre.toLowerCase().includes(term) ||
-        p.dni.toLowerCase().includes(term) ||
+        !term ||
+        (p.apellidoYNombre || '').toLowerCase().includes(term) ||
+        (p.dni || '').toLowerCase().includes(term) ||
         p.hechos.some(
           (h) =>
-            h.intervencionHecho.toLowerCase().includes(term) ||
-            h.inspeccionLugar.toLowerCase().includes(term) ||
-            h.intervencionCodigo.toLowerCase().includes(term) ||
-            h.condicion.toLowerCase().includes(term) ||
+            (h.intervencionHecho || '').toLowerCase().includes(term) ||
+            (h.inspeccionLugar || '').toLowerCase().includes(term) ||
+            (h.intervencionCodigo || '').toLowerCase().includes(term) ||
+            (h.condicion || '').toLowerCase().includes(term) ||
             (h.tipoLesion || '').toLowerCase().includes(term)
         );
 
@@ -295,13 +306,14 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
     return personasConsolidadas.filter((p) => {
       const term = searchTerm.toLowerCase();
       const matchSearch =
-        p.apellidoYNombre.toLowerCase().includes(term) ||
-        p.dni.toLowerCase().includes(term) ||
-        p.condicion.toLowerCase().includes(term) ||
+        !term ||
+        (p.apellidoYNombre || '').toLowerCase().includes(term) ||
+        (p.dni || '').toLowerCase().includes(term) ||
+        (p.condicion || '').toLowerCase().includes(term) ||
         (p.tipoLesion || '').toLowerCase().includes(term) ||
-        p.intervencionHecho.toLowerCase().includes(term) ||
-        p.inspeccionLugar.toLowerCase().includes(term) ||
-        p.intervencionCodigo.toLowerCase().includes(term);
+        (p.intervencionHecho || '').toLowerCase().includes(term) ||
+        (p.inspeccionLugar || '').toLowerCase().includes(term) ||
+        (p.intervencionCodigo || '').toLowerCase().includes(term);
 
       const matchTipo =
         filtroTipoRegistro === 'todos' || p.tipoRegistro === filtroTipoRegistro;
@@ -321,7 +333,70 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
     });
   }, [personasConsolidadas, searchTerm, filtroTipoRegistro, filtroCondicion, filtroTipoLesion, soloFallecidos, filtroAnio]);
 
-  // Exportar a PDF oficial
+  const personasStats = useMemo(() => {
+    const kpis: StatKpiItem[] = [
+      {
+        label: 'Personas Únicas',
+        value: personasAgrupadas.length,
+        detail: `${personasConsolidadas.length} participaciones totales`,
+        tone: 'navy',
+      },
+      {
+        label: 'Con Múltiples Hechos',
+        value: totalConMultiplesHechos,
+        detail: 'Reincidencia en actuaciones',
+        tone: 'amber',
+      },
+      {
+        label: 'Involucrados vs Testigos',
+        value: `${personasConsolidadas.filter((p) => p.tipoRegistro === 'Involucrado').length} / ${personasConsolidadas.filter((p) => p.tipoRegistro === 'Testigo de Acta').length}`,
+        detail: 'Según rol en actas',
+        tone: 'blue',
+      },
+      {
+        label: 'Fallecidos Registrados',
+        value: totalFallecidos,
+        detail: 'Óbitos en actuaciones',
+        tone: 'rose',
+      },
+    ];
+
+    const byCond = new Map<string, number>();
+    const byLesion = new Map<string, number>();
+    personasConsolidadas.forEach((p) => {
+      const c = p.condicion || 'Sin Condición';
+      byCond.set(c, (byCond.get(c) || 0) + 1);
+      const l = p.tipoLesion || 'Sin Lesiones';
+      byLesion.set(l, (byLesion.get(l) || 0) + 1);
+    });
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'personas-condicion',
+        title: 'Participaciones por Condición / Rol',
+        subtitle: 'Clasificación en partes de guardia',
+        type: 'horizontal-bar',
+        data: Array.from(byCond.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+        valueLabel: 'Registros',
+        primaryColor: '#11264d',
+      },
+      {
+        id: 'personas-lesiones',
+        title: 'Distribución por Tipo de Lesión',
+        subtitle: 'Gravedad clínica registrada',
+        type: 'donut',
+        data: Array.from(byLesion.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+      },
+    ];
+
+    return { kpis, charts };
+  }, [personasAgrupadas.length, personasConsolidadas, totalConMultiplesHechos, totalFallecidos]);
+
+  // Exportar a PDF oficial con gráficos
   const handleExportPdf = () => {
     requestPdfExport({
       title: 'Registro Centralizado de Personas',
@@ -330,10 +405,46 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
       defaultPaperSize: 'a4',
       buildDoc: ({ orientation, paperSize }) => {
         const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
-        const startY = drawPoliceHeader(
+        let curY = drawPoliceHeader(
           doc,
           config,
           'REGISTRO CENTRALIZADO DE PERSONAS - HISTORIAL PERICIAL',
+          10
+        );
+
+        curY = drawExecutiveKpiStrip(
+          doc,
+          curY + 1,
+          [
+            { label: 'Personas Únicas', value: filteredAgrupados.length, subtitle: 'En vista agrupada', accentColor: [17, 38, 77] },
+            { label: 'Registros Detalle', value: filteredListDetallada.length, subtitle: 'Participaciones', accentColor: [29, 78, 216] },
+            { label: 'Múltiples Hechos', value: filteredAgrupados.filter((p) => p.totalHechos > 1).length, subtitle: 'Con >1 hecho', accentColor: [217, 119, 6] },
+            { label: 'Fallecidos', value: filteredAgrupados.filter((p) => p.tieneFallecido).length, subtitle: 'Óbitos consignados', accentColor: [220, 38, 38] },
+          ],
+          10
+        );
+
+        const mapCond = new Map<string, number>();
+        const mapLes = new Map<string, number>();
+        filteredListDetallada.forEach((p) => {
+          mapCond.set(p.condicion || 'Otro', (mapCond.get(p.condicion || 'Otro') || 0) + 1);
+          mapLes.set(p.tipoLesion || 'Sin Lesiones', (mapLes.get(p.tipoLesion || 'Sin Lesiones') || 0) + 1);
+        });
+        const imgCond = renderHorizontalBarChartPng(
+          Array.from(mapCond.entries()).map(([label, value]) => ({ label, value })),
+          { barColor: '#11264d' }
+        );
+        const imgLes = renderDonutChartPng(
+          Array.from(mapLes.entries()).map(([label, value]) => ({ label, value })),
+          { centerLabel: 'PERSONAS' }
+        );
+        curY = drawChartSectionGrid(
+          doc,
+          curY,
+          [
+            { title: 'Condición / Rol en Actuaciones', subtitle: 'Registros detallados', imageDataUrl: imgCond },
+            { title: 'Distribución por Tipo de Lesión', subtitle: 'Lesiones declaradas', imageDataUrl: imgLes },
+          ],
           10
         );
 
@@ -349,7 +460,7 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
           ]);
 
           autoTable(doc, {
-            startY: startY + 5,
+            startY: curY + 1,
             head: [['#', 'Apellido y Nombre', 'DNI', 'Edad', 'Hechos', 'Condición(es)', 'Historial de Intervenciones']],
             body: rows,
             styles: { fontSize: 7.5, cellPadding: 2 },
@@ -362,6 +473,9 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
               4: { cellWidth: 24, fontStyle: 'bold' },
               5: { cellWidth: 32 },
               6: { cellWidth: 'auto' },
+            },
+            didDrawPage: () => {
+              drawPoliceFooter(doc, config);
             },
           });
         } else {
@@ -378,11 +492,14 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
           ]);
 
           autoTable(doc, {
-            startY: startY + 5,
+            startY: curY + 1,
             head: [['#', 'Apellido y Nombre', 'DNI', 'Edad', 'Condición', 'Lesión', 'Hecho Caratulado', 'Fecha', 'Nº Intervención']],
             body: rows,
             styles: { fontSize: 7.5, cellPadding: 2 },
             headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+            didDrawPage: () => {
+              drawPoliceFooter(doc, config);
+            },
           });
         }
 
@@ -467,14 +584,39 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
           </div>
 
           <button
+            type="button"
+            onClick={() => setMostrarStats((prev) => !prev)}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
+          <button
             onClick={handleExportPdf}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Exportar PDF</span>
           </button>
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Personas (Involucrados y Testigos)"
+          subtitle="Consolidado de participaciones, condiciones procesales y tipos de lesión"
+          kpis={personasStats.kpis}
+          charts={personasStats.charts}
+          onExportPdf={handleExportPdf}
+          exportPdfLabel="Exportar Reporte Estadístico (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* Barra de Filtros y Búsqueda Colapsable */}
       <CollapsibleFilterBar
@@ -695,9 +837,13 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
                         .map((les, idx) => (
                           <span
                             key={`les-${idx}`}
-                            className="bg-rose-50 text-rose-800 border border-rose-200 px-2 py-0.5 rounded-md font-bold text-[10px]"
+                            className={`border px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                              esTipoLesionADeterminar(les)
+                                ? 'bg-amber-100 text-amber-950 border-amber-400'
+                                : 'bg-rose-50 text-rose-800 border-rose-200'
+                            }`}
                           >
-                            Lesión: {les}
+                            {esTipoLesionADeterminar(les) ? `⚠ Lesión: ${les} (Falta dato)` : `Lesión: ${les}`}
                           </span>
                         ))}
                       {p.tieneFallecido && (
@@ -753,8 +899,16 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
                                 Rol: {h.condicion}
                               </span>
                               {h.tipoLesion && (
-                                <span className={`font-bold px-1.5 py-0.2 rounded border ${h.tipoLesion === 'Sin Lesiones' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
-                                  {h.tipoLesion}
+                                <span
+                                  className={`font-bold px-1.5 py-0.2 rounded border ${
+                                    esTipoLesionADeterminar(h.tipoLesion)
+                                      ? 'bg-amber-100 text-amber-950 border-amber-400'
+                                      : h.tipoLesion === 'Sin Lesiones'
+                                      ? 'bg-slate-100 text-slate-600 border-slate-200'
+                                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                                  }`}
+                                >
+                                  {esTipoLesionADeterminar(h.tipoLesion) ? `⚠ ${h.tipoLesion}` : h.tipoLesion}
                                 </span>
                               )}
                               {h.fallecido && (
@@ -923,8 +1077,16 @@ export const PersonasView: React.FC<PersonasViewProps> = ({
                           {p.condicion}
                         </strong>
                         {p.tipoLesion && (
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${p.tipoLesion === 'Sin Lesiones' ? 'bg-slate-50 text-slate-600 border-slate-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
-                            {p.tipoLesion}
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                              esTipoLesionADeterminar(p.tipoLesion)
+                                ? 'bg-amber-100 text-amber-950 border-amber-400'
+                                : p.tipoLesion === 'Sin Lesiones'
+                                ? 'bg-slate-50 text-slate-600 border-slate-200'
+                                : 'bg-rose-50 text-rose-800 border-rose-200'
+                            }`}
+                          >
+                            {esTipoLesionADeterminar(p.tipoLesion) ? `⚠ ${p.tipoLesion}` : p.tipoLesion}
                           </span>
                         )}
                         {p.fallecido && (

@@ -490,6 +490,12 @@ export function resolveUserFolioPerfilServer(user: any): PerfilAccesoFolioServer
   return 'comun';
 }
 
+export function isJefeControlFoliosServer(user: any): boolean {
+  if (!user) return false;
+  if (isSuperusuario(user)) return true;
+  return resolveUserFolioPerfilServer(user) === 'jefe';
+}
+
 function isSerieHiddenForUserServer(serie: any, user: any): boolean {
   if (!user || isSuperusuario(user) || !serie) return false;
 
@@ -944,6 +950,24 @@ export function canWriteCollection(
       return {
         allowed: false,
         reason: 'No posee autorización para modificar los perfiles de visibilidad de la serie.',
+      };
+    }
+    if (
+      existingItem.orden !== incomingItem.orden &&
+      !isJefeControlFoliosServer(user)
+    ) {
+      return {
+        allowed: false,
+        reason: 'Únicamente los usuarios Jefe pueden cambiar el orden de las series de folios.',
+      };
+    }
+  }
+
+  if (collection === 'folios' && existingItem && existingItem.numero !== incomingItem.numero) {
+    if (!isJefeControlFoliosServer(user)) {
+      return {
+        allowed: false,
+        reason: 'Únicamente los usuarios Jefe pueden cambiar el número de orden de un folio.',
       };
     }
   }

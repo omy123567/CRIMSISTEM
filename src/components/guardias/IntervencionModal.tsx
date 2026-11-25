@@ -42,6 +42,7 @@ import {
 import { SearchableSelect } from '../common/SearchableSelect';
 import { generarLaborCriminalisticaConIA } from '../../services/aiCriminalisticaService';
 import { getNextCorrelativoIntervencion } from '../../utils/numeracionUtils';
+import { esTipoLesionADeterminar, getResumenLesionADeterminarIntervencion } from '../../utils/lesionesUtils';
 
 interface IntervencionModalProps {
   intervencion?: IntervencionParte | null;
@@ -539,7 +540,7 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
   const handleGuardarNuevoTipoLesion = () => {
     if (!nuevoTipoLesionTexto.trim()) return;
     const texto = nuevoTipoLesionTexto.trim();
-    const actuales = config.tiposLesionCatalogo || ['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'Óbito'];
+    const actuales = config.tiposLesionCatalogo || ['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'A Determinar', 'Óbito'];
     if (!actuales.some((l) => l.toLowerCase() === texto.toLowerCase())) {
       const updated = [...actuales, texto];
       if (onSaveConfig) {
@@ -794,6 +795,25 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Aviso destacado si hay Tipos de Lesiones marcados como "A Determinar" */}
+          {(() => {
+            const resumenLesionPend = getResumenLesionADeterminarIntervencion(formData);
+            if (!resumenLesionPend.tienePendiente) return null;
+            return (
+              <div className="bg-amber-50 border-2 border-amber-400 p-3 rounded-xl flex items-start gap-2.5 text-amber-950 text-xs shadow-xs">
+                <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <span className="block font-extrabold text-amber-950">
+                    Aviso: Falta precisar Tipo de Lesiones (&ldquo;A Determinar&rdquo;)
+                  </span>
+                  <span className="text-[11px] text-amber-900 block mt-0.5">
+                    Esta intervención quedará remarcada hasta que se defina el carácter definitivo de las lesiones ({resumenLesionPend.motivos.join(' • ')}).
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Selector de Tipo de Intervención: Criminalística vs Accidentológica */}
           <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-1.5">
@@ -1432,13 +1452,23 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                     onChange={(e) =>
                       setNuevoInv({ ...nuevoInv, tipoLesion: e.target.value as TipoLesionPolicial })
                     }
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-xs font-bold text-slate-900"
+                    className={`w-full px-2.5 py-1.5 border rounded text-xs font-bold ${
+                      esTipoLesionADeterminar(nuevoInv.tipoLesion)
+                        ? 'border-amber-500 bg-amber-50 text-amber-950'
+                        : 'border-slate-300 bg-white text-slate-900'
+                    }`}
                   >
                     <option value="Sin Lesiones">Sin Lesiones</option>
                     <option value="Leves">Leves</option>
                     <option value="Graves">Graves</option>
                     <option value="Gravísimas">Gravísimas</option>
+                    <option value="A Determinar">A Determinar (Falta precisar)</option>
                   </select>
+                  {esTipoLesionADeterminar(nuevoInv.tipoLesion) && (
+                    <span className="block text-[10px] font-bold text-amber-800 mt-1">
+                      Aviso: Quedará remarcada como pendiente de precisar lesión.
+                    </span>
+                  )}
                 </div>
 
                 <div className="sm:col-span-2 pb-1">
@@ -1522,16 +1552,20 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
 
             {formData.involucrados.length > 0 && (
               <div className="space-y-2 pt-1">
-                {formData.involucrados.map((inv) => (
+                {formData.involucrados.map((inv) => {
+                  const esPendienteLesion = esTipoLesionADeterminar(inv.tipoLesion);
+                  return (
                   <div
                     key={inv.id}
                     className={`p-2.5 rounded-lg border ${
-                      inv.esPersonalPolicial
+                      esPendienteLesion
+                        ? 'bg-amber-50 border-amber-400 ring-1 ring-amber-300'
+                        : inv.esPersonalPolicial
                         ? 'bg-blue-50/70 border-blue-300'
                         : 'bg-white border-slate-200'
                     } flex items-start justify-between gap-2 shadow-2xs`}
                   >
-                    <div className="space-y-1">
+                    <div className="space-y-1 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5 text-xs">
                         {inv.esPersonalPolicial && (
                           <span className="bg-blue-900 text-white font-bold px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1">
@@ -1547,13 +1581,62 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                         <span className="bg-slate-100 text-slate-800 font-bold px-1.5 py-0.5 rounded text-[10px] border border-slate-300">
                           {inv.condicion || inv.funcionEnHecho}
                         </span>
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          inv.tipoLesion === 'Sin Lesiones'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-red-100 text-red-800'
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                          esPendienteLesion
+                            ? 'bg-amber-200 text-amber-950 border-amber-500'
+                            : inv.tipoLesion === 'Sin Lesiones'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                            : 'bg-red-100 text-red-800 border-red-200'
                         }`}>
-                          Lesión: {inv.tipoLesion || 'Sin Lesiones'}
+                          {esPendienteLesion
+                            ? '⚠ Lesión: A Determinar (Falta dato)'
+                            : `Lesión: ${inv.tipoLesion || 'Sin Lesiones'}`}
                         </span>
+                        {!isReadOnly && (
+                          <select
+                            value={inv.tipoLesion || 'Sin Lesiones'}
+                            onChange={(e) => {
+                              const nuevaLesion = e.target.value as TipoLesionPolicial;
+                              setFormData((prev) => {
+                                const updatedInvs = prev.involucrados.map((item) =>
+                                  item.id === inv.id ? { ...item, tipoLesion: nuevaLesion } : item
+                                );
+                                const polInvs = updatedInvs.filter((i) => i.esPersonalPolicial);
+                                const firstPol = polInvs[0];
+                                return {
+                                  ...prev,
+                                  involucrados: updatedInvs,
+                                  personalPolicial: firstPol
+                                    ? {
+                                        ...(prev.personalPolicial || {
+                                          jerarquia: firstPol.jerarquia || config.jerarquias[0] || 'Oficial',
+                                          plaza: firstPol.plaza || 'S/D',
+                                          apellidoYNombre: firstPol.apellidoYNombre,
+                                          dni: firstPol.dni,
+                                          rol: firstPol.condicion || firstPol.funcionEnHecho || 'Personal Policial',
+                                          destino: firstPol.destino || '',
+                                          dependenciaRevista: firstPol.destino || '',
+                                        }),
+                                        tipoLesion: firstPol.tipoLesion || 'Sin Lesiones',
+                                      }
+                                    : prev.personalPolicial,
+                                };
+                              });
+                            }}
+                            title="Actualizar tipo de lesión del involucrado"
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer ${
+                              esPendienteLesion
+                                ? 'bg-white border-amber-500 text-amber-950'
+                                : 'bg-white border-slate-300 text-slate-700'
+                            }`}
+                          >
+                            <option value="Sin Lesiones">Sin Lesiones</option>
+                            <option value="Leves">Leves</option>
+                            <option value="Graves">Graves</option>
+                            <option value="Gravísimas">Gravísimas</option>
+                            <option value="A Determinar">A Determinar</option>
+                          </select>
+                        )}
                         {inv.fallecido && (
                           <span className="bg-slate-900 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">
                             FALLECIDO
@@ -1603,7 +1686,8 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -2121,14 +2205,22 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                       </div>
                     </div>
 
-                    <div className="p-2 bg-slate-50 rounded border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div
+                      className={`p-2 rounded border grid grid-cols-1 sm:grid-cols-2 gap-2 ${
+                        esTipoLesionADeterminar(v.lesiones)
+                          ? 'bg-amber-50 border-amber-400'
+                          : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
                       <div>
                         <label className="block text-[11px] font-bold text-slate-700 mb-0.5">
                           TIPO DE LESIONES DEL CONDUCTOR/OCUPANTES *
                         </label>
                         <select
                           value={
-                            v.lesiones.includes('Gravísimas')
+                            esTipoLesionADeterminar(v.lesiones)
+                              ? 'A Determinar'
+                              : v.lesiones.includes('Gravísimas')
                               ? 'Gravísimas'
                               : v.lesiones.includes('Graves')
                               ? 'Graves'
@@ -2140,17 +2232,29 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                             const tipo = e.target.value;
                             if (tipo === 'Sin Lesiones') {
                               handleUpdateVehiculo(idx, 'lesiones', 'Sin Lesiones');
+                            } else if (tipo === 'A Determinar') {
+                              handleUpdateVehiculo(idx, 'lesiones', 'A Determinar (Pendiente de precisar)');
                             } else {
                               handleUpdateVehiculo(idx, 'lesiones', `${tipo} (Asistido en el lugar)`);
                             }
                           }}
-                          className="w-full px-2 py-1 rounded border border-slate-300 text-xs font-bold text-slate-900 bg-white"
+                          className={`w-full px-2 py-1 rounded border text-xs font-bold ${
+                            esTipoLesionADeterminar(v.lesiones)
+                              ? 'border-amber-500 bg-white text-amber-950'
+                              : 'border-slate-300 text-slate-900 bg-white'
+                          }`}
                         >
                           <option value="Sin Lesiones">Sin Lesiones</option>
                           <option value="Leves">Leves</option>
                           <option value="Graves">Graves</option>
                           <option value="Gravísimas">Gravísimas</option>
+                          <option value="A Determinar">A Determinar (Falta precisar)</option>
                         </select>
+                        {esTipoLesionADeterminar(v.lesiones) && (
+                          <span className="block text-[10px] font-bold text-amber-800 mt-1">
+                            ⚠ Falta precisar tipo de lesión (quedará remarcada).
+                          </span>
+                        )}
                       </div>
 
                       {!v.lesiones.includes('Sin Lesiones') && (
@@ -2163,7 +2267,13 @@ export const IntervencionModal: React.FC<IntervencionModalProps> = ({
                               value={v.lesiones.includes('trasladado') || v.lesiones.includes('Trasladado') ? 'Trasladado a nosocomio' : 'Asistido en el lugar'}
                               onChange={(e) => {
                                 const asist = e.target.value;
-                                const tipoLesion = v.lesiones.includes('Gravísimas') ? 'Gravísimas' : v.lesiones.includes('Graves') ? 'Graves' : 'Leves';
+                                const tipoLesion = esTipoLesionADeterminar(v.lesiones)
+                                  ? 'A Determinar'
+                                  : v.lesiones.includes('Gravísimas')
+                                  ? 'Gravísimas'
+                                  : v.lesiones.includes('Graves')
+                                  ? 'Graves'
+                                  : 'Leves';
                                 handleUpdateVehiculo(idx, 'lesiones', `${tipoLesion} (${asist})`);
                               }}
                               className="px-2 py-1 rounded border border-amber-300 text-xs bg-amber-50 font-semibold"

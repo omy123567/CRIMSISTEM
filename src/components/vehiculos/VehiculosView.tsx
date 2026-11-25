@@ -18,12 +18,20 @@ import {
   History,
   Layers,
   FileText,
+  BarChart3,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ModuleStatsPanel, StatChartConfig, StatKpiItem } from '../common/ModuleStatsPanel';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 export interface VehiculoSiniestroConsolidado {
   id: string;
@@ -75,6 +83,7 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
   const [modoOrganizacion, setModoOrganizacion] = useState<'agrupado' | 'detallado'>('agrupado');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [mostrarStats, setMostrarStats] = useState(false);
 
   const toggleExpand = (key: string) => {
     setExpandedKeys((prev) => {
@@ -127,7 +136,7 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
       });
     });
 
-    return list.sort((a, b) => b.inspeccionFecha.localeCompare(a.inspeccionFecha));
+    return list.sort((a, b) => (b.inspeccionFecha || '').localeCompare(a.inspeccionFecha || ''));
   }, [partesGuardiaList]);
 
   // Agrupamiento por vehículo único (por Dominio / Patente o Identificador)
@@ -136,7 +145,7 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
 
     vehiculosConsolidados.forEach((v) => {
       const cleanDominio = v.dominio && v.dominio !== 'S/D' ? v.dominio.trim().toUpperCase() : null;
-      const key = cleanDominio ? `DOM:${cleanDominio}` : `ID:${v.tipo.toUpperCase()}-${v.propietarioOConductor.toUpperCase()}`;
+      const key = cleanDominio ? `DOM:${cleanDominio}` : `ID:${(v.tipo || '').toUpperCase()}-${(v.propietarioOConductor || '').toUpperCase()}`;
 
       if (!map.has(key)) {
         map.set(key, {
@@ -202,22 +211,22 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
       const term = searchTerm.toLowerCase();
       const matchSearch =
         !term ||
-        v.dominio.toLowerCase().includes(term) ||
-        v.tipo.toLowerCase().includes(term) ||
-        v.propietarioHabitual.toLowerCase().includes(term) ||
+        (v.dominio || '').toLowerCase().includes(term) ||
+        (v.tipo || '').toLowerCase().includes(term) ||
+        (v.propietarioHabitual || '').toLowerCase().includes(term) ||
         v.siniestros.some(
           (s) =>
-            s.intervencionHecho.toLowerCase().includes(term) ||
-            s.inspeccionLugar.toLowerCase().includes(term) ||
-            s.intervencionCodigo.toLowerCase().includes(term) ||
-            s.zonaContacto.toLowerCase().includes(term)
+            (s.intervencionHecho || '').toLowerCase().includes(term) ||
+            (s.inspeccionLugar || '').toLowerCase().includes(term) ||
+            (s.intervencionCodigo || '').toLowerCase().includes(term) ||
+            (s.zonaContacto || '').toLowerCase().includes(term)
         );
 
-      const matchTipo = filtroTipo === 'todos' || v.tipo.toLowerCase().includes(filtroTipo.toLowerCase());
+      const matchTipo = filtroTipo === 'todos' || (v.tipo || '').toLowerCase().includes(filtroTipo.toLowerCase());
 
       const matchLesion =
         filtroLesion === 'todas' ||
-        v.siniestros.some((s) => s.lesiones.toLowerCase().includes(filtroLesion.toLowerCase()));
+        v.siniestros.some((s) => (s.lesiones || '').toLowerCase().includes(filtroLesion.toLowerCase()));
 
       const matchAnio =
         filtroAnio === 'todos' ||
@@ -240,21 +249,22 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
       const term = searchTerm.toLowerCase();
       const matchSearch =
         !term ||
-        v.dominio.toLowerCase().includes(term) ||
-        v.identificador.toLowerCase().includes(term) ||
-        v.tipo.toLowerCase().includes(term) ||
-        v.propietarioOConductor.toLowerCase().includes(term) ||
-        v.intervencionHecho.toLowerCase().includes(term) ||
-        v.inspeccionLugar.toLowerCase().includes(term) ||
-        v.intervencionCodigo.toLowerCase().includes(term);
+        (v.dominio || '').toLowerCase().includes(term) ||
+        (v.identificador || '').toLowerCase().includes(term) ||
+        (v.tipo || '').toLowerCase().includes(term) ||
+        (v.propietarioOConductor || '').toLowerCase().includes(term) ||
+        (v.intervencionHecho || '').toLowerCase().includes(term) ||
+        (v.inspeccionLugar || '').toLowerCase().includes(term) ||
+        (v.intervencionCodigo || '').toLowerCase().includes(term);
 
-      const matchTipo = filtroTipo === 'todos' || v.tipo.toLowerCase().includes(filtroTipo.toLowerCase());
+      const matchTipo = filtroTipo === 'todos' || (v.tipo || '').toLowerCase().includes(filtroTipo.toLowerCase());
 
+      const vLes = (v.lesiones || '').toLowerCase();
       const matchLesion =
         filtroLesion === 'todas' ||
-        (filtroLesion === 'ileso' && v.lesiones.toLowerCase().includes('ileso')) ||
-        (filtroLesion === 'fallec' && (v.lesiones.toLowerCase().includes('fallec') || v.lesiones.toLowerCase().includes('óbito'))) ||
-        (filtroLesion === 'lesionado' && !v.lesiones.toLowerCase().includes('ileso'));
+        (filtroLesion === 'ileso' && vLes.includes('ileso')) ||
+        (filtroLesion === 'fallec' && (vLes.includes('fallec') || vLes.includes('óbito'))) ||
+        (filtroLesion === 'lesionado' && !vLes.includes('ileso'));
 
       const matchAnio =
         filtroAnio === 'todos' || (v.inspeccionFecha && v.inspeccionFecha.startsWith(filtroAnio));
@@ -266,7 +276,73 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
     });
   }, [vehiculosConsolidados, searchTerm, filtroTipo, filtroLesion, filtroAnio, fechaDesde, fechaHasta]);
 
-  // Exportar a PDF
+  const vehiculosStats = useMemo(() => {
+    const kpis: StatKpiItem[] = [
+      {
+        label: 'Rodados Únicos',
+        value: vehiculosAgrupados.length,
+        detail: `${vehiculosConsolidados.length} participaciones en siniestros`,
+        tone: 'navy',
+      },
+      {
+        label: 'Siniestros Múltiples',
+        value: totalMultiplesSiniestros,
+        detail: 'Rodados en >1 intervención',
+        tone: 'rose',
+      },
+      {
+        label: 'Tipos de Rodado',
+        value: tiposUnicos.length,
+        detail: 'Categorías intervinientes',
+        tone: 'amber',
+      },
+      {
+        label: 'Con Lesiones Graves/Óbito',
+        value: vehiculosConsolidados.filter((v) => {
+          const l = (v.lesiones || '').toLowerCase();
+          return l.includes('fallec') || l.includes('óbito') || l.includes('grave');
+        }).length,
+        detail: 'Según planilla vial',
+        tone: 'blue',
+      },
+    ];
+
+    const byTipo = new Map<string, number>();
+    const byLesion = new Map<string, number>();
+    vehiculosConsolidados.forEach((v) => {
+      const t = v.tipo || 'Vehículo';
+      byTipo.set(t, (byTipo.get(t) || 0) + 1);
+      const l = v.lesiones || 'Sin datos';
+      byLesion.set(l, (byLesion.get(l) || 0) + 1);
+    });
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'vehiculos-tipo',
+        title: 'Rodados por Categoría',
+        subtitle: 'Frecuencia de participación en siniestros',
+        type: 'bar',
+        data: Array.from(byTipo.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+        valueLabel: 'Rodados',
+        primaryColor: '#b45309',
+      },
+      {
+        id: 'vehiculos-lesiones',
+        title: 'Gravedad / Lesiones Declaradas',
+        subtitle: 'Resultado asociado a ocupantes',
+        type: 'donut',
+        data: Array.from(byLesion.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+      },
+    ];
+
+    return { kpis, charts };
+  }, [vehiculosAgrupados.length, vehiculosConsolidados, totalMultiplesSiniestros, tiposUnicos.length]);
+
+  // Exportar a PDF con KPIs y gráficos
   const handleExportPdf = () => {
     requestPdfExport({
       title: 'Registro Centralizado de Vehículos en Siniestros',
@@ -275,10 +351,46 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
       defaultPaperSize: 'a4',
       buildDoc: ({ orientation, paperSize }) => {
         const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
-        const startY = drawPoliceHeader(
+        let curY = drawPoliceHeader(
           doc,
           config,
           'REGISTRO CENTRALIZADO DE VEHÍCULOS / RODADOS EN SINIESTROS VIALES',
+          10
+        );
+
+        curY = drawExecutiveKpiStrip(
+          doc,
+          curY + 1,
+          [
+            { label: 'Rodados Únicos', value: filteredAgrupados.length, subtitle: 'En vista agrupada', accentColor: [17, 38, 77] },
+            { label: 'Participaciones', value: filteredListDetallada.length, subtitle: 'Siniestros detallados', accentColor: [180, 83, 9] },
+            { label: 'Reincidentes', value: filteredAgrupados.filter((v) => v.totalSiniestros > 1).length, subtitle: 'Múltiples siniestros', accentColor: [220, 38, 38] },
+            { label: 'Tipos Registrados', value: new Set(filteredListDetallada.map((v) => v.tipo)).size, subtitle: 'Categorías vehiculares', accentColor: [15, 118, 110] },
+          ],
+          10
+        );
+
+        const mapTipo = new Map<string, number>();
+        const mapLes = new Map<string, number>();
+        filteredListDetallada.forEach((v) => {
+          mapTipo.set(v.tipo || 'Vehículo', (mapTipo.get(v.tipo || 'Vehículo') || 0) + 1);
+          mapLes.set(v.lesiones || 'Sin datos', (mapLes.get(v.lesiones || 'Sin datos') || 0) + 1);
+        });
+        const imgTipo = renderBarChartPng(
+          Array.from(mapTipo.entries()).map(([label, value]) => ({ label, value })),
+          { barColor: '#b45309' }
+        );
+        const imgLes = renderDonutChartPng(
+          Array.from(mapLes.entries()).map(([label, value]) => ({ label, value })),
+          { centerLabel: 'RODADOS' }
+        );
+        curY = drawChartSectionGrid(
+          doc,
+          curY,
+          [
+            { title: 'Rodados por Categoría', subtitle: 'Participación en hechos viales', imageDataUrl: imgTipo },
+            { title: 'Lesiones Declaradas', subtitle: 'Gravedad en siniestros', imageDataUrl: imgLes },
+          ],
           10
         );
 
@@ -293,7 +405,7 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
           ]);
 
           autoTable(doc, {
-            startY: startY + 5,
+            startY: curY + 1,
             head: [['#', 'Dominio/Patente', 'Tipo de Rodado', 'Titular / Conductor', 'Total Siniestros', 'Historial de Intervenciones']],
             body: rows,
             styles: { fontSize: 7.5, cellPadding: 2 },
@@ -305,6 +417,9 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
               3: { cellWidth: 38 },
               4: { cellWidth: 24, fontStyle: 'bold' },
               5: { cellWidth: 'auto' },
+            },
+            didDrawPage: () => {
+              drawPoliceFooter(doc, config);
             },
           });
         } else {
@@ -321,11 +436,14 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
           ]);
 
           autoTable(doc, {
-            startY: startY + 5,
+            startY: curY + 1,
             head: [['#', 'Dominio', 'Identificador', 'Tipo', 'Propietario / Conductor', 'Circulación', 'Zona Contacto', 'Lesiones', 'Fecha']],
             body: rows,
             styles: { fontSize: 7.5, cellPadding: 2 },
             headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+            didDrawPage: () => {
+              drawPoliceFooter(doc, config);
+            },
           });
         }
 
@@ -410,14 +528,39 @@ export const VehiculosView: React.FC<VehiculosViewProps> = ({
           </div>
 
           <button
+            type="button"
+            onClick={() => setMostrarStats((prev) => !prev)}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
+          <button
             onClick={handleExportPdf}
-            className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-800 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-800 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Exportar PDF</span>
           </button>
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Vehículos en Siniestros"
+          subtitle="Composición por tipo de rodado, reincidencia y gravedad declarada"
+          kpis={vehiculosStats.kpis}
+          charts={vehiculosStats.charts}
+          onExportPdf={handleExportPdf}
+          exportPdfLabel="Exportar Reporte Estadístico (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* Barra de Filtros y Búsqueda Colapsable */}
       <CollapsibleFilterBar

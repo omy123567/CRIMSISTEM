@@ -284,7 +284,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
       (activeCatalogTab === 'causasReferencia'
         ? ['Sumario Judicial', 'Actuaciones Prevencionales', 'Expediente', 'Causa Penal', 'Oficio Judicial']
         : activeCatalogTab === 'tiposLesionCatalogo'
-        ? ['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'Óbito']
+        ? ['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'A Determinar', 'Óbito']
         : activeCatalogTab === 'viasSolicitud'
         ? ['vía telefónica.', 'vía radial.', 'por escrito.', 'comparecencia personal en guardia.']
         : activeCatalogTab === 'funcionesGuardiaCatalogo'

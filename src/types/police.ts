@@ -438,7 +438,7 @@ export interface TestigoActa {
   domicilio?: string;
 }
 
-export type TipoLesionPolicial = 'Sin Lesiones' | 'Leves' | 'Graves' | 'Gravísimas';
+export type TipoLesionPolicial = 'Sin Lesiones' | 'Leves' | 'Graves' | 'Gravísimas' | 'A Determinar';
 export type TipoAsistenciaMedica = 'Asistido en el lugar' | 'Trasladado a nosocomio';
 
 export interface InvolucradoIntervencion {
@@ -942,8 +942,9 @@ export interface RegistroAuditoria {
 
 export interface SerieNumerario {
   id: string;
-  nombre: string; // ej: "Oficio Jefatura", "Oficio Vicedirección", "Memorándums", "Expedientes", "Circulares"
-  prefijo: string; // ej: "Oficio J N°", "Mem. N°", "Exp. N°"
+  nombre: string; // ej: "Memorandum", "Nota V", "Oficio J", "Oficio V", "Memorandum R", "Radiograma"
+  prefijo: string; // ej: "Memorandum N°", "Nota V N°", "Oficio J N°"
+  orden?: number; // Orden personalizable por usuarios Jefe
   anio: number; // ej: 2026
   limiteFolios: number; // ej: 1000, ampliable +100
   columnas: number; // 20

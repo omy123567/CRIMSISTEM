@@ -12,6 +12,7 @@ import {
 } from '../../types/police';
 import {
   buildUnifiedTiposMemosOptions,
+  findFolioForMemo,
   isMemoVisibleForUser,
   isTipoMemoHiddenForUser,
   normalizeTipoKey,
@@ -48,7 +49,15 @@ import {
   Lock,
   ShieldAlert,
   FileBarChart2,
+  BarChart3,
 } from 'lucide-react';
+import { ModuleStatsPanel, StatChartConfig, StatKpiItem } from '../common/ModuleStatsPanel';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface MemosNotasViewProps {
   memosList: MemoNota[];
@@ -59,7 +68,10 @@ interface MemosNotasViewProps {
   activeDelegacionId: string;
   config: ConfiguracionSistema;
   currentUser?: UsuarioSistema | null;
-  onSaveMemo: (memo: MemoNota) => Promise<void> | void;
+  onSaveMemo: (
+    memo: MemoNota,
+    options?: { syncControlFolios?: boolean }
+  ) => Promise<void> | void;
   onDeleteMemo: (id: string) => Promise<void> | void;
   onSaveConfig: (cfg: ConfiguracionSistema) => Promise<void> | void;
   onSaveUsuario?: (user: UsuarioSistema) => Promise<void> | void;
@@ -148,6 +160,7 @@ export const MemosNotasView: React.FC<MemosNotasViewProps> = ({
   const [editingMemo, setEditingMemo] = useState<MemoNota | null>(null);
   const [isTiposModalOpen, setIsTiposModalOpen] = useState(false);
   const [isReporteModalOpen, setIsReporteModalOpen] = useState(false);
+  const [mostrarStats, setMostrarStats] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MemoNota | null>(null);
   const [previewGallery, setPreviewGallery] = useState<{
     isOpen: boolean;
@@ -319,7 +332,45 @@ export const MemosNotasView: React.FC<MemosNotasViewProps> = ({
           14,
           y
         );
-        y += 5;
+        y += 4;
+
+        const conAnexoFilt = filteredMemos.filter((m) =>
+          Boolean(m.archivoDataUrl || (m.adjuntos && m.adjuntos.length > 0))
+        ).length;
+        const emitidosFilt = filteredMemos.filter(
+          (m) => m.estado === 'Emitido' || m.estado === 'Enviado' || m.estado === 'Recepcionado'
+        ).length;
+        const urgentesFilt = filteredMemos.filter(
+          (m) => m.prioridad === 'Urgente' || m.prioridad === 'Alta'
+        ).length;
+
+        y = drawExecutiveKpiStrip(doc, y, [
+          { label: 'Documentos', value: filteredMemos.length, subtitle: 'Registros visibles filtrados', accentColor: [17, 38, 77] },
+          { label: 'Emitidos / Trámite', value: emitidosFilt, subtitle: 'En gestión oficial', accentColor: [29, 78, 216] },
+          { label: 'Con Anexo', value: conAnexoFilt, subtitle: 'Word / PDF adjunto', accentColor: [15, 118, 110] },
+          { label: 'Prioridad Alta', value: urgentesFilt, subtitle: 'Alta o Urgente', accentColor: [217, 119, 6] },
+        ]);
+
+        const byTipoPdf = new Map<string, number>();
+        const byEstadoPdf = new Map<string, number>();
+        filteredMemos.forEach((m) => {
+          const t = m.tipo || 'Otro';
+          byTipoPdf.set(t, (byTipoPdf.get(t) || 0) + 1);
+          const e = m.estado || 'Sin Estado';
+          byEstadoPdf.set(e, (byEstadoPdf.get(e) || 0) + 1);
+        });
+        const imgTipo = renderBarChartPng(
+          Array.from(byTipoPdf.entries()).map(([label, value]) => ({ label, value })),
+          { barColor: '#11264d' }
+        );
+        const imgEstado = renderDonutChartPng(
+          Array.from(byEstadoPdf.entries()).map(([label, value]) => ({ label, value })),
+          { centerLabel: 'MEMOS' }
+        );
+        y = drawChartSectionGrid(doc, y, [
+          { title: 'Documentos por Tipo / Serie', subtitle: 'Series habilitadas', imageDataUrl: imgTipo },
+          { title: 'Distribución por Estado', subtitle: 'Ciclo de tramitación', imageDataUrl: imgEstado },
+        ]);
 
         autoTable(doc, {
           startY: y,
@@ -429,6 +480,77 @@ export const MemosNotasView: React.FC<MemosNotasViewProps> = ({
     (m) => Boolean(m.archivoDataUrl || (m.adjuntos && m.adjuntos.length > 0))
   ).length;
 
+  const memosStats = useMemo(() => {
+    const total = visibleMemos.length;
+    const tramitados = visibleMemos.filter(
+      (m) => m.estado === 'Emitido' || m.estado === 'Enviado' || m.estado === 'Recepcionado'
+    ).length;
+    const prioritarios = visibleMemos.filter(
+      (m) => m.prioridad === 'Urgente' || m.prioridad === 'Alta'
+    ).length;
+
+    const kpis: StatKpiItem[] = [
+      {
+        label: 'Documentos Visibles',
+        value: total,
+        detail: `${filteredMemos.length} según filtros`,
+        tone: 'navy',
+      },
+      {
+        label: 'Emitidos / Recepcionados',
+        value: tramitados,
+        detail: 'Documentación cursada',
+        tone: 'blue',
+      },
+      {
+        label: 'Con Archivo Anexo',
+        value: conAdjuntosCount,
+        detail: `${total > 0 ? Math.round((conAdjuntosCount / total) * 100) : 0}% digitalizados`,
+        tone: 'emerald',
+      },
+      {
+        label: 'Prioridad Alta / Urgente',
+        value: prioritarios,
+        detail: 'Atención preferente',
+        tone: 'amber',
+      },
+    ];
+
+    const byTipo = new Map<string, number>();
+    const byEstado = new Map<string, number>();
+    visibleMemos.forEach((m) => {
+      const t = m.tipo || 'Sin Tipo';
+      byTipo.set(t, (byTipo.get(t) || 0) + 1);
+      const e = m.estado || 'Sin Estado';
+      byEstado.set(e, (byEstado.get(e) || 0) + 1);
+    });
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'memos-tipo',
+        title: 'Volumen por Tipo / Serie',
+        subtitle: 'Solo series autorizadas para su usuario',
+        type: 'bar',
+        data: Array.from(byTipo.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+        valueLabel: 'Documentos',
+        primaryColor: '#11264d',
+      },
+      {
+        id: 'memos-estado',
+        title: 'Estado Documental',
+        subtitle: 'Proporción por etapa de trámite',
+        type: 'donut',
+        data: Array.from(byEstado.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+      },
+    ];
+
+    return { kpis, charts };
+  }, [visibleMemos, filteredMemos.length, conAdjuntosCount]);
+
   return (
     <div className="space-y-4">
       {/* Cabecera Institucional */}
@@ -452,11 +574,24 @@ export const MemosNotasView: React.FC<MemosNotasViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMostrarStats((prev) => !prev)}
+            className={`px-3.5 py-2 rounded-lg border text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 transition-colors ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
           {canManageVisibility && (
             <button
               type="button"
               onClick={() => setIsTiposModalOpen(true)}
-              className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
             >
               <Sliders className="w-3.5 h-3.5 text-blue-800" />
               <span>Tipos y Visibilidad</span>
@@ -468,7 +603,7 @@ export const MemosNotasView: React.FC<MemosNotasViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsReporteModalOpen(true)}
-                className="px-3.5 py-2 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                className="px-3.5 py-2 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
               >
                 <FileBarChart2 className="w-3.5 h-3.5 text-indigo-700" />
                 <span>Reportes</span>
@@ -478,7 +613,7 @@ export const MemosNotasView: React.FC<MemosNotasViewProps> = ({
                 type="button"
                 onClick={handleExportListadoPdf}
                 disabled={filteredMemos.length === 0}
-                className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-45 text-slate-800 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-45 text-slate-800 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
               >
                 <Printer className="w-3.5 h-3.5 text-slate-700" />
                 <span>Exportar PDF</span>
@@ -493,7 +628,7 @@ export const MemosNotasView: React.FC<MemosNotasViewProps> = ({
                 setEditingMemo(null);
                 setIsMemoModalOpen(true);
               }}
-              className="px-4 py-2 rounded-lg bg-blue-900 hover:bg-blue-950 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm cursor-pointer"
+              className="px-4 py-2 rounded-lg bg-blue-900 hover:bg-blue-950 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap shrink-0"
             >
               <Plus className="w-4 h-4" />
               <span>Nuevo Memo / Nota</span>
@@ -501,6 +636,18 @@ export const MemosNotasView: React.FC<MemosNotasViewProps> = ({
           )}
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Memos y Notas"
+          subtitle="Resumen gráfico sobre tipos y estados habilitados para su perfil"
+          kpis={memosStats.kpis}
+          charts={memosStats.charts}
+          onExportPdf={canExportPdf ? () => setIsReporteModalOpen(true) : undefined}
+          exportPdfLabel="Reporte Gráfico (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* KPIs Compactos */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -743,6 +890,19 @@ export const MemosNotasView: React.FC<MemosNotasViewProps> = ({
                         <div className="text-[10px] font-medium text-slate-500">
                           Año {memo.anio || (memo.fecha || '').slice(0, 4) || '-'}
                         </div>
+                        {(() => {
+                          const linkedFolio = findFolioForMemo(memo, foliosList, seriesList);
+                          if (!linkedFolio) return null;
+                          return (
+                            <span
+                              className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 font-sans text-[10px] font-bold"
+                              title={`Ocupando Folio #${linkedFolio.numero} en Control de Folios`}
+                            >
+                              <BookmarkCheck className="w-3 h-3" />
+                              <span>Folio #{linkedFolio.numero} · Control de Folios</span>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-3.5 py-3 min-w-[230px] max-w-sm">
                         <div className="font-bold text-slate-900">{memo.asunto}</div>

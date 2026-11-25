@@ -11,10 +11,20 @@ import {
   InspeccionOcular,
   AccidentologiaRegistro,
   LicenciaPolicial,
+  IntervencionParte,
+  InformeTecnico,
   PdfExportOptions,
 } from '../types/police';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from './pdfExportBus';
 import { formatFechaDisplay, getLicenciaActivaPersonal } from './licenciaService';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderBarChartPng,
+  renderHorizontalBarChartPng,
+  renderDonutChartPng,
+  renderGroupedBarChartPng,
+} from '../utils/pdfChartUtils';
 
 // Colores institucionales de la Policía
 const POLICE_NAVY: [number, number, number] = [17, 38, 77]; // #11264d
@@ -216,7 +226,7 @@ function buildParteGuardiaPdfDoc(
     currentY = drawPoliceHeader(
       doc,
       config,
-      `PARTE DE NOVEDADES DE GUARDIA - ${parte.grupoGuardia.toUpperCase()}`,
+      `PARTE DE NOVEDADES DE GUARDIA - ${(parte.grupoGuardia || 'GUARDIA').toUpperCase()}`,
       10
     );
   }
@@ -367,15 +377,18 @@ function buildParteGuardiaPdfDoc(
     }
 
     const nroItem = String(idx + 1).padStart(2, '0');
+    const anioParte = parte.fechaInicio && !Number.isNaN(new Date(parte.fechaInicio).getFullYear())
+      ? new Date(parte.fechaInicio).getFullYear()
+      : new Date().getFullYear();
     const headerTitle = interv.tipoIntervencion === 'Accidentológica'
-      ? `INTERVENCIÓN ACCIDENTOLÓGICA Nº    ${interv.nroCorrelativo}    /${new Date(parte.fechaInicio).getFullYear()}-${config.siglasDependencia}.`
-      : `INTERVENCIÓN CRIMINALÍSTICA Nº    ${interv.nroCorrelativo}    /${new Date(parte.fechaInicio).getFullYear()}-${config.siglasDependencia}.`;
+      ? `INTERVENCIÓN ACCIDENTOLÓGICA Nº    ${interv.nroCorrelativo}    /${anioParte}-${config.siglasDependencia || 'DPC'}.`
+      : `INTERVENCIÓN CRIMINALÍSTICA Nº    ${interv.nroCorrelativo}    /${anioParte}-${config.siglasDependencia || 'DPC'}.`;
 
     // Armamos las filas de la tabla según el modelo de las fotos
     const bodyRows: any[] = [
       [
         { content: 'HECHO:', styles: { fontStyle: 'bold', cellWidth: 26 } },
-        { content: `"${interv.hecho.toUpperCase()}"`, styles: { fontStyle: 'bold', cellWidth: 70 } },
+        { content: `"${(interv.hecho || '').toUpperCase()}"`, styles: { fontStyle: 'bold', cellWidth: 70 } },
         { content: 'SOLICITUD\nREQUERIMIENTO:', styles: { fontStyle: 'bold', cellWidth: 32 } },
         { content: `${interv.solicitudHora} ${interv.solicitudVia}`, styles: { cellWidth: 54 } },
       ],
@@ -419,16 +432,16 @@ function buildParteGuardiaPdfDoc(
       { content: 'PERSONAL TÉCNICO INTERVINIENTE', colSpan: 4, styles: { halign: 'center', fontStyle: 'bold', fillColor: POLICE_LIGHT_BLUE, textColor: POLICE_NAVY } },
     ]);
     bodyRows.push([
-      { content: `PERITO / AUXILIAR:\n${interv.personalTecnico.peritoAuxiliar || '---'}`, colSpan: 2, styles: { halign: 'center' } },
-      { content: `CHOFER / FOTÓGRAFO:\n${interv.personalTecnico.choferFotografo || '---'}`, styles: { halign: 'center' } },
-      { content: `AUXILIAR:\n${interv.personalTecnico.auxiliar || '---'}`, styles: { halign: 'center' } },
+      { content: `PERITO / AUXILIAR:\n${interv.personalTecnico?.peritoAuxiliar || '---'}`, colSpan: 2, styles: { halign: 'center' } },
+      { content: `CHOFER / FOTÓGRAFO:\n${interv.personalTecnico?.choferFotografo || '---'}`, styles: { halign: 'center' } },
+      { content: `AUXILIAR:\n${interv.personalTecnico?.auxiliar || '---'}`, styles: { halign: 'center' } },
     ]);
 
     // Si es Accidentológica, incluir los vehículos/rodados (MÓVIL UNO, MÓVIL DOS...)
     if (interv.tipoIntervencion === 'Accidentológica' && interv.vehiculosSiniestro) {
       interv.vehiculosSiniestro.forEach((v) => {
         bodyRows.push([
-          { content: v.identificador.toUpperCase(), colSpan: 4, styles: { halign: 'center', fontStyle: 'bold', fillColor: [235, 240, 248], textColor: POLICE_NAVY } },
+          { content: (v.identificador || 'RODADO').toUpperCase(), colSpan: 4, styles: { halign: 'center', fontStyle: 'bold', fillColor: [235, 240, 248], textColor: POLICE_NAVY } },
         ]);
         bodyRows.push([
           { content: 'TIPO:', styles: { fontStyle: 'bold' } },
@@ -703,10 +716,84 @@ export function generarPdfLibroExpedientes(
 ) {
   const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
     const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
-    const currentY = drawPoliceHeader(
+    let currentY = drawPoliceHeader(
       doc,
       config,
       'LIBRO DE REGISTRO GENERAL DE EXPEDIENTES JUDICIALES Y OFICIOS',
+      10
+    );
+
+    const totalExp = expedientes.length;
+    const entregados = expedientes.filter((e) => e.estadoEntrega === 'Entregado').length;
+    const pendientes = totalExp - entregados;
+    const ppiTotal = expedientes.filter((e) => e.ppi?.tienePPI || e.involucraPersonalPolicial).length;
+    let resguardoPersonas = 0;
+    const reqCounts: Record<string, number> = {};
+    expedientes.forEach((exp) => {
+      const req = exp.tipoRequerimiento || 'Otro';
+      const weight =
+        req === 'Resguardo de Evidencia' ? exp.personasVinculadas?.length || 1 : 1;
+      if (req === 'Resguardo de Evidencia') resguardoPersonas += weight;
+      reqCounts[req] = (reqCounts[req] || 0) + weight;
+    });
+
+    currentY = drawExecutiveKpiStrip(
+      doc,
+      currentY,
+      [
+        {
+          label: 'Total Expedientes',
+          value: totalExp,
+          subtitle: `${totalExp > 0 ? Math.round((entregados / totalExp) * 100) : 0}% elevados`,
+          accentColor: [17, 38, 77],
+        },
+        {
+          label: 'Elevados / Entregados',
+          value: entregados,
+          subtitle: 'Con constancia de entrega',
+          accentColor: [15, 118, 110],
+        },
+        {
+          label: 'Pendientes de Entrega',
+          value: pendientes,
+          subtitle: `Con PPI involucrado: ${ppiTotal}`,
+          accentColor: [217, 119, 6],
+        },
+        {
+          label: 'Resguardo Evidencia',
+          value: resguardoPersonas,
+          subtitle: 'Personas vinculadas totales',
+          accentColor: [29, 78, 216],
+        },
+      ],
+      10
+    );
+
+    const reqChartItems = Object.entries(reqCounts).map(([label, value]) => ({ label, value }));
+    const chartReqImg = renderHorizontalBarChartPng(reqChartItems, { width: 560, height: 245 });
+    const chartEstadoImg = renderDonutChartPng(
+      [
+        { label: 'Entregado', value: entregados, color: '#0f766e' },
+        { label: 'Pendiente', value: pendientes, color: '#d97706' },
+      ],
+      { width: 560, height: 245, centerLabel: 'EXPEDIENTES' }
+    );
+
+    currentY = drawChartSectionGrid(
+      doc,
+      currentY,
+      [
+        {
+          title: 'Distribución por Tipo de Requerimiento',
+          subtitle: 'Conteo ponderado (Resguardo de Evidencia por personas vinculadas)',
+          imageDataUrl: chartReqImg,
+        },
+        {
+          title: 'Estado de Elevación Judicial',
+          subtitle: 'Proporción de expedientes elevados vs pendientes',
+          imageDataUrl: chartEstadoImg,
+        },
+      ],
       10
     );
 
@@ -922,9 +1009,9 @@ export function generarPdfFichaTecnicaVehicular(
       body: [
         [
           { content: 'Estado de Revista:', styles: { fontStyle: 'bold', textColor: [51, 65, 85] } },
-          { content: movil.estadoOperativo.toUpperCase(), styles: { fontStyle: 'bold', textColor: movil.estadoOperativo === 'En Servicio' ? [22, 101, 52] : [185, 28, 28] } },
+          { content: (movil.estadoOperativo || 'Sin definir').toUpperCase(), styles: { fontStyle: 'bold', textColor: movil.estadoOperativo === 'En Servicio' ? [22, 101, 52] : [185, 28, 28] } },
           { content: 'Condición General:', styles: { fontStyle: 'bold', textColor: [51, 65, 85] } },
-          { content: movil.condicionGeneral.toUpperCase(), styles: { fontStyle: 'bold', textColor: [15, 23, 42] } },
+          { content: (movil.condicionGeneral || 'Sin definir').toUpperCase(), styles: { fontStyle: 'bold', textColor: [15, 23, 42] } },
         ],
       ],
       theme: 'plain',
@@ -1202,10 +1289,59 @@ export function generarPdfPlanillaRecargos(
 ) {
   const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
     const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
-    const currentY = drawPoliceHeader(
+    let currentY = drawPoliceHeader(
       doc,
       config,
       'PLANILLA OFICIAL DE LIQUIDACIÓN Y CUMPLIMIENTO DE RECARGOS DE SERVICIO',
+      10
+    );
+
+    const totalRecargos = recargos.length;
+    const totalAsignaciones = recargos.reduce((acc, r) => acc + (r.personalIds?.length || 0), 0);
+    const totalHoras = recargos.reduce((acc, r) => acc + (Number(r.horasCalculadas) || 0) * Math.max(1, r.personalIds?.length || 1), 0);
+    const vigentesCount = recargos.filter((r) => r.estado === 'Vigente').length;
+
+    currentY = drawExecutiveKpiStrip(
+      doc,
+      currentY,
+      [
+        { label: 'Servicios de Recargo', value: totalRecargos, subtitle: 'Órdenes registradas', accentColor: [17, 38, 77] },
+        { label: 'Efectivos Asignados', value: totalAsignaciones, subtitle: 'Turnos cubiertos', accentColor: [29, 78, 216] },
+        { label: 'Carga Horaria Total', value: `${Math.round(totalHoras * 10) / 10} hs`, subtitle: 'Horas hombre computadas', accentColor: [15, 118, 110] },
+        { label: 'Recargos Vigentes', value: vigentesCount, subtitle: `Finalizados/Susp.: ${totalRecargos - vigentesCount}`, accentColor: [217, 119, 6] },
+      ],
+      10
+    );
+
+    const tipoCounts: Record<string, number> = {};
+    const estadoCounts: Record<string, number> = {};
+    recargos.forEach((r) => {
+      const t = r.tipoRecargo || r.tipoServicio || 'Otro';
+      tipoCounts[t] = (tipoCounts[t] || 0) + Math.max(1, r.personalIds?.length || 1);
+      const est = r.estado || 'Vigente';
+      estadoCounts[est] = (estadoCounts[est] || 0) + 1;
+    });
+
+    const chartTipos = renderHorizontalBarChartPng(
+      Object.entries(tipoCounts).map(([label, value]) => ({ label, value })),
+      { width: 560, height: 245 }
+    );
+    const chartEstados = renderDonutChartPng(
+      Object.entries(estadoCounts).map(([label, value]) => ({
+        label,
+        value,
+        color: label === 'Vigente' ? '#0f766e' : label === 'Finalizado' ? '#1d4ed8' : '#d97706',
+      })),
+      { width: 560, height: 245, centerLabel: 'RECARGOS' }
+    );
+
+    currentY = drawChartSectionGrid(
+      doc,
+      currentY,
+      [
+        { title: 'Efectivos por Tipo de Recargo', subtitle: 'Distribución de asignaciones operativas', imageDataUrl: chartTipos },
+        { title: 'Estado de los Servicios', subtitle: 'Vigentes, finalizados y suspendidos', imageDataUrl: chartEstados },
+      ],
       10
     );
 
@@ -1217,13 +1353,13 @@ export function generarPdfPlanillaRecargos(
       const p = personalMap.get(pid);
       tableRows.push([
         index++,
-        rec.fecha,
+        rec.fecha || rec.fechaServicio || '---',
         p ? `${p.jerarquia} ${p.apellidoYNombre}` : 'No encontrado',
         p ? p.dni : '---',
         p ? p.plaza : '---',
-        rec.tipoRecargo,
-        rec.lugarCobertura,
-        `${rec.horaDesde} a ${rec.horaHasta} (${rec.horasCalculadas} hs)`,
+        rec.tipoRecargo || rec.tipoServicio || '---',
+        rec.lugarCobertura || rec.lugar || '---',
+        `${rec.horaDesde || rec.horaInicio || '--:--'} a ${rec.horaHasta || rec.horaFin || '--:--'} (${rec.horasCalculadas || 0} hs)`,
         rec.seEncuentraDeGuardia ? 'SÍ' : 'NO',
         rec.estado,
         '____________________', // Espacio para firma
@@ -1286,7 +1422,7 @@ export function generarPdfLegajoPersonal(
     let currentY = drawPoliceHeader(
       doc,
       config,
-      `LEGAJO POLICIAL INDIVIDUAL - ${personal.jerarquia.toUpperCase()} ${personal.apellidoYNombre.toUpperCase()}`,
+      `LEGAJO POLICIAL INDIVIDUAL - ${(personal.jerarquia || '').toUpperCase()} ${(personal.apellidoYNombre || '').toUpperCase()}`,
       12
     );
 
@@ -1395,15 +1531,15 @@ export function generarPdfLegajoPersonal(
   drawRightSignatureBlock(
     doc,
     finalY,
-    `${personal.jerarquia.toUpperCase()} ${personal.apellidoYNombre.toUpperCase()}`,
-    `D.N.I. N° ${personal.dni} - Firma del Efectivo`
+    `${(personal.jerarquia || '').toUpperCase()} ${(personal.apellidoYNombre || '').toUpperCase()}`,
+    `D.N.I. N° ${personal.dni || 'S/D'} - Firma del Efectivo`
   );
 
   drawPoliceFooter(doc, config);
   return doc;
   };
 
-  const fileName = `Legajo_${personal.dni}_${personal.apellidoYNombre.replace(/\s+/g, '_')}.pdf`;
+  const fileName = `Legajo_${personal.dni || 'SD'}_${(personal.apellidoYNombre || 'Personal').replace(/\s+/g, '_')}.pdf`;
   if (pdfOptions) {
     buildDoc(pdfOptions).save(fileName);
     return;
@@ -1433,6 +1569,13 @@ export function generarPdfReporteEjecutivo(
     periodoNombre: string;
     tareasDistribucion: { name: string; count: number }[];
     dependenciasDistribucion: { name: string; count: number }[];
+    mensualData?: Array<{ mes: string; expedientes: number; intervenciones?: number; io?: number }>;
+    intervencionesTotal?: number;
+    ioTotal?: number;
+    foliosTotal?: number;
+    memosTotal?: number;
+    recargosTotal?: number;
+    licenciasVigentes?: number;
   },
   config: ConfiguracionSistema,
   pdfOptions?: PdfExportOptions
@@ -1442,22 +1585,123 @@ export function generarPdfReporteEjecutivo(
     let currentY = drawPoliceHeader(
       doc,
       config,
-      `REPORTE OFICIAL RÁPIDO DE GESTIÓN POLICIAL - ${stats.periodoNombre.toUpperCase()}`,
-      12
+      `REPORTE OFICIAL EJECUTIVO DE GESTIÓN Y ESTADÍSTICAS - ${(stats.periodoNombre || 'PERÍODO').toUpperCase()}`,
+      10
     );
+
+    currentY = drawExecutiveKpiStrip(
+      doc,
+      currentY,
+      [
+        {
+          label: 'Personal Activo',
+          value: stats.totalPersonalActivo,
+          subtitle: `En licencia: ${stats.personalLicencia}`,
+          accentColor: [17, 38, 77],
+        },
+        {
+          label: 'Expedientes Período',
+          value: stats.expedientesPeriodo,
+          subtitle: `Falta Oficio: ${stats.faltaOficio} · PPI: ${stats.ppiCount}`,
+          accentColor: [29, 78, 216],
+        },
+        {
+          label: 'Móviles Operativos',
+          value: `${stats.movilesOperativos}/${stats.movilesOperativos + stats.movilesTaller}`,
+          subtitle: `En taller / F.S.: ${stats.movilesTaller}`,
+          accentColor: [15, 118, 110],
+        },
+        {
+          label: 'Resguardo Evidencia',
+          value: stats.resguardoTotalPersonas,
+          subtitle: 'Personas vinculadas (regla oficial)',
+          accentColor: [217, 119, 6],
+        },
+      ],
+      14
+    );
+
+    const chartLeftImg =
+      stats.mensualData && stats.mensualData.length > 0
+        ? renderGroupedBarChartPng(
+            stats.mensualData.map((m) => ({
+              label: m.mes,
+              values: [
+                { name: 'Expedientes', value: m.expedientes, color: '#11264d' },
+                { name: 'Intervenciones', value: m.intervenciones ?? 0, color: '#0284c7' },
+                { name: 'I.O.', value: m.io ?? 0, color: '#0f766e' },
+              ],
+            })),
+            [
+              { name: 'Expedientes', color: '#11264d' },
+              { name: 'Intervenciones', color: '#0284c7' },
+              { name: 'I.O.', color: '#0f766e' },
+            ],
+            { width: 560, height: 245 }
+          )
+        : renderHorizontalBarChartPng(
+            stats.tareasDistribucion.map((t) => ({ label: t.name, value: t.count })),
+            { width: 560, height: 245 }
+          );
+
+    const chartRightImg = renderDonutChartPng(
+      stats.dependenciasDistribucion.map((d) => ({ label: d.name, value: d.count })),
+      { width: 560, height: 245, centerLabel: 'REQUERIMIENTOS' }
+    );
+
+    currentY = drawChartSectionGrid(
+      doc,
+      currentY,
+      [
+        {
+          title:
+            stats.mensualData && stats.mensualData.length > 0
+              ? 'Evolución Mensual de Actuaciones'
+              : 'Distribución por Tarea Operativa',
+          subtitle: 'Comparativa integral del período seleccionado',
+          imageDataUrl: chartLeftImg,
+        },
+        {
+          title: 'Dependencias Solicitantes',
+          subtitle: 'Participación proporcional por origen',
+          imageDataUrl: chartRightImg,
+        },
+      ],
+      14
+    );
+
+  const kpiBody: any[] = [
+    ['Total Personal de Planta Activo', `${stats.totalPersonalActivo} efectivos`],
+    ['Personal en Uso de Licencia (Médica / Anual)', `${stats.personalLicencia} efectivos`],
+    ['Expedientes Judiciales Tramitados en Período', `${stats.expedientesPeriodo} causas`],
+    ['Intervenciones Urgentes sin Oficio Formal (Falta de Oficio)', `${stats.faltaOficio} casos`],
+    ['Causas Judiciales con Personal Policial Involucrado (PPI)', `${stats.ppiCount} causas`],
+    ['Parque Automotor Operativo vs Taller', `${stats.movilesOperativos} operativos / ${stats.movilesTaller} en taller`],
+    ['Total Personas en Resguardo de Evidencia (Regla de Conteo)', `${stats.resguardoTotalPersonas} personas vinculadas`],
+  ];
+  if (typeof stats.intervencionesTotal === 'number') {
+    kpiBody.push(['Intervenciones Periciales / de Guardia', `${stats.intervencionesTotal} actuaciones`]);
+  }
+  if (typeof stats.ioTotal === 'number') {
+    kpiBody.push(['Inspecciones Oculares (I.O.)', `${stats.ioTotal} actas relevadas`]);
+  }
+  if (typeof stats.recargosTotal === 'number') {
+    kpiBody.push(['Recargos de Servicio Registrados', `${stats.recargosTotal} órdenes`]);
+  }
+  if (typeof stats.foliosTotal === 'number' || typeof stats.memosTotal === 'number') {
+    kpiBody.push([
+      'Numerario y Despacho Administrativo',
+      `${stats.foliosTotal ?? 0} folios asignados · ${stats.memosTotal ?? 0} memos/notas visibles`,
+    ]);
+  }
+  if (typeof stats.licenciasVigentes === 'number') {
+    kpiBody.push(['Licencias Policiales Registradas', `${stats.licenciasVigentes} trámites`]);
+  }
 
   autoTable(doc, {
     startY: currentY,
     head: [[{ content: 'INDICADORES CLAVE DE RENDIMIENTO OPERATIVO (KPIS)', colSpan: 2, styles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' } }]],
-    body: [
-      ['Total Personal de Planta Activo', `${stats.totalPersonalActivo} efectivos`],
-      ['Personal en Uso de Licencia (Médica / Anual)', `${stats.personalLicencia} efectivos`],
-      ['Expedientes Judiciales Tramitados en Período', `${stats.expedientesPeriodo} causas`],
-      ['Intervenciones Urgentes sin Oficio Formal (Falta de Oficio)', `${stats.faltaOficio} casos`],
-      ['Causas Judiciales con Personal Policial Involucrado (PPI)', `${stats.ppiCount} causas`],
-      ['Parque Automotor Operativo vs Taller', `${stats.movilesOperativos} operativos / ${stats.movilesTaller} en taller`],
-      ['Total Personas en Resguardo de Evidencia (Regla de Conteo)', `${stats.resguardoTotalPersonas} personas vinculadas`],
-    ],
+    body: kpiBody,
     theme: 'grid',
     styles: { fontSize: 8.5, cellPadding: 2, lineColor: POLICE_BORDER, lineWidth: 0.2 },
     headStyles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255] },
@@ -1631,6 +1875,7 @@ export function generarPdfReporteInspeccionesOcularesPorTipo(
   // Estadísticas agrupadas por Tipo
   const porTipo: Record<string, { count: number; fotos: number }> = {};
   let totalFotos = 0;
+  let fotosConfirmadas = 0;
 
   inspecciones.forEach((io) => {
     const t = io.tipo || 'Otras';
@@ -1640,7 +1885,38 @@ export function generarPdfReporteInspeccionesOcularesPorTipo(
     porTipo[t].count += 1;
     porTipo[t].fotos += io.cantidadFotografias || 0;
     totalFotos += io.cantidadFotografias || 0;
+    if (io.fotosConfirmadas || io.fotosConformeFotografo) fotosConfirmadas += 1;
   });
+
+  currentY = drawExecutiveKpiStrip(
+    doc,
+    currentY,
+    [
+      { label: 'Total Actas I.O.', value: inspecciones.length, subtitle: 'Relevamientos registrados', accentColor: [17, 38, 77] },
+      { label: 'Tomas Fotográficas', value: totalFotos, subtitle: 'Evidencia visual capturada', accentColor: [29, 78, 216] },
+      { label: 'Promedio Fotos/Acta', value: inspecciones.length > 0 ? Math.round((totalFotos / inspecciones.length) * 10) / 10 : 0, subtitle: 'Cobertura pericial', accentColor: [2, 132, 199] },
+      { label: 'Fotos Confirmadas', value: `${fotosConfirmadas}/${inspecciones.length}`, subtitle: 'Control de conformidad', accentColor: [15, 118, 110] },
+    ],
+    14
+  );
+
+  const chartIoTipos = renderDonutChartPng(
+    Object.entries(porTipo).map(([label, d]) => ({ label, value: d.count })),
+    { width: 560, height: 245, centerLabel: 'ACTAS I.O.' }
+  );
+  const chartIoFotos = renderBarChartPng(
+    Object.entries(porTipo).map(([label, d]) => ({ label, value: d.fotos })),
+    { width: 560, height: 245, barColor: '#1d4ed8' }
+  );
+  currentY = drawChartSectionGrid(
+    doc,
+    currentY,
+    [
+      { title: 'Inspecciones por Tipo Pericial', subtitle: 'Participación porcentual de actas', imageDataUrl: chartIoTipos },
+      { title: 'Volumen de Fotografías por Tipo', subtitle: 'Total de tomas fotográficas relevadas', imageDataUrl: chartIoFotos },
+    ],
+    14
+  );
 
   const resumenFilas = Object.entries(porTipo).map(([tipo, data]) => [
     tipo,
@@ -1996,6 +2272,50 @@ export function generarPdfReporteAccidentologia(
       10
     );
 
+    const totalReg = registros.length;
+    const conCasco = registros.filter((r) => (r.cascoPolicial || '').toLowerCase().includes('colocado') && !(r.cascoPolicial || '').toLowerCase().includes('no')).length;
+    const pendientesDatos = registros.filter((r) => r.faltaDatos || (r.tipoLesiones || '').toLowerCase().includes('determinar')).length;
+    const positivosAlc = registros.filter((r) => (r.alcohotest || '').toLowerCase().includes('positivo')).length;
+
+    currentY = drawExecutiveKpiStrip(
+      doc,
+      currentY,
+      [
+        { label: 'Total Siniestros', value: totalReg, subtitle: 'Registros consolidados', accentColor: [17, 38, 77] },
+        { label: 'Con Casco Colocado', value: conCasco, subtitle: `${totalReg > 0 ? Math.round((conCasco / totalReg) * 100) : 0}% del total`, accentColor: [15, 118, 110] },
+        { label: 'Datos Pendientes', value: pendientesDatos, subtitle: 'Lesiones/Alcohotest a completar', accentColor: [217, 119, 6] },
+        { label: 'Alcohotest Positivo', value: positivosAlc, subtitle: 'Detecciones registradas', accentColor: [220, 38, 38] },
+      ],
+      10
+    );
+
+    const siniestroCounts: Record<string, number> = {};
+    const lesionCounts: Record<string, number> = {};
+    registros.forEach((r) => {
+      const ts = r.tipoSiniestro || 'Otro';
+      siniestroCounts[ts] = (siniestroCounts[ts] || 0) + 1;
+      const tl = r.tipoLesiones || 'A Determinar';
+      lesionCounts[tl] = (lesionCounts[tl] || 0) + 1;
+    });
+
+    const chartSiniestros = renderHorizontalBarChartPng(
+      Object.entries(siniestroCounts).map(([label, value]) => ({ label, value })),
+      { width: 560, height: 245 }
+    );
+    const chartLesiones = renderDonutChartPng(
+      Object.entries(lesionCounts).map(([label, value]) => ({ label, value })),
+      { width: 560, height: 245, centerLabel: 'LESIONES' }
+    );
+    currentY = drawChartSectionGrid(
+      doc,
+      currentY,
+      [
+        { title: 'Tipología de Siniestros Viales', subtitle: 'Frecuencia por mecánica del hecho', imageDataUrl: chartSiniestros },
+        { title: 'Clasificación de Lesiones', subtitle: 'Severidad médica registrada', imageDataUrl: chartLesiones },
+      ],
+      10
+    );
+
   const filas = registros.map((r, idx) => [
     idx + 1,
     r.codigo,
@@ -2073,7 +2393,7 @@ export function generarPdfConstanciaLicencia(
     let currentY = drawPoliceHeader(
       doc,
       config,
-      `CONSTANCIA OFICIAL DE LICENCIA POLICIAL - TIPO ${licencia.tipoLicencia.toUpperCase()}`,
+      `CONSTANCIA OFICIAL DE LICENCIA POLICIAL - TIPO ${(licencia.tipoLicencia || 'GENERAL').toUpperCase()}`,
       12
     );
 
@@ -2275,6 +2595,54 @@ export function generarPdfReporteLicencias(
       10
     );
 
+    const totalLic = licencias.length;
+    const interrumpidasCount = licencias.filter((l) => l.fueInterrumpida).length;
+    const diasOtorgados = licencias.reduce((acc, l) => acc + (l.diasHabilesSolicitados || 0) + (l.diasViajeArt11 || 0), 0);
+    const totalDispGlobal = resumenSaldos.reduce((acc, s) => acc + (s.totalDisponibles || 0), 0);
+
+    currentY = drawExecutiveKpiStrip(
+      doc,
+      currentY,
+      [
+        { label: 'Licencias Registradas', value: totalLic, subtitle: 'Trámites en período', accentColor: [17, 38, 77] },
+        { label: 'Días Otorgados', value: diasOtorgados, subtitle: 'Incluye traslado Art. 11', accentColor: [29, 78, 216] },
+        { label: 'Interrumpidas Art. 15', value: interrumpidasCount, subtitle: 'Por razones de servicio', accentColor: [220, 38, 38] },
+        { label: 'Saldo Global Disp.', value: `${totalDispGlobal} d.`, subtitle: `${resumenSaldos.length} efectivos evaluados`, accentColor: [15, 118, 110] },
+      ],
+      10
+    );
+
+    const licTipoCounts: Record<string, number> = {};
+    licencias.forEach((l) => {
+      const k = l.tipoLicencia || 'Otra';
+      licTipoCounts[k] = (licTipoCounts[k] || 0) + 1;
+    });
+    const topSaldos = [...resumenSaldos]
+      .sort((a, b) => b.totalDisponibles - a.totalDisponibles)
+      .slice(0, 8)
+      .map((s) => ({ label: s.apellidoYNombre, value: s.totalDisponibles }));
+
+    const chartLicTipos = renderDonutChartPng(
+      Object.entries(licTipoCounts).map(([label, value]) => ({ label, value })),
+      { width: 560, height: 245, centerLabel: 'LICENCIAS' }
+    );
+    const chartSaldos = renderHorizontalBarChartPng(topSaldos, {
+      width: 560,
+      height: 245,
+      barColor: '#0f766e',
+      emptyMessage: 'Sin saldos calculados',
+    });
+
+    currentY = drawChartSectionGrid(
+      doc,
+      currentY,
+      [
+        { title: 'Distribución por Tipo de Licencia', subtitle: 'Anual, Invernal, Extraordinarias y Excepcionales', imageDataUrl: chartLicTipos },
+        { title: 'Mayor Saldo Disponible (Días)', subtitle: 'Ranking de días acumulados pendientes de goce', imageDataUrl: chartSaldos },
+      ],
+      10
+    );
+
     autoTable(doc, {
       startY: currentY,
       head: [
@@ -2345,4 +2713,373 @@ export function generarPdfReporteLicencias(
     buildDoc,
   });
 }
+
+/**
+ * 13. REPORTE ESTADÍSTICO DE INTERVENCIONES PERICIALES (GUARDIA / LC / VIAL)
+ */
+export function generarPdfReporteIntervenciones(
+  intervenciones: IntervencionParte[],
+  config: ConfiguracionSistema,
+  tituloExtra?: string,
+  pdfOptions?: PdfExportOptions
+) {
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      `REPORTE ESTADÍSTICO DE INTERVENCIONES PERICIALES${tituloExtra ? ` - ${tituloExtra.toUpperCase()}` : ''}`,
+      10
+    );
+
+    const total = intervenciones.length;
+    const crim = intervenciones.filter((i) => i.tipoIntervencion === 'Criminalística').length;
+    const acc = intervenciones.filter((i) => i.tipoIntervencion === 'Accidentológica').length;
+    const aDeterminar = intervenciones.filter(
+      (i) =>
+        i.tipoLesionesLC === 'A Determinar' ||
+        (i.involucrados || []).some((inv) => inv.tipoLesion === 'A Determinar')
+    ).length;
+
+    currentY = drawExecutiveKpiStrip(
+      doc,
+      currentY,
+      [
+        { label: 'Total Intervenciones', value: total, subtitle: 'Actuaciones relevadas', accentColor: [17, 38, 77] },
+        { label: 'Criminalística (LC)', value: crim, subtitle: `${total > 0 ? Math.round((crim / total) * 100) : 0}% del total`, accentColor: [29, 78, 216] },
+        { label: 'Accidentológica Vial', value: acc, subtitle: `${total > 0 ? Math.round((acc / total) * 100) : 0}% del total`, accentColor: [15, 118, 110] },
+        { label: 'Lesiones A Determinar', value: aDeterminar, subtitle: 'Pendientes de clasificación', accentColor: [217, 119, 6] },
+      ],
+      10
+    );
+
+    const hechoCounts: Record<string, number> = {};
+    intervenciones.forEach((i) => {
+      const h = (i.hecho || 'Sin especificar').slice(0, 32);
+      hechoCounts[h] = (hechoCounts[h] || 0) + 1;
+    });
+
+    const chartTipos = renderDonutChartPng(
+      [
+        { label: 'Criminalística', value: crim, color: '#1d4ed8' },
+        { label: 'Accidentológica', value: acc, color: '#0f766e' },
+      ],
+      { width: 560, height: 245, centerLabel: 'ACTUACIONES' }
+    );
+    const chartHechos = renderHorizontalBarChartPng(
+      Object.entries(hechoCounts).map(([label, value]) => ({ label, value })),
+      { width: 560, height: 245 }
+    );
+
+    currentY = drawChartSectionGrid(
+      doc,
+      currentY,
+      [
+        { title: 'Distribución por Área Pericial', subtitle: 'Criminalística vs Accidentología Vial', imageDataUrl: chartTipos },
+        { title: 'Principales Hechos Atendidos', subtitle: 'Frecuencia por tipología', imageDataUrl: chartHechos },
+      ],
+      10
+    );
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [[
+        'N°',
+        'Código',
+        'Tipo',
+        'Fecha / Hora',
+        'Hecho',
+        'Lugar',
+        'Dependencia',
+        'Involucrados / Lesiones',
+      ]],
+      body: intervenciones.length > 0
+        ? intervenciones.map((i, idx) => {
+            const hasPend =
+              i.tipoLesionesLC === 'A Determinar' ||
+              (i.involucrados || []).some((inv) => inv.tipoLesion === 'A Determinar');
+            return [
+              idx + 1,
+              i.codigoIntervencion || `N° ${i.nroCorrelativo}`,
+              i.tipoIntervencion,
+              `${i.inspeccionFecha || '---'}\n${i.inspeccionHora || ''}`,
+              i.hecho || '---',
+              i.inspeccionLugar || i.direccion || '---',
+              i.dependencia || '---',
+              `${(i.involucrados || []).length} pers.${hasPend ? ' [A DETERMINAR]' : ''}`,
+            ];
+          })
+        : [['---', 'Sin intervenciones registradas', '', '', '', '', '', '']],
+      theme: 'grid',
+      styles: { fontSize: 7.3, cellPadding: 1.7, lineColor: POLICE_BORDER, lineWidth: 0.15 },
+      headStyles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' },
+      margin: { left: 10, right: 10 },
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    drawRightSignatureBlock(doc, finalY, 'OFICIAL DE SERVICIO / GUARDIA');
+    drawPoliceFooter(doc, config);
+    return doc;
+  };
+
+  const fileName = `Reporte_Intervenciones_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: 'Reporte Estadístico de Intervenciones',
+    fileName,
+    defaultOrientation: 'landscape',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
+}
+
+/**
+ * 14. REPORTE ESTADÍSTICO DE INFORMES TÉCNICOS PERICIALES
+ */
+export function generarPdfReporteInformesTecnicos(
+  informes: InformeTecnico[],
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
+) {
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      'REPORTE ESTADÍSTICO DE INFORMES TÉCNICOS PERICIALES',
+      10
+    );
+
+    const total = informes.length;
+    const confeccion = informes.filter((i) => i.estado === 'En Confección').length;
+    const elevados = informes.filter((i) => i.estado === 'Elevado').length;
+    const recepcionados = informes.filter((i) => i.estado === 'Recepcionado').length;
+
+    currentY = drawExecutiveKpiStrip(
+      doc,
+      currentY,
+      [
+        { label: 'Total Informes', value: total, subtitle: 'Expedientes periciales', accentColor: [17, 38, 77] },
+        { label: 'En Confección', value: confeccion, subtitle: 'Pendientes de elevación', accentColor: [217, 119, 6] },
+        { label: 'Elevados', value: elevados, subtitle: 'Remitidos a destino', accentColor: [29, 78, 216] },
+        { label: 'Recepcionados', value: recepcionados, subtitle: 'Con constancia de entrega', accentColor: [15, 118, 110] },
+      ],
+      10
+    );
+
+    const tipoCounts: Record<string, number> = {};
+    informes.forEach((inf) => {
+      const t = inf.tipoExpediente || 'Otro';
+      tipoCounts[t] = (tipoCounts[t] || 0) + 1;
+    });
+
+    const chartEstado = renderDonutChartPng(
+      [
+        { label: 'En Confección', value: confeccion, color: '#d97706' },
+        { label: 'Elevado', value: elevados, color: '#1d4ed8' },
+        { label: 'Recepcionado', value: recepcionados, color: '#0f766e' },
+      ],
+      { width: 560, height: 245, centerLabel: 'INFORMES' }
+    );
+    const chartTipo = renderHorizontalBarChartPng(
+      Object.entries(tipoCounts).map(([label, value]) => ({ label, value })),
+      { width: 560, height: 245 }
+    );
+
+    currentY = drawChartSectionGrid(
+      doc,
+      currentY,
+      [
+        { title: 'Estado de Tramitación', subtitle: 'Confección, Elevación y Recepción', imageDataUrl: chartEstado },
+        { title: 'Por Tipo de Expediente', subtitle: 'IPP, Causa Penal y Sumarios', imageDataUrl: chartTipo },
+      ],
+      10
+    );
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [[
+        'N°',
+        'Fecha',
+        'Oficio N°',
+        'Expediente',
+        'Carátula',
+        'Juzgado / Fiscalía',
+        'Licenciado a Cargo',
+        'Estado',
+      ]],
+      body: informes.length > 0
+        ? informes.map((inf, idx) => [
+            idx + 1,
+            inf.fecha || '---',
+            inf.oficioNro || '---',
+            `${inf.tipoExpediente || ''} ${inf.nroExpediente || ''}/${inf.anio || ''}`,
+            inf.caratula || '---',
+            inf.juzgado || '---',
+            inf.licenciadoACargoNombre || '---',
+            inf.estado,
+          ])
+        : [['---', 'Sin informes técnicos registrados', '', '', '', '', '', '']],
+      theme: 'grid',
+      styles: { fontSize: 7.3, cellPadding: 1.7, lineColor: POLICE_BORDER, lineWidth: 0.15 },
+      headStyles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' },
+      margin: { left: 10, right: 10 },
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    drawRightSignatureBlock(doc, finalY, 'JEFE DE DIVISIÓN / PERICIAL');
+    drawPoliceFooter(doc, config);
+    return doc;
+  };
+
+  const fileName = `Reporte_Informes_Tecnicos_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: 'Reporte Estadístico de Informes Técnicos',
+    fileName,
+    defaultOrientation: 'landscape',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
+}
+
+/**
+ * 15. REPORTE ESTADÍSTICO CONSOLIDADO DE PARTES DE GUARDIA
+ */
+export function generarPdfReporteGuardias(
+  partes: ParteNovedadesGuardia[],
+  config: ConfiguracionSistema,
+  pdfOptions?: PdfExportOptions
+) {
+  const buildDoc = ({ orientation, paperSize }: PdfExportOptions) => {
+    const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
+    let currentY = drawPoliceHeader(
+      doc,
+      config,
+      'REPORTE ESTADÍSTICO CONSOLIDADO DE PARTES DE NOVEDADES DE GUARDIA',
+      10
+    );
+
+    const totalPartes = partes.length;
+    const totalInterv = partes.reduce((acc, p) => acc + (p.intervenciones?.length || p.totalIntervenciones || 0), 0);
+    const totalCiber = partes.reduce((acc, p) => acc + (p.cibercrimenRegistros?.length || 0), 0);
+    const cerrados = partes.filter((p) => p.cerrado).length;
+
+    currentY = drawExecutiveKpiStrip(
+      doc,
+      currentY,
+      [
+        { label: 'Partes de Guardia', value: totalPartes, subtitle: `Cerrados: ${cerrados} · Abiertos: ${totalPartes - cerrados}`, accentColor: [17, 38, 77] },
+        { label: 'Intervenciones Totales', value: totalInterv, subtitle: 'Criminalística y Accidentología', accentColor: [29, 78, 216] },
+        { label: 'Cibercrimen en Guardia', value: totalCiber, subtitle: 'Resguardos y descargas', accentColor: [2, 132, 199] },
+        { label: 'Prom. Interv./Guardia', value: totalPartes > 0 ? Math.round((totalInterv / totalPartes) * 10) / 10 : 0, subtitle: 'Carga operativa media', accentColor: [15, 118, 110] },
+      ],
+      10
+    );
+
+    const porGrupo: Record<string, { lc: number; vial: number }> = {};
+    partes.forEach((p) => {
+      const g = p.grupoGuardia || 'Sin grupo';
+      if (!porGrupo[g]) porGrupo[g] = { lc: 0, vial: 0 };
+      (p.intervenciones || []).forEach((i) => {
+        if (i.tipoIntervencion === 'Accidentológica') porGrupo[g].vial += 1;
+        else porGrupo[g].lc += 1;
+      });
+    });
+
+    const totalLc = Object.values(porGrupo).reduce((acc, x) => acc + x.lc, 0);
+    const totalVial = Object.values(porGrupo).reduce((acc, x) => acc + x.vial, 0);
+
+    const chartGrupo = renderGroupedBarChartPng(
+      Object.entries(porGrupo).slice(0, 8).map(([label, v]) => ({
+        label,
+        values: [
+          { name: 'Criminalística', value: v.lc, color: '#1d4ed8' },
+          { name: 'Accidentológica', value: v.vial, color: '#0f766e' },
+        ],
+      })),
+      [
+        { name: 'Criminalística', color: '#1d4ed8' },
+        { name: 'Accidentológica', color: '#0f766e' },
+      ],
+      { width: 560, height: 245 }
+    );
+    const chartAreas = renderDonutChartPng(
+      [
+        { label: 'Criminalística (LC)', value: totalLc, color: '#1d4ed8' },
+        { label: 'Accidentológica Vial', value: totalVial, color: '#0f766e' },
+      ],
+      { width: 560, height: 245, centerLabel: 'INTERV.' }
+    );
+
+    currentY = drawChartSectionGrid(
+      doc,
+      currentY,
+      [
+        { title: 'Intervenciones por Grupo de Guardia', subtitle: 'Comparativa LC vs Accidentología', imageDataUrl: chartGrupo },
+        { title: 'Proporción Global de Actuaciones', subtitle: 'Distribución por especialidad', imageDataUrl: chartAreas },
+      ],
+      10
+    );
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [[
+        'N°',
+        'Grupo de Guardia',
+        'Período Inicio',
+        'Período Fin',
+        'Interv. (LC/Vial)',
+        'Cibercrimen',
+        'Móviles',
+        'Estado',
+      ]],
+      body: partes.length > 0
+        ? partes.map((p, idx) => {
+            const lc = (p.intervenciones || []).filter((i) => i.tipoIntervencion !== 'Accidentológica').length;
+            const vial = (p.intervenciones || []).filter((i) => i.tipoIntervencion === 'Accidentológica').length;
+            return [
+              idx + 1,
+              p.grupoGuardia,
+              `${p.fechaInicio} ${p.horaInicio}`,
+              `${p.fechaFin} ${p.horaFin}`,
+              `${(p.intervenciones || []).length} (${lc} LC / ${vial} Vial)`,
+              `${(p.cibercrimenRegistros || []).length}`,
+              `${(p.movilesAfectados || []).length}`,
+              p.cerrado ? 'Cerrado' : 'En Turno',
+            ];
+          })
+        : [['---', 'Sin partes de guardia registrados', '', '', '', '', '', '']],
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 1.8, lineColor: POLICE_BORDER, lineWidth: 0.15 },
+      headStyles: { fillColor: POLICE_NAVY, textColor: [255, 255, 255], fontStyle: 'bold' },
+      margin: { left: 10, right: 10 },
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    drawRightSignatureBlock(doc, finalY, 'OFICIAL DE SERVICIO / GUARDIA');
+    drawPoliceFooter(doc, config);
+    return doc;
+  };
+
+  const fileName = `Reporte_Consolidado_Guardias_${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (pdfOptions) {
+    buildDoc(pdfOptions).save(fileName);
+    return;
+  }
+  requestPdfExport({
+    title: 'Reporte Consolidado de Partes de Guardia',
+    fileName,
+    defaultOrientation: 'landscape',
+    defaultPaperSize: 'a4',
+    buildDoc,
+  });
+}
+
 

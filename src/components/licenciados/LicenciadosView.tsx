@@ -7,23 +7,24 @@ import {
   Edit2,
   Award,
   Search,
-  Filter,
   Download,
-  FileText,
   BadgeCheck,
   UserCheck,
-  Building,
-  CheckCircle2,
-  Sparkles,
-  BookOpen,
-  Calendar,
+  BarChart3,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ModuleStatsPanel, StatKpiItem, StatChartConfig } from '../common/ModuleStatsPanel';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderHorizontalBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface LicenciadosViewProps {
   personalList: Personal[];
@@ -61,6 +62,7 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
 
   // Modal confirmación para quitar condición de licenciado
   const [personalToUnlicense, setPersonalToUnlicense] = useState<Personal | null>(null);
+  const [showStats, setShowStats] = useState(false);
 
   // Lista de personal que YA son licenciados
   const licenciados = useMemo(() => {
@@ -100,16 +102,18 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
   // Filtrado de la lista
   const filteredLicenciados = useMemo(() => {
     return licenciados.filter((lic) => {
+      const term = searchTerm.toLowerCase();
       const matchSearch =
-        lic.apellidoYNombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        lic.jerarquia.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        lic.dni.includes(searchTerm) ||
+        !term ||
+        (lic.apellidoYNombre || '').toLowerCase().includes(term) ||
+        (lic.jerarquia || '').toLowerCase().includes(term) ||
+        (lic.dni || '').includes(searchTerm) ||
         (lic.plaza && lic.plaza.includes(searchTerm)) ||
         (lic.especialidadLicenciatura &&
-          lic.especialidadLicenciatura.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          lic.especialidadLicenciatura.toLowerCase().includes(term)) ||
         (lic.matriculaProfesional &&
-          lic.matriculaProfesional.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (lic.seccionGrupo && lic.seccionGrupo.toLowerCase().includes(searchTerm.toLowerCase()));
+          lic.matriculaProfesional.toLowerCase().includes(term)) ||
+        (lic.seccionGrupo && lic.seccionGrupo.toLowerCase().includes(term));
 
       const matchEsp =
         filtroEspecialidad === 'todas' ||
@@ -139,6 +143,58 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
     setFiltroSeccion('todas');
     setFiltroEstado('todos');
   };
+
+  const licenciadosStats = useMemo(() => {
+    const total = filteredLicenciados.length;
+    const matriculados = filteredLicenciados.filter((l) => Boolean(l.matriculaProfesional?.trim())).length;
+    const pctDotacion =
+      personalList.length > 0 ? Math.round((licenciados.length / personalList.length) * 100) : 0;
+
+    const espMap = new Map<string, number>();
+    const jerMap = new Map<string, number>();
+    filteredLicenciados.forEach((l) => {
+      const esp = l.especialidadLicenciatura?.trim() || 'Sin especificar';
+      espMap.set(esp, (espMap.get(esp) || 0) + 1);
+      const jer = l.jerarquia?.trim() || 'S/D';
+      jerMap.set(jer, (jerMap.get(jer) || 0) + 1);
+    });
+
+    const porEspecialidad = Array.from(espMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    const porJerarquia = Array.from(jerMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    const kpis: StatKpiItem[] = [
+      { label: 'Licenciados (Vista)', value: total, detail: `${licenciados.length} en total`, tone: 'navy' },
+      { label: '% Sobre Dotación', value: `${pctDotacion}%`, detail: `De ${personalList.length} efectivos`, tone: 'blue' },
+      { label: 'Con Matrícula', value: matriculados, detail: `${total - matriculados} en trámite`, tone: 'emerald' },
+      { label: 'Especialidades', value: porEspecialidad.length, detail: 'Títulos de grado', tone: 'slate' },
+    ];
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'lic-por-especialidad',
+        title: 'Distribución por Especialidad / Título',
+        subtitle: 'Cantidad de profesionales por área universitaria',
+        type: 'horizontal-bar',
+        data: porEspecialidad,
+        valueLabel: 'Profesionales',
+        primaryColor: '#1e3a8a',
+      },
+      {
+        id: 'lic-por-jerarquia',
+        title: 'Licenciados por Jerarquía',
+        subtitle: 'Composición jerárquica del cuerpo profesional',
+        type: 'donut',
+        data: porJerarquia,
+      },
+    ];
+
+    return { total, matriculados, pctDotacion, porEspecialidad, porJerarquia, kpis, charts };
+  }, [filteredLicenciados, licenciados.length, personalList.length]);
 
   // Abrir modal para agregar o editar
   const handleOpenModalNuevo = () => {
@@ -222,11 +278,47 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
           format: resolveJsPdfFormat(opts.paperSize),
         });
 
-        const startHeaderY = drawPoliceHeader(
+        let currentY = drawPoliceHeader(
           doc,
           config,
           'NÓMINA INSTITUCIONAL DE PERSONAL POLICIAL LICENCIADO Y PERITOS UNIVERSITARIOS',
           10
+        );
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY + 2,
+          [
+            { label: 'Personal Licenciado', value: licenciadosStats.total, subtitle: `De ${personalList.length} efectivos`, accentColor: [17, 38, 77] },
+            { label: '% Sobre Dotación', value: `${licenciadosStats.pctDotacion}%`, subtitle: 'Cobertura académica', accentColor: [29, 78, 216] },
+            { label: 'Matriculados', value: licenciadosStats.matriculados, subtitle: 'Matrícula profesional activa', accentColor: [15, 118, 110] },
+            { label: 'Especialidades', value: licenciadosStats.porEspecialidad.length, subtitle: 'Áreas universitarias', accentColor: [71, 85, 105] },
+          ],
+          14
+        );
+
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            {
+              title: 'Licenciados por Especialidad',
+              subtitle: 'Distribución por título universitario',
+              imageDataUrl: renderHorizontalBarChartPng(
+                licenciadosStats.porEspecialidad.map((d) => ({ label: d.name, value: d.value })),
+                { barColor: '#1e3a8a' }
+              ),
+            },
+            {
+              title: 'Distribución por Jerarquía',
+              subtitle: 'Personal con grado académico',
+              imageDataUrl: renderDonutChartPng(
+                licenciadosStats.porJerarquia.map((d) => ({ label: d.name, value: d.value })),
+                { centerLabel: 'PROF.' }
+              ),
+            },
+          ],
+          14
         );
 
         const headers = [
@@ -254,7 +346,7 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
         ]);
 
         autoTable(doc, {
-          startY: Math.max(startHeaderY + 4, 46),
+          startY: currentY + 2,
           head: headers,
           body: bodyData,
           theme: 'grid',
@@ -312,10 +404,23 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-center">
+          <div className="flex items-center gap-2 flex-wrap self-start sm:self-center">
+            <button
+              type="button"
+              onClick={() => setShowStats((prev) => !prev)}
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold rounded-xl whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
+                showStats
+                  ? 'bg-white text-slate-900 border-white'
+                  : 'bg-slate-800/80 hover:bg-slate-700 text-white border-slate-600'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>Estadísticas</span>
+            </button>
+
             <button
               onClick={handleExportPdf}
-              className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow-md transition-colors cursor-pointer border border-slate-600"
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow-md whitespace-nowrap shrink-0 transition-colors cursor-pointer border border-slate-600"
               title="Descargar listado oficial en PDF"
             >
               <Download className="w-4 h-4" />
@@ -324,7 +429,7 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
 
             <button
               onClick={handleOpenModalNuevo}
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-900/30 transition-all cursor-pointer border border-blue-400"
+              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-900/30 whitespace-nowrap shrink-0 transition-all cursor-pointer border border-blue-400"
             >
               <Plus className="w-4 h-4" />
               <span>+ Designar Personal Licenciado</span>
@@ -332,6 +437,18 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
           </div>
         </div>
       </div>
+
+      {showStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Personal Policial Licenciado"
+          subtitle="Distribución académica por título universitario, matrícula y jerarquía"
+          kpis={licenciadosStats.kpis}
+          charts={licenciadosStats.charts}
+          onExportPdf={handleExportPdf}
+          exportPdfLabel="Exportar Nómina Académica (PDF)"
+          onClose={() => setShowStats(false)}
+        />
+      )}
 
       {/* Tarjetas de Métricas */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

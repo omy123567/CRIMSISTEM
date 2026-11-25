@@ -9,19 +9,16 @@ import {
 import {
   ShieldAlert,
   Search,
-  Filter,
   Calendar,
   Download,
   RotateCcw,
   CheckCircle2,
-  AlertTriangle,
   Activity,
-  User,
   Building2,
-  Layers,
   Lock,
   Clock,
   Trash2,
+  BarChart3,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -29,6 +26,13 @@ import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ModuleStatsPanel, StatKpiItem, StatChartConfig } from '../common/ModuleStatsPanel';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderBarChartPng,
+  renderHorizontalBarChartPng,
+} from '../../utils/pdfChartUtils';
 import { fetchAuditFromServer, purgeAuditOnServer } from '../../services/apiService';
 
 interface AuditoriaViewProps {
@@ -55,6 +59,7 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
   const [isConfirmPurgeOpen, setIsConfirmPurgeOpen] = useState(false);
   const [retencionDias, setRetencionDias] = useState<number>(config.diasRetencionAuditoria || 90);
   const [purgeSuccessMsg, setPurgeSuccessMsg] = useState<string | null>(null);
+  const [showStats, setShowStats] = useState(false);
 
   // Verificar si es superusuario
   const esSuperusuario = currentUser.rol === 'superusuario';
@@ -151,7 +156,8 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
     return registros.filter((reg) => {
       const term = searchTerm.toLowerCase();
       const matchSearch =
-        reg.descripcion.toLowerCase().includes(term) ||
+        !term ||
+        (reg.descripcion || '').toLowerCase().includes(term) ||
         (reg.username && reg.username.toLowerCase().includes(term)) ||
         (reg.apellidoYNombre && reg.apellidoYNombre.toLowerCase().includes(term)) ||
         (reg.modulo && reg.modulo.toLowerCase().includes(term)) ||
@@ -213,6 +219,8 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
     let eliminaciones = 0;
     let reseteos = 0;
     let logins = 0;
+    const accionMap = new Map<string, number>();
+    const moduloMap = new Map<string, number>();
 
     filteredRegistros.forEach((r) => {
       if (r.accion === 'CREAR') creaciones++;
@@ -220,7 +228,46 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
       else if (r.accion === 'ELIMINAR') eliminaciones++;
       else if (r.accion === 'RESETEO_CONTADOR') reseteos++;
       else if (r.accion === 'LOGIN') logins++;
+
+      accionMap.set(r.accion || 'OTRO', (accionMap.get(r.accion || 'OTRO') || 0) + 1);
+      moduloMap.set(r.modulo || 'General', (moduloMap.get(r.modulo || 'General') || 0) + 1);
     });
+
+    const porAccion = Array.from(accionMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    const porModulo = Array.from(moduloMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    const panelKpis: StatKpiItem[] = [
+      { label: 'Total Eventos', value: filteredRegistros.length, detail: 'Registros trazables', tone: 'navy' },
+      { label: 'Creaciones', value: creaciones, detail: `${modificaciones} modificaciones`, tone: 'emerald' },
+      { label: 'Eliminaciones / Resets', value: eliminaciones + reseteos, detail: `${eliminaciones} elim. / ${reseteos} resets`, tone: 'rose' },
+      { label: 'Inicios de Sesión', value: logins, detail: `${porModulo.length} módulos auditados`, tone: 'blue' },
+    ];
+
+    const panelCharts: StatChartConfig[] = [
+      {
+        id: 'audit-por-accion',
+        title: 'Eventos por Tipo de Acción',
+        subtitle: 'Operaciones registradas en el período filtrado',
+        type: 'bar',
+        data: porAccion,
+        valueLabel: 'Eventos',
+        primaryColor: '#11264d',
+      },
+      {
+        id: 'audit-por-modulo',
+        title: 'Actividad por Módulo del Sistema',
+        subtitle: 'Módulos con mayor volumen de trazabilidad',
+        type: 'horizontal-bar',
+        data: porModulo,
+        valueLabel: 'Eventos',
+        primaryColor: '#1d4ed8',
+      },
+    ];
 
     return {
       total: filteredRegistros.length,
@@ -229,6 +276,10 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
       eliminaciones,
       reseteos,
       logins,
+      porAccion,
+      porModulo,
+      panelKpis,
+      panelCharts,
     };
   }, [filteredRegistros]);
 
@@ -251,11 +302,47 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
       defaultPaperSize: 'a4',
       buildDoc: (opts) => {
         const doc = new jsPDF(resolveJsPdfOrientation(opts.orientation), 'mm', resolveJsPdfFormat(opts.paperSize));
-        const currentY = drawPoliceHeader(
+        let currentY = drawPoliceHeader(
           doc,
           config,
           'REGISTRO OFICIAL DE AUDITORÍA Y TRAZABILIDAD DE ACCIONES DEL SISTEMA',
           10
+        );
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY + 2,
+          [
+            { label: 'Total Eventos', value: stats.total, subtitle: 'Registros filtrados', accentColor: [17, 38, 77] },
+            { label: 'Creaciones', value: stats.creaciones, subtitle: `${stats.modificaciones} modificaciones`, accentColor: [15, 118, 110] },
+            { label: 'Eliminaciones / Resets', value: stats.eliminaciones + stats.reseteos, subtitle: 'Eventos críticos', accentColor: [220, 38, 38] },
+            { label: 'Inicios de Sesión', value: stats.logins, subtitle: `${stats.porModulo.length} módulos`, accentColor: [29, 78, 216] },
+          ],
+          14
+        );
+
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            {
+              title: 'Eventos por Tipo de Acción',
+              subtitle: 'Distribución operativa de registros',
+              imageDataUrl: renderBarChartPng(
+                stats.porAccion.map((d) => ({ label: d.name, value: d.value })),
+                { barColor: '#11264d' }
+              ),
+            },
+            {
+              title: 'Actividad por Módulo',
+              subtitle: 'Principales módulos auditados',
+              imageDataUrl: renderHorizontalBarChartPng(
+                stats.porModulo.map((d) => ({ label: d.name, value: d.value })),
+                { barColor: '#1d4ed8' }
+              ),
+            },
+          ],
+          14
         );
 
         const rows = filteredRegistros.map((r, i) => {
@@ -277,7 +364,7 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
         });
 
         autoTable(doc, {
-          startY: currentY + 4,
+          startY: currentY + 2,
           head: [
             [
               'N°',
@@ -386,7 +473,20 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowStats((prev) => !prev)}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 border whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+              showStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Estadísticas</span>
+          </button>
+
           <button
             type="button"
             onClick={loadAuditoria}
@@ -399,7 +499,7 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
           <button
             type="button"
             onClick={handleExportPdf}
-            className="px-3.5 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            className="px-3.5 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-xs transition-colors cursor-pointer"
           >
             <Download className="w-4 h-4" />
             <span>Exportar Informe PDF</span>
@@ -417,6 +517,18 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({
           )}
         </div>
       </div>
+
+      {showStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Auditoría y Trazabilidad"
+          subtitle="Volumen de acciones por tipo y actividad registrada por módulo"
+          kpis={stats.panelKpis}
+          charts={stats.panelCharts}
+          onExportPdf={handleExportPdf}
+          exportPdfLabel="Exportar Informe + Gráficos (PDF)"
+          onClose={() => setShowStats(false)}
+        />
+      )}
 
       {/* Panel Exclusivo Superusuario: Política de Retención y Depuración de Auditoría */}
       {esSuperusuario && (

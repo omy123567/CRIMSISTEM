@@ -25,10 +25,23 @@ import {
   Eye,
   FileText,
   X,
+  BarChart3,
+  Download,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
+import { ModuleStatsPanel, StatKpiItem, StatChartConfig } from '../common/ModuleStatsPanel';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
+import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface NovedadesDelegacionesViewProps {
   novedadesList: AvisoNovedad[];
@@ -66,6 +79,7 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
   const [fechaDesde, setFechaDesde] = useState<string>('');
   const [fechaHasta, setFechaHasta] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [showStats, setShowStats] = useState(false);
 
   // Confirmación de eliminación
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string | null }>({
@@ -209,11 +223,161 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
     setFechaHasta('');
   };
 
+  const novedadesStats = useMemo(() => {
+    const total = filteredNovedades.length;
+    const urgentesAltas = filteredNovedades.filter(
+      (n) => n.prioridad === 'Urgente' || n.prioridad === 'Alta'
+    ).length;
+    const conAdjuntos = filteredNovedades.filter((n) => (n.adjuntos?.length || 0) > 0).length;
+    const traslados = filteredNovedades.filter((n) => n.tipo === 'traslado_personal').length;
+
+    const prioOrder: PrioridadNovedad[] = ['Urgente', 'Alta', 'Normal', 'Informativa'];
+    const porPrioridad = prioOrder
+      .map((p) => ({
+        name: p,
+        value: filteredNovedades.filter((n) => n.prioridad === p).length,
+      }))
+      .filter((d) => d.value > 0);
+
+    const origenMap = new Map<string, number>();
+    filteredNovedades.forEach((n) => {
+      const org = n.origenDelegacionNombre?.trim() || 'Delegación Central';
+      origenMap.set(org, (origenMap.get(org) || 0) + 1);
+    });
+    const porOrigen = Array.from(origenMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    const kpis: StatKpiItem[] = [
+      { label: 'Avisos (Vista)', value: total, detail: `${novedadesList.length} totales`, tone: 'navy' },
+      { label: 'Urgentes / Alta', value: urgentesAltas, detail: 'Prioridad elevada', tone: 'rose' },
+      { label: 'Con Adjuntos', value: conAdjuntos, detail: 'Documentos o imágenes', tone: 'blue' },
+      { label: 'Traslados Personal', value: traslados, detail: 'Notificaciones de pase', tone: 'emerald' },
+    ];
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'novedades-prioridad',
+        title: 'Avisos por Nivel de Prioridad',
+        subtitle: 'Clasificación operativa de comunicados',
+        type: 'donut',
+        data: porPrioridad,
+      },
+      {
+        id: 'novedades-origen',
+        title: 'Emisiones por Delegación de Origen',
+        subtitle: 'Actividad de comunicación inter-delegaciones',
+        type: 'bar',
+        data: porOrigen,
+        valueLabel: 'Avisos',
+        primaryColor: '#11264d',
+      },
+    ];
+
+    return { total, urgentesAltas, conAdjuntos, traslados, porPrioridad, porOrigen, kpis, charts };
+  }, [filteredNovedades, novedadesList.length]);
+
+  const handleExportPdf = () => {
+    const fileName = `Novedades_Delegaciones_${new Date().toISOString().slice(0, 10)}.pdf`;
+    requestPdfExport({
+      title: 'Registro Oficial de Novedades Inter-Delegaciones',
+      fileName,
+      defaultOrientation: 'landscape',
+      defaultPaperSize: 'a4',
+      buildDoc: (opts) => {
+        const doc = new jsPDF({
+          orientation: resolveJsPdfOrientation(opts.orientation),
+          unit: 'mm',
+          format: resolveJsPdfFormat(opts.paperSize),
+        });
+
+        let currentY = drawPoliceHeader(
+          doc,
+          config,
+          'REGISTRO OFICIAL DE NOVEDADES Y COMUNICACIONES INTER-DELEGACIONES',
+          10
+        );
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY + 2,
+          [
+            { label: 'Total Avisos', value: novedadesStats.total, subtitle: 'Comunicados en vista', accentColor: [17, 38, 77] },
+            { label: 'Urgentes / Alta', value: novedadesStats.urgentesAltas, subtitle: 'Atención prioritaria', accentColor: [220, 38, 38] },
+            { label: 'Con Adjuntos', value: novedadesStats.conAdjuntos, subtitle: 'Documentación anexa', accentColor: [29, 78, 216] },
+            { label: 'Traslados', value: novedadesStats.traslados, subtitle: 'Avisos de pase', accentColor: [15, 118, 110] },
+          ],
+          14
+        );
+
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            {
+              title: 'Distribución por Prioridad',
+              subtitle: 'Urgente, Alta, Normal e Informativa',
+              imageDataUrl: renderDonutChartPng(
+                novedadesStats.porPrioridad.map((d) => ({ label: d.name, value: d.value })),
+                { centerLabel: 'AVISOS' }
+              ),
+            },
+            {
+              title: 'Comunicados por Delegación Emisora',
+              subtitle: 'Volumen emitido por dependencia',
+              imageDataUrl: renderBarChartPng(
+                novedadesStats.porOrigen.map((d) => ({ label: d.name, value: d.value })),
+                { barColor: '#11264d' }
+              ),
+            },
+          ],
+          14
+        );
+
+        const rows = filteredNovedades.map((n, idx) => [
+          idx + 1,
+          new Date(n.fechaHora || n.createdAt || Date.now()).toLocaleString('es-AR', {
+            dateStyle: 'short',
+            timeStyle: 'short',
+          }),
+          n.prioridad,
+          n.origenDelegacionNombre || 'Central',
+          n.destinoDelegacionNombre || n.destinatarioDelegacionNombre || 'Todas',
+          n.emisorNombre || n.remitenteUsuarioNombre || n.usuarioEmisorNombre || 'Sistema',
+          n.mensaje,
+        ]);
+
+        autoTable(doc, {
+          startY: currentY + 2,
+          head: [['N°', 'Fecha / Hora', 'Prioridad', 'Origen', 'Destino', 'Emisor', 'Mensaje / Directiva']],
+          body: rows.length > 0 ? rows : [['-', '-', '-', '-', '-', '-', 'Sin comunicaciones registradas']],
+          theme: 'grid',
+          styles: { fontSize: 7.5, cellPadding: 2, overflow: 'linebreak' },
+          headStyles: { fillColor: [17, 38, 77], textColor: 255, fontStyle: 'bold', halign: 'center' },
+          columnStyles: {
+            0: { cellWidth: 9, halign: 'center' },
+            1: { cellWidth: 28, halign: 'center' },
+            2: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
+            3: { cellWidth: 34 },
+            4: { cellWidth: 34 },
+            5: { cellWidth: 34 },
+            6: { cellWidth: 'auto' },
+          },
+          didDrawPage: () => {
+            drawPoliceFooter(doc, config);
+          },
+        });
+
+        return doc;
+      },
+    });
+  };
+
   const getPrioridadBadge = (prio: PrioridadNovedad) => {
     switch (prio) {
       case 'Urgente':
         return {
-          bg: 'bg-red-600 text-white border-red-700 animate-pulse',
+          bg: 'bg-red-600 text-white border-red-700',
           icon: Flame,
           label: 'Urgente',
         };
@@ -249,7 +413,7 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
               <Bell className="w-5 h-5 text-blue-900" />
               <span>Novedades y Comunicaciones Inter-Delegaciones</span>
             </h1>
-            <span className="bg-blue-100 text-blue-900 text-xs px-2.5 py-0.5 rounded-full font-bold">
+            <span className="bg-blue-100 text-blue-900 text-xs px-2.5 py-0.5 rounded-full font-bold font-mono tabular-nums">
               {novedadesList.length} avisos
             </span>
           </div>
@@ -257,7 +421,43 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
             Módulo oficial para emisión de avisos y directivas operativas entre delegaciones policiales y recepción de notificaciones de traslados de personal.
           </p>
         </div>
+
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowStats((prev) => !prev)}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 border whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+              showStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Estadísticas</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            className="px-3.5 py-2 bg-slate-900 hover:bg-blue-950 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            <span>Exportar PDF</span>
+          </button>
+        </div>
       </div>
+
+      {showStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Novedades Inter-Delegaciones"
+          subtitle="Distribución por nivel de prioridad y actividad por delegación emisora"
+          kpis={novedadesStats.kpis}
+          charts={novedadesStats.charts}
+          onExportPdf={handleExportPdf}
+          exportPdfLabel="Exportar Novedades + Gráficos (PDF)"
+          onClose={() => setShowStats(false)}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Formulario de Emisión (Requerimiento exacto: Mensaje, Dirigido a, Prioridad) */}

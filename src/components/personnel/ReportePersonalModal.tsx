@@ -6,6 +6,13 @@ import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { PdfPaperSize } from '../../types/police';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  drawReportFilterBanner,
+  renderHorizontalBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface ReportePersonalModalProps {
   isOpen: boolean;
@@ -82,11 +89,14 @@ export const ReportePersonalModal: React.FC<ReportePersonalModalProps> = ({
       const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
       limiteHasta = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
     } else if (rangoTipo === 'semana') {
-      const d = new Date();
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      limiteDesde = new Date(d.setDate(diff)).toISOString().slice(0, 10);
-      limiteHasta = new Date(d.setDate(diff + 6)).toISOString().slice(0, 10);
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const start = new Date(now.getFullYear(), now.getMonth(), diff);
+      const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+      const toYmd = (dt: Date) =>
+        `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+      limiteDesde = toYmd(start);
+      limiteHasta = toYmd(end);
     }
 
     return personalList.filter((p) => {
@@ -153,13 +163,53 @@ export const ReportePersonalModal: React.FC<ReportePersonalModalProps> = ({
       buildDoc: ({ orientation, paperSize }) => {
         const doc = new jsPDF(resolveJsPdfOrientation(orientation), 'mm', resolveJsPdfFormat(paperSize));
         const titulo = `REPORTE OFICIAL DE PERSONAL POLICIAL Y ESTADO DE REVISTA`;
-        const currentY = drawPoliceHeader(doc, config, titulo, 10);
+        let currentY = drawPoliceHeader(doc, config, titulo, 10);
 
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(80, 80, 80);
-        const filtrosTxt = `Filtros: Sexo: ${filtroSexo.toUpperCase()} | Arma: ${filtroArma.toUpperCase()} | Jerarquía: ${filtroJerarquia} | Sección: ${filtroSeccion} | Período: ${rangoTipo.toUpperCase()} | Total registros: ${filteredList.length}`;
-        doc.text(filtrosTxt, 10, currentY + 3);
+        const filtrosTxt = `Filtros: Sexo: ${filtroSexo.toUpperCase()} | Arma: ${filtroArma.toUpperCase()} | Jerarquía: ${filtroJerarquia} | Sección: ${filtroSeccion} | Estado: ${filtroEstado} | Período: ${rangoTipo.toUpperCase()} | Total registros: ${filteredList.length}`;
+        currentY = drawReportFilterBanner(doc, currentY, filtrosTxt, 10);
+
+        const activos = filteredList.filter((p) => p.estado === 'Activo').length;
+        const conArma = filteredList.filter((p) => Boolean(p.armamento?.serieNro?.trim()) && !p.armamento?.secuestradoORetenido).length;
+        const licencias = filteredList.filter((p) => p.estado === 'Licencia Médica' || p.estado === 'Licencia Anual').length;
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY,
+          [
+            { label: 'Total Efectivos', value: filteredList.length, subtitle: 'Según filtros aplicados', accentColor: [17, 38, 77] },
+            { label: 'En Servicio Activo', value: activos, subtitle: `${filteredList.length > 0 ? Math.round((activos / filteredList.length) * 100) : 0}% de la nómina`, accentColor: [15, 118, 110] },
+            { label: 'Con Arma Habilitada', value: conArma, subtitle: 'Armamento provisto vigente', accentColor: [29, 78, 216] },
+            { label: 'En Licencia / Otros', value: licencias, subtitle: 'Médica o Anual', accentColor: [217, 119, 6] },
+          ],
+          10
+        );
+
+        const jerCounts: Record<string, number> = {};
+        const estCounts: Record<string, number> = {};
+        filteredList.forEach((p) => {
+          const j = p.jerarquia || 'Sin especificar';
+          jerCounts[j] = (jerCounts[j] || 0) + 1;
+          const e = p.estado || 'Activo';
+          estCounts[e] = (estCounts[e] || 0) + 1;
+        });
+
+        const chartJer = renderHorizontalBarChartPng(
+          Object.entries(jerCounts).map(([label, value]) => ({ label, value })),
+          { width: 560, height: 235 }
+        );
+        const chartEst = renderDonutChartPng(
+          Object.entries(estCounts).map(([label, value]) => ({ label, value })),
+          { width: 560, height: 235, centerLabel: 'EFECTIVOS' }
+        );
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            { title: 'Distribución por Jerarquía Policial', subtitle: 'Escalafón de efectivos filtrados', imageDataUrl: chartJer },
+            { title: 'Situación de Revista', subtitle: 'Activos, Licencias, Comisiones y Pasiva', imageDataUrl: chartEst },
+          ],
+          10
+        );
 
         const rows = filteredList.map((p, i) => [
           i + 1,
@@ -179,7 +229,7 @@ export const ReportePersonalModal: React.FC<ReportePersonalModalProps> = ({
         ]);
 
         autoTable(doc, {
-          startY: currentY + 6,
+          startY: currentY,
           head: [[
             'N°',
             'Jerarquía',
@@ -316,8 +366,10 @@ export const ReportePersonalModal: React.FC<ReportePersonalModalProps> = ({
                 className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-medium text-slate-800"
               >
                 <option value="todos">Todos los Estados</option>
-                <option value="Servicio Efectivo">Servicio Efectivo</option>
-                <option value="Licencia">Licencia</option>
+                <option value="Activo">Activo</option>
+                <option value="Licencia Médica">Licencia Médica</option>
+                <option value="Licencia Anual">Licencia Anual</option>
+                <option value="Comisión">Comisión</option>
                 <option value="Pasiva">Pasiva</option>
                 <option value="Retirado">Retirado</option>
               </select>
@@ -406,15 +458,26 @@ export const ReportePersonalModal: React.FC<ReportePersonalModalProps> = ({
             </div>
           </div>
 
-          {/* Contador de coincidencias */}
-          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 font-bold flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-              <span>Personal que coincide con los criterios:</span>
+          {/* Resumen estadístico en vivo */}
+          <div className="grid grid-cols-3 gap-2.5 border border-slate-200 rounded-xl bg-slate-50 p-3">
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-slate-500">Coincidencias</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-slate-900">
+                {filteredList.length}
+              </div>
             </div>
-            <span className="text-sm font-mono bg-emerald-200/80 px-2.5 py-0.5 rounded-full">
-              {filteredList.length} efectivos
-            </span>
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-slate-500">Activos</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-emerald-700">
+                {filteredList.filter((p) => p.estado === 'Activo').length}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-slate-500">Arma Habilitada</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-blue-900">
+                {filteredList.filter((p) => Boolean(p.armamento?.serieNro?.trim()) && !p.armamento?.secuestradoORetenido).length}
+              </div>
+            </div>
           </div>
         </div>
 

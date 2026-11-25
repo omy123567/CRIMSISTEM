@@ -27,6 +27,7 @@ import {
   Table as TableIcon,
   LayoutGrid,
   FileSpreadsheet,
+  BarChart3,
 } from 'lucide-react';
 import { ExpedienteModal } from './ExpedienteModal';
 import { FaltaOficioModal } from './FaltaOficioModal';
@@ -34,6 +35,7 @@ import { AgrupacionModal } from './AgrupacionModal';
 import { generarPdfLibroExpedientes } from '../../services/pdfService';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ModuleStatsPanel } from '../common/ModuleStatsPanel';
 import { FilePreviewModal, PreviewAttachmentItem } from '../common/FilePreviewModal';
 
 interface ExpedientesViewProps {
@@ -71,6 +73,7 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [soloPPI, setSoloPPI] = useState(false);
+  const [mostrarStats, setMostrarStats] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Modales
@@ -107,10 +110,10 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
   const [inlineOficio, setInlineOficio] = useState<string>(() => `OF-Nº ${String(expedientesList.length + 1).padStart(3, '0')}/${String(añoActual).slice(-2)}`);
   const [inlineExp, setInlineExp] = useState<string>(() => `IPP-04-00-0${String(20000 + expedientesList.length + 1)}-${String(añoActual).slice(-2)}`);
   const [inlineFecha, setInlineFecha] = useState<string>(() => new Date().toISOString().slice(0, 10));
-  const [inlineDependencia, setInlineDependencia] = useState<string>(() => config.dependenciasPoliciales[0] || 'Comisaría Seccional 1ra');
-  const [inlineJuzgado, setInlineJuzgado] = useState<string>(() => config.juzgadosFiscalias[0] || 'UFI N° 1 - Delitos Complejos');
+  const [inlineDependencia, setInlineDependencia] = useState<string>(() => config.dependenciasPoliciales?.[0] || 'Comisaría Seccional 1ra');
+  const [inlineJuzgado, setInlineJuzgado] = useState<string>(() => config.juzgadosFiscalias?.[0] || 'UFI N° 1 - Delitos Complejos');
   const [inlineCaratula, setInlineCaratula] = useState<string>('');
-  const [inlineReq, setInlineReq] = useState<string>(() => config.tiposRequerimiento[0] || 'Resguardo de Evidencia');
+  const [inlineReq, setInlineReq] = useState<string>(() => config.tiposRequerimiento?.[0] || 'Resguardo de Evidencia');
   const [inlineInstruccion, setInlineInstruccion] = useState<string>('');
   const [inlineEstado, setInlineEstado] = useState<'No entregado' | 'Entregado'>('No entregado');
   const [quickExpSuccess, setQuickExpSuccess] = useState<string | null>(null);
@@ -135,7 +138,7 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
       fechaRegistro: inlineFecha,
       juzgadoFiscalia: inlineJuzgado,
       dependenciaSolicitante: inlineDependencia,
-      tipoOficio: config.tiposOficio[0] || 'Instrucción Penal Preparatoria (IPP)',
+      tipoOficio: config.tiposOficio?.[0] || 'Instrucción Penal Preparatoria (IPP)',
       tipoRequerimiento: inlineReq,
       tareaRealizada: 'Tramitación y peritaje oficial registrado directamente desde tabla.',
       resumen: `Expediente recibido de ${inlineDependencia} para ${inlineReq}.`,
@@ -219,17 +222,17 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
 
       // Búsqueda en personas vinculadas
       const matchPersonas = exp.personasVinculadas?.some(
-        (p) => p.apellidoYNombre.toLowerCase().includes(term) || p.dni.includes(term)
+        (p) => (p.apellidoYNombre || '').toLowerCase().includes(term) || (p.dni || '').includes(term)
       );
 
       const matchGeneral =
         !term ||
-        exp.nroExpediente.toLowerCase().includes(term) ||
+        (exp.nroExpediente || '').toLowerCase().includes(term) ||
         (exp.nroOficioLetras || '').toLowerCase().includes(term) ||
-        exp.caratulaOrigen.toLowerCase().includes(term) ||
-        exp.tipoRequerimiento.toLowerCase().includes(term) ||
+        (exp.caratulaOrigen || '').toLowerCase().includes(term) ||
+        (exp.tipoRequerimiento || '').toLowerCase().includes(term) ||
         (exp.resumen || '').toLowerCase().includes(term) ||
-        exp.dependenciaSolicitante.toLowerCase().includes(term);
+        (exp.dependenciaSolicitante || '').toLowerCase().includes(term);
 
       const matchReq =
         filtroRequerimiento === 'todos' || exp.tipoRequerimiento === filtroRequerimiento;
@@ -275,13 +278,13 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
     return casosFaltaOficioList.filter((c) => {
       const term = searchTerm.toLowerCase();
       const matchPersonas = c.personasVinculadas?.some(
-        (p) => p.apellidoYNombre.toLowerCase().includes(term) || p.dni.includes(term)
+        (p) => (p.apellidoYNombre || '').toLowerCase().includes(term) || (p.dni || '').includes(term)
       );
       const matchGeneral =
         !term ||
-        c.origenIntervencion.toLowerCase().includes(term) ||
-        c.dependenciaSolicitante.toLowerCase().includes(term) ||
-        c.tareaRealizada.toLowerCase().includes(term) ||
+        (c.origenIntervencion || '').toLowerCase().includes(term) ||
+        (c.dependenciaSolicitante || '').toLowerCase().includes(term) ||
+        (c.tareaRealizada || '').toLowerCase().includes(term) ||
         (c.resumen || '').toLowerCase().includes(term);
 
       const matchReq =
@@ -336,9 +339,9 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
       nroExpediente: nroExpRecepcionado || `EXP-${nroOficioRecepcionado}`,
       caratulaOrigen: `OFICIO RECEPCIONADO EX-FALTA DE OFICIO - ${casoParaRecepcionar.dependenciaSolicitante}`,
       fechaRegistro: new Date().toISOString().slice(0, 10),
-      juzgadoFiscalia: config.juzgadosFiscalias[0],
+      juzgadoFiscalia: config.juzgadosFiscalias?.[0] || 'UFI N° 1',
       dependenciaSolicitante: casoParaRecepcionar.dependenciaSolicitante,
-      tipoOficio: config.tiposOficio[0],
+      tipoOficio: config.tiposOficio?.[0] || 'Instrucción Penal Preparatoria (IPP)',
       tipoRequerimiento: casoParaRecepcionar.tipoRequerimiento,
       tareaRealizada: casoParaRecepcionar.tareaRealizada,
       resumen: casoParaRecepcionar.resumen || `Personas: ${(casoParaRecepcionar.personasVinculadas || []).map(p => `${p.apellidoYNombre} (${p.dni})`).join(', ')}`,
@@ -356,6 +359,58 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
     setNroExpRecepcionado('');
   };
 
+  const expStats = useMemo(() => {
+    const total = expedientesList.length;
+    const elevados = expedientesList.filter((e) => e.estadoEntrega === 'Entregado').length;
+    const pendientes = total - elevados;
+    const faltaOficioPend = casosFaltaOficioList.filter((c) => c.estado === 'Pendiente').length;
+    const resguardoPersonas = expedientesList
+      .filter((e) => e.tipoRequerimiento === 'Resguardo de Evidencia')
+      .reduce((acc, e) => acc + (e.personasVinculadas?.length || 1), 0);
+
+    const reqMap = new Map<string, number>();
+    expedientesList.forEach((e) => {
+      const k = e.tipoRequerimiento || 'Otro';
+      const peso = k === 'Resguardo de Evidencia' ? e.personasVinculadas?.length || 1 : 1;
+      reqMap.set(k, (reqMap.get(k) || 0) + peso);
+    });
+    const reqData = Array.from(reqMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    const ppiTotal = expedientesList.filter((e) => e.ppi?.tienePPI || e.involucraPersonalPolicial).length;
+
+    return {
+      kpis: [
+        { label: 'Total Expedientes', value: total, detail: `${ppiTotal} con PPI involucrado`, tone: 'navy' as const },
+        { label: 'Elevados / Entregados', value: elevados, detail: `${total > 0 ? Math.round((elevados / total) * 100) : 0}% cumplidos`, tone: 'emerald' as const },
+        { label: 'En Trámite / Falta Oficio', value: pendientes, detail: `Sin oficio pendientes: ${faltaOficioPend}`, tone: 'amber' as const },
+        { label: 'Resguardo de Evidencia', value: resguardoPersonas, detail: 'Personas vinculadas (regla oficial)', tone: 'blue' as const },
+      ],
+      charts: [
+        {
+          id: 'exp-req',
+          title: 'Requerimientos y Tareas Operativas',
+          subtitle: 'Conteo ponderado por personas vinculadas en Resguardo de Evidencia',
+          type: 'horizontal-bar' as const,
+          data: reqData,
+          valueLabel: 'Cantidad',
+        },
+        {
+          id: 'exp-estado',
+          title: 'Estado de Tramitación y Elevación',
+          subtitle: 'Proporción de expedientes elevados vs en trámite',
+          type: 'donut' as const,
+          data: [
+            { name: 'Elevados / Entregados', value: elevados },
+            { name: 'En Trámite', value: pendientes },
+            { name: 'Casos Sin Oficio Pend.', value: faltaOficioPend },
+          ],
+        },
+      ],
+    };
+  }, [expedientesList, casosFaltaOficioList]);
+
   return (
     <div className="space-y-5">
       {/* Header y Selector de Submódulo */}
@@ -371,12 +426,25 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMostrarStats((v) => !v)}
+            className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-300'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
           {subTab === 'expedientes' ? (
             <>
               <button
                 onClick={() => generarPdfLibroExpedientes(filteredExpedientes, config)}
-                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Libro Oficial PDF</span>
@@ -387,7 +455,7 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
                   setSelectedCasoFalta(null);
                   setIsFaltaModalOpen(true);
                 }}
-                className="flex items-center gap-1.5 bg-red-800 hover:bg-red-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 bg-red-800 hover:bg-red-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="Registrar actuación urgente sin oficio previo"
               >
                 <ShieldAlert className="w-4 h-4 text-red-200" />
@@ -399,7 +467,7 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
                   setSelectedExpediente(null);
                   setIsExpModalOpen(true);
                 }}
-                className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Plus className="w-4 h-4" />
                 <span>Nuevo Expediente</span>
@@ -410,7 +478,7 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
               {selectedCasosIds.length > 0 && (
                 <button
                   onClick={() => setIsAgrupacionOpen(true)}
-                  className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-colors cursor-pointer animate-pulse"
+                  className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <Layers className="w-4 h-4" />
                   <span>Agrupar {selectedCasosIds.length} Casos en un Oficio</span>
@@ -422,7 +490,7 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
                   setSelectedCasoFalta(null);
                   setIsFaltaModalOpen(true);
                 }}
-                className="flex items-center gap-1.5 bg-red-800 hover:bg-red-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 bg-red-800 hover:bg-red-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Plus className="w-4 h-4" />
                 <span>Nuevo Caso s/ Oficio</span>
@@ -431,6 +499,18 @@ export const ExpedientesView: React.FC<ExpedientesViewProps> = ({
           )}
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Expedientes Judiciales y Tareas Operativas"
+          subtitle="Cumplimiento de elevaciones, casos sin oficio y regla oficial de Resguardo de Evidencia"
+          kpis={expStats.kpis}
+          charts={expStats.charts}
+          onExportPdf={() => generarPdfLibroExpedientes(filteredExpedientes, config)}
+          exportPdfLabel="Libro Oficial con Gráficos (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* Tabs Selector: Expedientes vs Casos Falta de Oficio */}
       <div className="flex border-b border-slate-200 bg-white rounded-t-xl px-4 pt-2 gap-3 text-xs font-bold shadow-xs">

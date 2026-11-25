@@ -16,6 +16,13 @@ import {
   PERFILES_ACCESO_FOLIO_INFO,
   buildUnifiedTiposMemosOptions,
   computeUpdatedTiposMemosOcultos,
+  extractNumeroFolioFromText,
+  findFolioForMemo,
+  findMemoForFolio,
+  findSerieForMemo,
+  formatCodigoFolioConAnio,
+  getFreeFolioNumbersForSerie,
+  getOccupiedNumbersForSerieAnio,
   getPerfilFolioLabel,
   isTipoMemoHiddenForUser,
   normalizePerfilesVisibles,
@@ -60,7 +67,10 @@ interface MemoNotaModalProps {
   usuariosList: UsuarioSistema[];
   activeDelegacionId: string;
   delegacionesList: DelegacionPolicial[];
-  onSave: (memo: MemoNota) => Promise<void> | void;
+  onSave: (
+    memo: MemoNota,
+    options?: { syncControlFolios?: boolean }
+  ) => Promise<void> | void;
   onSaveConfig?: (cfg: ConfiguracionSistema) => Promise<void> | void;
   onSaveUsuario?: (user: UsuarioSistema) => Promise<void> | void;
   onSaveSerie?: (serie: SerieNumerario) => Promise<void> | void;
@@ -152,6 +162,8 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
   const [perfilesForSelectedTipo, setPerfilesForSelectedTipo] = useState<PerfilAccesoFolio[]>([
     ...ALL_PERFILES_ACCESO_FOLIO,
   ]);
+  const [vincularConControlFolios, setVincularConControlFolios] = useState<boolean>(true);
+  const [showAllSeriesFolios, setShowAllSeriesFolios] = useState<boolean>(false);
 
   // Anexos en formulario
   interface FormAttachment {
@@ -267,6 +279,8 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
       setObservaciones('');
       setAttachments([]);
     }
+    setVincularConControlFolios(true);
+    setShowAllSeriesFolios(false);
   }, [isOpen, editingItem, config.dependencia]);
 
   // Sincronizar la lista de usuarios y perfiles habilitados para el Tipo / Serie seleccionado
@@ -297,6 +311,64 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
     }
   }, [isOpen, tipo, serieFolioId, delegacionUsers, seriesList, config.tiposMemoCatalogo]);
 
+  const matchedSerie = useMemo(
+    () => findSerieForMemo(tipo, seriesList, serieFolioId, activeDelegacionId),
+    [tipo, seriesList, serieFolioId, activeDelegacionId]
+  );
+
+  const freeFolioNumbers = useMemo(
+    () =>
+      getFreeFolioNumbersForSerie(
+        matchedSerie,
+        anio,
+        foliosList,
+        memosList,
+        seriesList,
+        8,
+        editingItem?.id
+      ),
+    [matchedSerie, anio, foliosList, memosList, seriesList, editingItem?.id]
+  );
+
+  const extractedNumero = useMemo(
+    () => extractNumeroFolioFromText(nroFolioMemo),
+    [nroFolioMemo]
+  );
+
+  const existingLinkedFolio = useMemo(
+    () =>
+      findFolioForMemo(
+        {
+          folioId: folioId || undefined,
+          serieFolioId: serieFolioId || matchedSerie?.id,
+          tipo,
+          nroFolioMemo,
+          anio,
+          fecha,
+          delegacionId: activeDelegacionId,
+        },
+        foliosList,
+        seriesList
+      ),
+    [
+      folioId,
+      serieFolioId,
+      matchedSerie?.id,
+      tipo,
+      nroFolioMemo,
+      anio,
+      fecha,
+      activeDelegacionId,
+      foliosList,
+      seriesList,
+    ]
+  );
+
+  const filteredFoliosForSelector = useMemo(() => {
+    if (showAllSeriesFolios || !matchedSerie) return visibleFoliosForLink;
+    return visibleFoliosForLink.filter((f) => f.serieId === matchedSerie.id);
+  }, [visibleFoliosForLink, showAllSeriesFolios, matchedSerie]);
+
   if (!isOpen) return null;
 
   const handleTipoChange = (selectedName: string) => {
@@ -305,6 +377,12 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
     if (opt?.esDeControlFolios && opt.serieFolioId) {
       setSerieFolioId(opt.serieFolioId);
       setSerieFolioNombre(opt.nombre);
+      if (folioId) {
+        const currentFol = visibleFoliosForLink.find((f) => f.id === folioId);
+        if (currentFol && currentFol.serieId !== opt.serieFolioId) {
+          setFolioId('');
+        }
+      }
     } else {
       setSerieFolioId('');
       setSerieFolioNombre('');
@@ -322,12 +400,30 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
       setSerieFolioId(ser.id);
       setSerieFolioNombre(ser.nombre);
     }
-    setNroFolioMemo(fol.caratulaPersonalizada || fol.codigoCaratula || `${fol.numero}/${fol.anio}`);
+    const targetAnio = fol.anio || anio || new Date().getFullYear();
+    setNroFolioMemo(
+      fol.caratulaPersonalizada ||
+        fol.codigoCaratula ||
+        formatCodigoFolioConAnio(ser?.prefijo || `${tipo} N°`, fol.numero, targetAnio)
+    );
     if (fol.anio) setAnio(fol.anio);
     if (fol.fechaAsignacion) setFecha(fol.fechaAsignacion);
     if (fol.asunto && !asunto.trim()) setAsunto(fol.asunto);
     if (fol.destinatario && !destino.trim()) setDestino(fol.destinatario);
     if (fol.observaciones && !observaciones.trim()) setObservaciones(fol.observaciones);
+    setVincularConControlFolios(true);
+  };
+
+  const handlePickFreeFolioNumber = (num: number) => {
+    const targetAnio = Number(anio) || Number((fecha || '').slice(0, 4)) || new Date().getFullYear();
+    const prefijo =
+      matchedSerie?.prefijo ||
+      visibleTiposOptions.find((o) => normalizeTipoKey(o.nombre) === normalizeTipoKey(tipo))
+        ?.prefijo ||
+      `${tipo} N°`;
+    setFolioId('');
+    setNroFolioMemo(formatCodigoFolioConAnio(prefijo, num, targetAnio, 3));
+    setVincularConControlFolios(true);
   };
 
   const handleSugerirCorrelativo = () => {
@@ -335,35 +431,38 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
     const opt = visibleTiposOptions.find(
       (o) => normalizeTipoKey(o.nombre) === normalizeTipoKey(tipo)
     );
-    const prefijo = opt?.prefijo || `${tipo} N°`;
-    const normTipo = normalizeTipoKey(tipo);
+    const prefijo = matchedSerie?.prefijo || opt?.prefijo || `${tipo} N°`;
 
+    if (matchedSerie) {
+      const occupied = getOccupiedNumbersForSerieAnio(
+        matchedSerie.id,
+        targetAnio,
+        foliosList,
+        memosList,
+        seriesList,
+        editingItem?.id
+      );
+      let nextFree = 1;
+      while (occupied.has(nextFree)) {
+        nextFree++;
+      }
+      setFolioId('');
+      setNroFolioMemo(formatCodigoFolioConAnio(prefijo, nextFree, targetAnio, 3));
+      setVincularConControlFolios(true);
+      return;
+    }
+
+    const normTipo = normalizeTipoKey(tipo);
     let maxNum = 0;
     for (const m of memosList) {
       const mAnio = m.anio || Number((m.fecha || '').slice(0, 4));
       if (mAnio !== targetAnio) continue;
-      if (
-        normalizeTipoKey(m.tipo) !== normTipo &&
-        (!serieFolioId || m.serieFolioId !== serieFolioId)
-      ) {
-        continue;
-      }
-      const match = (m.nroFolioMemo || '').match(/(\d+)\s*(?:\/\s*\d{4})?$/);
-      const numFromFront = (m.nroFolioMemo || '').match(/(\d+)/);
-      const parsed = Number(match?.[1] || numFromFront?.[1] || 0);
+      if (normalizeTipoKey(m.tipo) !== normTipo) continue;
+      const parsed = extractNumeroFolioFromText(m.nroFolioMemo) || 0;
       if (parsed > maxNum) maxNum = parsed;
     }
 
-    if (serieFolioId) {
-      for (const f of foliosList) {
-        if (f.serieId === serieFolioId && f.anio === targetAnio && f.numero > maxNum) {
-          maxNum = f.numero;
-        }
-      }
-    }
-
-    const nextNum = String(maxNum + 1).padStart(3, '0');
-    setNroFolioMemo(`${prefijo} ${nextNum}/${targetAnio}`.trim());
+    setNroFolioMemo(formatCodigoFolioConAnio(prefijo, maxNum + 1, targetAnio, 3));
   };
 
   const handleSaveNewTipo = async () => {
@@ -530,9 +629,9 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
     const record: MemoNota = {
       id: editingItem?.id || `memo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       tipo: tipo.trim(),
-      serieFolioId: serieFolioId || undefined,
-      serieFolioNombre: serieFolioNombre || undefined,
-      folioId: folioId || undefined,
+      serieFolioId: (serieFolioId || matchedSerie?.id) || undefined,
+      serieFolioNombre: (serieFolioNombre || matchedSerie?.nombre) || undefined,
+      folioId: (folioId || existingLinkedFolio?.id) || undefined,
       nroFolioMemo: nroFolioMemo.trim(),
       anio: resolvedAnio,
       fecha,
@@ -561,7 +660,9 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
       updatedAt: nowIso,
     };
 
-    await onSave(record);
+    await onSave(record, {
+      syncControlFolios: Boolean(matchedSerie && vincularConControlFolios),
+    });
 
     // Aplicar configuración de perfiles y ocultamiento puntual para el "Tipo / Serie de Folio"
     if (canManageRecordVisibility && tipo.trim()) {
@@ -693,28 +794,95 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
             </div>
           )}
 
-          {/* Vinculación opcional con Control de Folios */}
-          {visibleFoliosForLink.length > 0 && (
-            <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2">
-              <label className="flex items-center gap-1.5 font-bold text-blue-950">
-                <BookmarkCheck className="w-4 h-4 text-blue-700" />
-                <span>Vincular con Folio asignado en "Control de Folios" (opcional)</span>
-              </label>
-              <select
-                value={folioId}
-                onChange={(e) => handleLinkFolio(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">-- Carga manual / Sin vincular folio previo --</option>
-                {visibleFoliosForLink.slice(0, 120).map((f) => {
-                  const ser = seriesList.find((s) => s.id === f.serieId);
-                  return (
-                    <option key={f.id} value={f.id}>
-                      [{ser?.nombre || f.categoriaDocumento}] {f.caratulaPersonalizada || f.codigoCaratula} — {f.asunto} ({f.fechaAsignacion})
-                    </option>
-                  );
-                })}
-              </select>
+          {/* Vinculación directa con Control de Folios */}
+          {(matchedSerie || visibleFoliosForLink.length > 0) && (
+            <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="flex items-center gap-1.5 font-bold text-blue-950">
+                  <BookmarkCheck className="w-4 h-4 text-blue-700" />
+                  <span>
+                    Vincular con N° de &ldquo;Control de Folios&rdquo;
+                    {matchedSerie ? ` (${matchedSerie.nombre})` : ''}
+                  </span>
+                </label>
+                {matchedSerie && visibleFoliosForLink.length > 0 && (
+                  <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-blue-900 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showAllSeriesFolios}
+                      onChange={(e) => setShowAllSeriesFolios(e.target.checked)}
+                      className="w-3.5 h-3.5 accent-blue-800"
+                    />
+                    <span>Ver folios de todas las series</span>
+                  </label>
+                )}
+              </div>
+
+              {filteredFoliosForSelector.length > 0 ? (
+                <select
+                  value={folioId}
+                  onChange={(e) => handleLinkFolio(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">
+                    -- Seleccionar folio ya asignado en Control de Folios (opcional) --
+                  </option>
+                  {filteredFoliosForSelector.slice(0, 150).map((f) => {
+                    const ser = seriesList.find((s) => s.id === f.serieId);
+                    const linkedOther = findMemoForFolio(f, memosList, seriesList);
+                    const isLinkedToOther =
+                      Boolean(linkedOther) && linkedOther?.id !== editingItem?.id;
+                    return (
+                      <option key={f.id} value={f.id}>
+                        [{ser?.nombre || f.categoriaDocumento}] #{f.numero} ·{' '}
+                        {f.caratulaPersonalizada || f.codigoCaratula} — {f.asunto} ({f.fechaAsignacion}){' '}
+                        {isLinkedToOther ? '[Ya vinculado]' : '[Disponible]'}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                matchedSerie && (
+                  <div className="text-[11px] text-blue-900 bg-white/80 border border-blue-200/80 rounded-lg px-3 py-1.5">
+                    Aún no hay folios asignados manualmente en la serie{' '}
+                    <strong>{matchedSerie.nombre}</strong>. Puede tomar un número libre abajo o escribirlo y se ocupará automáticamente al guardar.
+                  </div>
+                )
+              )}
+
+              {matchedSerie && freeFolioNumbers.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <span className="text-[11px] font-bold text-blue-950 mr-1">
+                    N° libres en {matchedSerie.nombre}:
+                  </span>
+                  {freeFolioNumbers.map((num) => {
+                    const isSelected = extractedNumero === num && !existingLinkedFolio;
+                    return (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => handlePickFreeFolioNumber(num)}
+                        className={`px-2 py-0.5 rounded-md font-mono font-bold text-[11px] border cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-blue-900 text-white border-blue-950'
+                            : 'bg-white text-blue-900 border-blue-300 hover:bg-blue-100'
+                        }`}
+                        title={`Asignar N° ${num} de la serie ${matchedSerie.nombre}`}
+                      >
+                        #{num}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => handlePickFreeFolioNumber(freeFolioNumbers[0])}
+                    className="ml-auto px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Tomar N° Libre (#{freeFolioNumbers[0]})</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -765,7 +933,7 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
                     type="button"
                     onClick={handleSugerirCorrelativo}
                     className="text-[11px] font-bold text-indigo-700 hover:underline flex items-center gap-1 cursor-pointer"
-                    title="Sugerir próximo número correlativo según el tipo y año"
+                    title="Sugerir próximo número libre según Control de Folios y año"
                   >
                     <Sparkles className="w-3 h-3" />
                     <span>Sugerir N°</span>
@@ -775,7 +943,7 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
                   type="text"
                   value={nroFolioMemo}
                   onChange={(e) => setNroFolioMemo(e.target.value)}
-                  placeholder="Ej. Mem. N° 015 / Oficio J N° 004"
+                  placeholder="Ej. Memorandum N° 015/2026 / Nota V N° 004/2026"
                   className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:outline-none font-bold text-slate-900"
                   required
                 />
@@ -800,6 +968,37 @@ export const MemoNotaModal: React.FC<MemoNotaModalProps> = ({
                 />
               </div>
             </div>
+
+            {matchedSerie && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white border border-blue-200 text-[11px]">
+                <label className="inline-flex items-center gap-2 font-semibold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={vincularConControlFolios}
+                    onChange={(e) => setVincularConControlFolios(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-blue-800"
+                  />
+                  <span>
+                    Vincular y ocupar automáticamente este N° en Control de Folios ({matchedSerie.nombre})
+                  </span>
+                </label>
+                {existingLinkedFolio ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">
+                    <BookmarkCheck className="w-3.5 h-3.5" />
+                    <span>
+                      Vinculado a Folio #{existingLinkedFolio.numero} ({existingLinkedFolio.codigoCaratula})
+                    </span>
+                  </span>
+                ) : extractedNumero !== null && vincularConControlFolios ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-900 font-bold">
+                    <BookmarkCheck className="w-3.5 h-3.5" />
+                    <span>
+                      Al guardar ocupará Folio #{extractedNumero} en {matchedSerie.nombre}
+                    </span>
+                  </span>
+                ) : null}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
               {/* Fecha de Registro */}

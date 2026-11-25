@@ -718,6 +718,7 @@ export const AccidentologiaModal: React.FC<AccidentologiaModalProps> = ({
                     <option value="Leves (escoriaciones y politraumatismos)" />
                     <option value="Graves (fractura de miembro)" />
                     <option value="Gravísimas con riesgo vital" />
+                    <option value="A Determinar" />
                     <option value="Óbito" />
                   </datalist>
                 </div>

@@ -7,6 +7,8 @@ import {
   DEFAULT_ROLES,
   DEFAULT_SERIES_NUMERARIO,
   DEFAULT_CONFIG,
+  standardizeControlFoliosSeries,
+  enforceMemorandumRVisibilityRestriction,
 } from '../src/db/database';
 import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from '../src/services/licenciaService';
 import { DEFAULT_TIPOS_MEMO } from '../src/utils/memosCatalogUtils';
@@ -213,6 +215,30 @@ export function initDatabase(): SispolDatabase {
     if (Array.isArray(parsed.feriados) && parsed.feriados.length === 0 && !parsed.feriadosInitialized) {
       parsed.feriados = DEFAULT_FERIADOS_ARGENTINA.map((f) => ({ ...f }));
       parsed.feriadosInitialized = true;
+      modified = true;
+    }
+
+    if (!parsed.seriesNumerarioStandardizedV2) {
+      const migration = standardizeControlFoliosSeries(
+        Array.isArray(parsed.seriesNumerario) ? parsed.seriesNumerario : [],
+        Array.isArray(parsed.folios) ? parsed.folios : [],
+        Array.isArray(parsed.memosNotas) ? parsed.memosNotas : []
+      );
+      parsed.seriesNumerario = migration.series;
+      parsed.seriesNumerarioStandardizedV2 = true;
+      modified = true;
+    }
+
+    if (!parsed.memorandumRRestrictedV3) {
+      const memRMig = enforceMemorandumRVisibilityRestriction(
+        Array.isArray(parsed.seriesNumerario) ? parsed.seriesNumerario : [],
+        Array.isArray(parsed.configuracion) ? parsed.configuracion : []
+      );
+      parsed.seriesNumerario = memRMig.series;
+      if (Array.isArray(parsed.configuracion)) {
+        parsed.configuracion = memRMig.configuraciones;
+      }
+      parsed.memorandumRRestrictedV3 = true;
       modified = true;
     }
 

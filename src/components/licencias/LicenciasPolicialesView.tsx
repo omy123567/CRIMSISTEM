@@ -30,6 +30,8 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -328,9 +330,9 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
           selectedPersonalFilter === 'todos' || l.personalId === selectedPersonalFilter;
         const matchSearch =
           !q ||
-          l.apellidoYNombre.toLowerCase().includes(q) ||
-          l.dni.includes(q) ||
-          l.jerarquia.toLowerCase().includes(q) ||
+          (l.apellidoYNombre || '').toLowerCase().includes(q) ||
+          (l.dni || '').includes(q) ||
+          (l.jerarquia || '').toLowerCase().includes(q) ||
           (l.subtipoEtiqueta || '').toLowerCase().includes(q) ||
           (l.parentescoFallecimiento || '').toLowerCase().includes(q) ||
           (l.articuloReglamento || '').toLowerCase().includes(q) ||
@@ -343,11 +345,11 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
           (filtroEstado === 'programada' && est === 'Programada') ||
           (filtroEstado === 'finalizada' && est === 'Finalizada') ||
           (filtroEstado === 'interrumpida' && est === 'Interrumpida');
-        const matchDesde = !fechaDesde || l.fechaSalida >= fechaDesde;
-        const matchHasta = !fechaHasta || l.fechaSalida <= fechaHasta;
+        const matchDesde = !fechaDesde || (l.fechaSalida || '') >= fechaDesde;
+        const matchHasta = !fechaHasta || (l.fechaSalida || '') <= fechaHasta;
         return matchPersonal && matchSearch && matchTipo && matchEstado && matchDesde && matchHasta;
       })
-      .sort((a, b) => b.fechaSalida.localeCompare(a.fechaSalida));
+      .sort((a, b) => (b.fechaSalida || '').localeCompare(a.fechaSalida || ''));
   }, [scopedLicencias, selectedPersonalFilter, searchTerm, filtroTipo, filtroEstado, fechaDesde, fechaHasta, todayYmd]);
 
   const activeRegistroFiltersCount = useMemo(() => {
@@ -378,9 +380,9 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
         const matchSelect = selectedPersonalFilter === 'todos' || p.id === selectedPersonalFilter;
         const matchSearch =
           !q ||
-          p.apellidoYNombre.toLowerCase().includes(q) ||
-          p.dni.includes(q) ||
-          p.jerarquia.toLowerCase().includes(q);
+          (p.apellidoYNombre || '').toLowerCase().includes(q) ||
+          (p.dni || '').includes(q) ||
+          (p.jerarquia || '').toLowerCase().includes(q);
         return matchSelect && matchSearch;
       })
       .map((p) => {
@@ -490,6 +492,36 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
       { name: 'Interrumpidas (Art. 15)', value: interrumpidas },
     ];
   }, [scopedLicencias]);
+
+  const chartDataMensualSalidas = useMemo(() => {
+    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const map = new Map<string, { salidas: number; dias: number }>();
+    meses.forEach((m) => map.set(m, { salidas: 0, dias: 0 }));
+    scopedLicencias.forEach((l) => {
+      if (!l.fechaSalida) return;
+      const d = new Date(l.fechaSalida + 'T12:00:00');
+      if (!isNaN(d.getTime())) {
+        const key = meses[d.getMonth()];
+        const cur = map.get(key)!;
+        cur.salidas += 1;
+        cur.dias += (l.diasHabilesSolicitados || 0) + (l.diasViajeArt11 || 0);
+      }
+    });
+    return meses.map((mes) => ({
+      mes,
+      Salidas: map.get(mes)?.salidas || 0,
+      Dias: map.get(mes)?.dias || 0,
+    }));
+  }, [scopedLicencias]);
+
+  const diasOtorgadosTotales = useMemo(
+    () =>
+      scopedLicencias.reduce(
+        (acc, l) => acc + (l.diasHabilesSolicitados || 0) + (l.diasViajeArt11 || 0),
+        0
+      ),
+    [scopedLicencias]
+  );
 
   const filteredFeriados = useMemo(() => {
     const q = feriadoSearch.trim().toLowerCase();
@@ -1791,18 +1823,100 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
       {/* TAB 4: REPORTES Y GRÁFICOS */}
       {activeTab === 'reportes' && (
         <div className="space-y-4">
+          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center shrink-0">
+                  <BarChart3 className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-slate-900 tracking-tight truncate">
+                    Centro Estadístico de Licencias — {activeDelegacionLabel}
+                  </h2>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    Balance anual Art. 7, salidas mensuales, distribución por tipo e interrupciones Art. 15.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportPdfReporte}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-blue-950 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Exportar Reporte General (PDF)</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200">
+              <div className="px-4 py-3.5 bg-white">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Licencias Registradas
+                </div>
+                <div className="mt-1 text-2xl font-bold font-mono tabular-nums text-slate-900">
+                  {scopedLicencias.length}
+                </div>
+                <div className="mt-0.5 text-[11px] text-slate-500">
+                  Filtradas en reporte: {filteredLicencias.length}
+                </div>
+              </div>
+              <div className="px-4 py-3.5 bg-white">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Días Otorgados
+                </div>
+                <div className="mt-1 text-2xl font-bold font-mono tabular-nums text-blue-900">
+                  {diasOtorgadosTotales}
+                </div>
+                <div className="mt-0.5 text-[11px] text-slate-500">Incluye traslado Art. 11</div>
+              </div>
+              <div className="px-4 py-3.5 bg-white">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Interrumpidas (Art. 15)
+                </div>
+                <div className="mt-1 text-2xl font-bold font-mono tabular-nums text-rose-700">
+                  {kpis.interrumpidas}
+                </div>
+                <div className="mt-0.5 text-[11px] text-slate-500">Por razones de servicio</div>
+              </div>
+              <div className="px-4 py-3.5 bg-white">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Saldo Global Disponible
+                </div>
+                <div className="mt-1 text-2xl font-bold font-mono tabular-nums text-emerald-700">
+                  {granTotalAnios.disponibles} d.
+                </div>
+                <div className="mt-0.5 text-[11px] text-slate-500">
+                  Usados: {granTotalAnios.usados} · Venc.: {granTotalAnios.vencidos}
+                </div>
+              </div>
+            </div>
+          </section>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-              <h3 className="font-bold text-slate-900 text-sm mb-3">
-                Totales por Año ({currentYear - 2}–{currentYear}) — {activeDelegacionLabel}
-              </h3>
-              <div className="h-72">
+            <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200">
+              <div className="flex items-baseline justify-between mb-3">
+                <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">
+                  Totales por Año ({currentYear - 2}–{currentYear})
+                </h3>
+                <span className="text-[11px] font-mono tabular-nums text-slate-400">
+                  {chartDataPorAnio.length} períodos
+                </span>
+              </div>
+              <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartDataPorAnio} margin={{ top: 10, right: 10, left: -10, bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="anio" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="anio" tick={{ fontSize: 11, fill: '#475569' }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f172a',
+                        borderColor: '#334155',
+                        borderRadius: '8px',
+                        color: '#f8fafc',
+                        fontSize: '11px',
+                      }}
+                    />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <Bar dataKey="Disponibles" fill="#0f766e" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="Usados" fill="#1e3a8a" radius={[4, 4, 0, 0]} />
@@ -1812,17 +1926,30 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-              <h3 className="font-bold text-slate-900 text-sm mb-3">
-                Días Disponibles vs Usados vs Vencidos por Efectivo
-              </h3>
-              <div className="h-72">
+            <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200">
+              <div className="flex items-baseline justify-between mb-3">
+                <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">
+                  Días Disponibles vs Usados por Efectivo
+                </h3>
+                <span className="text-[11px] font-mono tabular-nums text-slate-400">
+                  Top {chartDataPersonal.length}
+                </span>
+              </div>
+              <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartDataPersonal} margin={{ top: 10, right: 10, left: -10, bottom: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="nombre" tick={{ fontSize: 10 }} angle={-15} textAnchor="end" />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="nombre" tick={{ fontSize: 10, fill: '#475569' }} angle={-15} textAnchor="end" />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f172a',
+                        borderColor: '#334155',
+                        borderRadius: '8px',
+                        color: '#f8fafc',
+                        fontSize: '11px',
+                      }}
+                    />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <Bar dataKey="Disponibles" fill="#0f766e" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="Usados" fill="#1e3a8a" radius={[4, 4, 0, 0]} />
@@ -1832,52 +1959,152 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-              <h3 className="font-bold text-slate-900 text-sm mb-3">Por Tipo de Licencia</h3>
-              <div className="h-64">
+            <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 lg:col-span-2">
+              <div className="flex items-baseline justify-between mb-3">
+                <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">
+                  Evolución Mensual de Salidas de Licencia
+                </h3>
+                <span className="text-[11px] font-mono tabular-nums text-slate-400">
+                  {diasOtorgadosTotales} días totales
+                </span>
+              </div>
+              <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={chartDataTipos.length ? chartDataTipos : [{ name: 'Sin datos', value: 1 }]}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="45%"
-                      outerRadius={68}
-                      label
-                    >
-                      {(chartDataTipos.length ? chartDataTipos : [{ name: 'Sin datos', value: 1 }]).map((_, i) => (
-                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
+                  <AreaChart data={chartDataMensualSalidas} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
+                    <defs>
+                      <linearGradient id="licMesGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#1d4ed8" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#1d4ed8" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="mes" tick={{ fontSize: 10, fill: '#64748b' }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f172a',
+                        borderColor: '#334155',
+                        borderRadius: '8px',
+                        color: '#f8fafc',
+                        fontSize: '11px',
+                      }}
+                    />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                  </PieChart>
+                    <Area
+                      type="monotone"
+                      dataKey="Salidas"
+                      name="Licencias otorgadas"
+                      stroke="#1d4ed8"
+                      strokeWidth={2}
+                      fill="url(#licMesGrad)"
+                    />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-              <h3 className="font-bold text-slate-900 text-sm mb-3">Interrupciones (Art. 15)</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={scopedLicencias.length ? chartDataInterrupciones : [{ name: 'Sin datos', value: 1 }]}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="45%"
-                      outerRadius={68}
-                      label
-                    >
-                      <Cell fill="#1e3a8a" />
-                      <Cell fill="#dc2626" />
-                    </Pie>
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
+            <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200">
+              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide mb-3">
+                Distribución por Tipo de Licencia
+              </h3>
+              <div className="h-56 flex flex-col sm:flex-row items-center gap-3">
+                <div className="w-full sm:w-1/2 h-44 sm:h-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartDataTipos.length ? chartDataTipos : [{ name: 'Sin datos', value: 1 }]}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={42}
+                        outerRadius={70}
+                        paddingAngle={2}
+                      >
+                        {(chartDataTipos.length ? chartDataTipos : [{ name: 'Sin datos', value: 1 }]).map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155',
+                          borderRadius: '8px',
+                          color: '#f8fafc',
+                          fontSize: '11px',
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="w-full sm:w-1/2 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {chartDataTipos.map((item, idx) => (
+                    <div key={item.name} className="flex items-center justify-between gap-2 text-xs py-0.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="w-2.5 h-2.5 rounded-xs shrink-0"
+                          style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }}
+                        />
+                        <span className="truncate text-slate-700">{item.name}</span>
+                      </div>
+                      <span className="font-mono tabular-nums font-bold text-slate-900 shrink-0">
+                        {item.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200">
+              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide mb-3">
+                Interrupciones de Licencia (Art. 15)
+              </h3>
+              <div className="h-56 flex flex-col sm:flex-row items-center gap-3">
+                <div className="w-full sm:w-1/2 h-44 sm:h-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={scopedLicencias.length ? chartDataInterrupciones : [{ name: 'Sin datos', value: 1 }]}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={42}
+                        outerRadius={70}
+                        paddingAngle={2}
+                      >
+                        <Cell fill="#1e3a8a" />
+                        <Cell fill="#dc2626" />
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155',
+                          borderRadius: '8px',
+                          color: '#f8fafc',
+                          fontSize: '11px',
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="w-full sm:w-1/2 space-y-2">
+                  {chartDataInterrupciones.map((item, idx) => (
+                    <div key={item.name} className="flex items-center justify-between gap-2 text-xs py-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="w-2.5 h-2.5 rounded-xs shrink-0"
+                          style={{ backgroundColor: idx === 0 ? '#1e3a8a' : '#dc2626' }}
+                        />
+                        <span className="truncate text-slate-700">{item.name}</span>
+                      </div>
+                      <span className="font-mono tabular-nums font-bold text-slate-900 shrink-0">
+                        {item.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

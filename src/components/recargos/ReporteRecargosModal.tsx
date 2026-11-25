@@ -7,6 +7,13 @@ import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { PdfPaperSize } from '../../types/police';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  drawReportFilterBanner,
+  renderHorizontalBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface ReporteRecargosModalProps {
   isOpen: boolean;
@@ -49,20 +56,22 @@ export const ReporteRecargosModal: React.FC<ReporteRecargosModalProps> = ({
     currentUser?.rol === 'superusuario' || currentUser?.puedeVerOtrasDelegaciones
   );
 
-  // Tipos únicos de servicio
+  // Tipos únicos de servicio (normalizando tipoRecargo || tipoServicio)
   const tiposDisponibles = useMemo(() => {
     const set = new Set<string>();
     recargosList.forEach((r) => {
-      if (r.tipoServicio) set.add(r.tipoServicio);
+      const t = r.tipoRecargo || r.tipoServicio;
+      if (t) set.add(t);
     });
     return Array.from(set).sort();
   }, [recargosList]);
 
-  // Secciones únicas
+  // Secciones / oficinas únicas
   const seccionesDisponibles = useMemo(() => {
     const set = new Set<string>();
     recargosList.forEach((r) => {
-      if (r.seccionGrupo) set.add(r.seccionGrupo);
+      const s = r.oficina || r.seccionGrupo || r.grupoUOficina;
+      if (s) set.add(s);
     });
     personalList.forEach((p) => {
       if (p.seccionGrupo) set.add(p.seccionGrupo);
@@ -87,32 +96,44 @@ export const ReporteRecargosModal: React.FC<ReporteRecargosModalProps> = ({
       const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
       limiteHasta = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
     } else if (rangoTipo === 'semana') {
-      const d = new Date();
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      limiteDesde = new Date(d.setDate(diff)).toISOString().slice(0, 10);
-      limiteHasta = new Date(d.setDate(diff + 6)).toISOString().slice(0, 10);
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const start = new Date(now.getFullYear(), now.getMonth(), diff);
+      const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+      const toYmd = (dt: Date) =>
+        `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+      limiteDesde = toYmd(start);
+      limiteHasta = toYmd(end);
     }
 
     return recargosList.filter((r) => {
       // Tipo de servicio
-      if (filtroTipo !== 'todos' && r.tipoServicio !== filtroTipo) return false;
+      const tipoActual = r.tipoRecargo || r.tipoServicio || '';
+      if (filtroTipo !== 'todos' && tipoActual !== filtroTipo) return false;
 
       // Estado
       if (filtroEstado !== 'todos' && r.estado !== filtroEstado) return false;
 
       // Personal designado
       if (filtroPersonal !== 'todos') {
-        const tienePersonal = Array.isArray(r.personalAsignado)
-          ? r.personalAsignado.some(
-              (p: any) => p?.personalId === filtroPersonal || p?.apellidoYNombre === filtroPersonal || p?.nombre === filtroPersonal
-            )
-          : (r.personalIds || []).includes(filtroPersonal) || (r.personalDesignado || '').includes(filtroPersonal);
+        const personObj = personalList.find((p) => p.id === filtroPersonal);
+        const fullNom = personObj ? (personObj.apellidoYNombre || '').toLowerCase() : '';
+        const tienePersonal =
+          (r.personalIds || []).includes(filtroPersonal) ||
+          (fullNom && (r.personalDesignado || '').toLowerCase().includes(fullNom)) ||
+          (Array.isArray(r.personalAsignado) &&
+            r.personalAsignado.some(
+              (p: any) =>
+                p?.personalId === filtroPersonal ||
+                p?.id === filtroPersonal ||
+                (fullNom && (p?.apellidoYNombre || p?.nombre || '').toLowerCase().includes(fullNom))
+            ));
         if (!tienePersonal) return false;
       }
 
-      // Sección / Grupo
-      if (filtroSeccion !== 'todas' && r.seccionGrupo !== filtroSeccion) return false;
+      // Sección / Grupo / Oficina
+      const seccionActual = r.oficina || r.seccionGrupo || r.grupoUOficina || '';
+      if (filtroSeccion !== 'todas' && seccionActual !== filtroSeccion) return false;
 
       // Delegación (si tiene privilegio de ver otras)
       if (puedeVerOtras && filtroDelegacion !== 'todas') {
@@ -121,7 +142,7 @@ export const ReporteRecargosModal: React.FC<ReporteRecargosModalProps> = ({
 
       // Rango de fechas
       if (rangoTipo !== 'todo') {
-        const fRec = r.fechaServicio || r.fecha || '';
+        const fRec = (r.fecha || r.fechaServicio || '').slice(0, 10);
         if (limiteDesde && fRec && fRec < limiteDesde) return false;
         if (limiteHasta && fRec && fRec > limiteHasta) return false;
       }
@@ -130,6 +151,7 @@ export const ReporteRecargosModal: React.FC<ReporteRecargosModalProps> = ({
     });
   }, [
     recargosList,
+    personalList,
     filtroTipo,
     filtroEstado,
     filtroPersonal,
@@ -152,22 +174,79 @@ export const ReporteRecargosModal: React.FC<ReporteRecargosModalProps> = ({
         const doc = new jsPDF(resolveJsPdfOrientation(opts.orientation), 'mm', resolveJsPdfFormat(opts.paperSize));
 
         const titulo = `REPORTE OFICIAL DE RECARGOS Y SERVICIOS EXTRAORDINARIOS`;
-        const currentY = drawPoliceHeader(doc, config, titulo, 10);
+        let currentY = drawPoliceHeader(doc, config, titulo, 10);
 
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(80, 80, 80);
-        const filtrosTxt = `Filtros: Tipo: ${filtroTipo} | Estado: ${filtroEstado} | Sección: ${filtroSeccion} | Período: ${rangoTipo.toUpperCase()} | Total recargos: ${filteredList.length}`;
-        doc.text(filtrosTxt, 10, currentY + 3);
+        const filtrosTxt = `Filtros: Tipo: ${filtroTipo} | Estado: ${filtroEstado} | Sección/Oficina: ${filtroSeccion} | Período: ${rangoTipo.toUpperCase()} | Total recargos: ${filteredList.length}`;
+        currentY = drawReportFilterBanner(doc, currentY, filtrosTxt, 10);
+
+        const totalEfectivos = filteredList.reduce((acc, r) => acc + Math.max(0, r.personalIds?.length || 0), 0);
+        const totalHoras = filteredList.reduce((acc, r) => acc + (Number(r.horasCalculadas) || 0) * Math.max(1, r.personalIds?.length || 1), 0);
+        const vigentes = filteredList.filter((r) => r.estado === 'Vigente').length;
+
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY,
+          [
+            { label: 'Recargos Filtrados', value: filteredList.length, subtitle: 'Servicios extraordinarios', accentColor: [17, 38, 77] },
+            { label: 'Efectivos Asignados', value: totalEfectivos, subtitle: 'Cobertura operativa total', accentColor: [29, 78, 216] },
+            { label: 'Horas Computadas', value: `${Math.round(totalHoras * 10) / 10} hs`, subtitle: 'Carga horaria acumulada', accentColor: [15, 118, 110] },
+            { label: 'Estado Vigente', value: vigentes, subtitle: `Finalizados/Susp.: ${filteredList.length - vigentes}`, accentColor: [217, 119, 6] },
+          ],
+          10
+        );
+
+        const tipoCounts: Record<string, number> = {};
+        const estadoCounts: Record<string, number> = {};
+        filteredList.forEach((r) => {
+          const t = r.tipoRecargo || r.tipoServicio || 'Otro';
+          tipoCounts[t] = (tipoCounts[t] || 0) + 1;
+          const e = r.estado || 'Vigente';
+          estadoCounts[e] = (estadoCounts[e] || 0) + 1;
+        });
+
+        const chartTipo = renderHorizontalBarChartPng(
+          Object.entries(tipoCounts).map(([label, value]) => ({ label, value })),
+          { width: 560, height: 235 }
+        );
+        const chartEstado = renderDonutChartPng(
+          Object.entries(estadoCounts).map(([label, value]) => ({
+            label,
+            value,
+            color: label === 'Vigente' ? '#0f766e' : label === 'Finalizado' ? '#1d4ed8' : '#d97706',
+          })),
+          { width: 560, height: 235, centerLabel: 'RECARGOS' }
+        );
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            { title: 'Servicios por Tipo de Recargo', subtitle: 'Frecuencia según modalidad', imageDataUrl: chartTipo },
+            { title: 'Estado de Cumplimiento', subtitle: 'Vigentes, Finalizados y Suspendidos', imageDataUrl: chartEstado },
+          ],
+          10
+        );
+
+        const personalById = new Map<string, Personal>();
+        personalList.forEach((p) => personalById.set(p.id, p));
 
         const rows: (string | number)[][] = filteredList.map((r, i) => {
-          const baseNombres = Array.isArray(r.personalAsignado)
-            ? r.personalAsignado
-                .map((p: any) => (typeof p === 'string' ? p : `${p.jerarquia || ''} ${p.apellidoYNombre || p.nombre || ''}`.trim()))
-                .filter(Boolean)
-                .join(', ') || r.personalDesignado || ''
-            : r.personalDesignado || '';
-          const fechaRef = r.fechaServicio || r.fecha || new Date().toISOString().slice(0, 10);
+          const nombresDesdeIds = (r.personalIds || [])
+            .map((id) => personalById.get(id))
+            .filter(Boolean)
+            .map((p) => `${p!.jerarquia} ${p!.apellidoYNombre}`)
+            .join(', ');
+
+          const baseNombres =
+            nombresDesdeIds ||
+            (Array.isArray(r.personalAsignado)
+              ? r.personalAsignado
+                  .map((p: any) => (typeof p === 'string' ? p : `${p.jerarquia || ''} ${p.apellidoYNombre || p.nombre || ''}`.trim()))
+                  .filter(Boolean)
+                  .join(', ')
+              : '') ||
+            r.personalDesignado ||
+            '';
+          const fechaRef = r.fecha || r.fechaServicio || new Date().toISOString().slice(0, 10);
           const personalNombres = baseNombres
             ? baseNombres
                 .split(',')
@@ -182,19 +261,19 @@ export const ReporteRecargosModal: React.FC<ReporteRecargosModalProps> = ({
 
           return [
             i + 1,
-            r.fechaServicio || r.fecha || '---',
-            `${r.horaInicio || r.horaDesde || r.hora || '00:00'} - ${r.horaFin || r.horaHasta || '00:00'}`,
-            r.tipoServicio || r.tipoRecargo || '---',
-            r.lugar || r.lugarCobertura || r.motivo || '---',
-            r.seccionGrupo || r.grupoUOficina || 'General',
-            r.estado || 'Pendiente',
+            r.fecha || r.fechaServicio || '---',
+            `${r.horaDesde || r.horaInicio || r.hora || '00:00'} - ${r.horaHasta || r.horaFin || '00:00'}`,
+            r.tipoRecargo || r.tipoServicio || '---',
+            r.lugarCobertura || r.lugar || r.motivo || '---',
+            r.oficina || r.seccionGrupo || r.grupoUOficina || 'General',
+            r.estado || 'Vigente',
             personalNombres,
             r.observaciones || '---',
           ];
         });
 
         autoTable(doc, {
-          startY: currentY + 6,
+          startY: currentY,
           head: [[
             'N°',
             'Fecha',
@@ -275,9 +354,9 @@ export const ReporteRecargosModal: React.FC<ReporteRecargosModalProps> = ({
                 className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-medium text-slate-800"
               >
                 <option value="todos">Todos los Estados</option>
-                <option value="Pendiente">Pendiente</option>
-                <option value="Cumplido">Cumplido</option>
-                <option value="Cancelado">Cancelado</option>
+                <option value="Vigente">Vigente</option>
+                <option value="Finalizado">Finalizado</option>
+                <option value="Suspendido">Suspendido</option>
               </select>
             </div>
 
@@ -410,15 +489,26 @@ export const ReporteRecargosModal: React.FC<ReporteRecargosModalProps> = ({
             </div>
           </div>
 
-          {/* Contador de coincidencias */}
-          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 font-bold flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-              <span>Servicios de recargo que coinciden con los criterios:</span>
+          {/* Resumen estadístico en vivo */}
+          <div className="grid grid-cols-3 gap-2.5 border border-slate-200 rounded-xl bg-slate-50 p-3">
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-slate-500">Servicios</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-slate-900">
+                {filteredList.length}
+              </div>
             </div>
-            <span className="text-sm font-mono bg-emerald-200/80 px-2.5 py-0.5 rounded-full">
-              {filteredList.length} servicios
-            </span>
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-slate-500">Asignaciones</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-blue-900">
+                {filteredList.reduce((acc, r) => acc + (r.personalIds?.length || 0), 0)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-slate-500">Vigentes</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-emerald-700">
+                {filteredList.filter((r) => r.estado === 'Vigente').length}
+              </div>
+            </div>
           </div>
         </div>
 

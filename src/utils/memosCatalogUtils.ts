@@ -1,5 +1,6 @@
 import {
   ConfiguracionSistema,
+  FolioAsignado,
   MemoNota,
   PerfilAccesoFolio,
   SerieNumerario,
@@ -86,13 +87,37 @@ export function resolveUserFolioPerfil(
   return 'comun';
 }
 
+export function isJefeControlFoliosUser(user?: UsuarioSistema | null): boolean {
+  if (!user) return false;
+  if (user.rol === 'superusuario') return true;
+  return resolveUserFolioPerfil(user) === 'jefe';
+}
+
+export function sortSeriesNumerarioByOrden(
+  series: SerieNumerario[]
+): SerieNumerario[] {
+  return [...(series || [])].sort((a, b) => {
+    const ordA = typeof a.orden === 'number' ? a.orden : 9999;
+    const ordB = typeof b.orden === 'number' ? b.orden : 9999;
+    if (ordA !== ordB) return ordA - ordB;
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
+}
+
 export const DEFAULT_TIPOS_MEMO: TipoMemoCatalogoItem[] = [
-  { id: 'tm-memorandum', nombre: 'Memorándum', prefijo: 'Mem. N°', esDefault: true, activo: true },
+  { id: 'tm-memorandum', nombre: 'Memorandum', prefijo: 'Memorandum N°', esDefault: true, activo: true },
   { id: 'tm-nota-v', nombre: 'Nota V', prefijo: 'Nota V N°', esDefault: true, activo: true },
-  { id: 'tm-nota', nombre: 'Nota', prefijo: 'Nota N°', esDefault: true, activo: true },
-  { id: 'tm-nota-interna', nombre: 'Nota Interna', prefijo: 'Nota Int. N°', esDefault: true, activo: true },
-  { id: 'tm-circular', nombre: 'Circular', prefijo: 'Circ. N°', esDefault: true, activo: true },
-  { id: 'tm-oficio', nombre: 'Oficio', prefijo: 'Of. N°', esDefault: true, activo: true },
+  { id: 'tm-oficio-j', nombre: 'Oficio J', prefijo: 'Oficio J N°', esDefault: true, activo: true },
+  { id: 'tm-oficio-v', nombre: 'Oficio V', prefijo: 'Oficio V N°', esDefault: true, activo: true },
+  {
+    id: 'tm-memorandum-r',
+    nombre: 'Memorandum R',
+    prefijo: 'Memorandum R N°',
+    esDefault: true,
+    activo: true,
+    perfilesVisibles: ['jefe', 'mayoria_judicial'],
+  },
+  { id: 'tm-radiograma', nombre: 'Radiograma', prefijo: 'Radiograma N°', esDefault: true, activo: true },
 ];
 
 export function normalizeTipoKey(value?: string): string {
@@ -115,10 +140,13 @@ export function normalizeTiposMemoCatalogo(
   }
   for (const item of customCatalog) {
     if (!item?.nombre?.trim()) continue;
-    map.set(normalizeTipoKey(item.nombre), {
+    const key = normalizeTipoKey(item.nombre);
+    const def = map.get(key);
+    map.set(key, {
       ...item,
       nombre: item.nombre.trim(),
       activo: item.activo !== false,
+      perfilesVisibles: item.perfilesVisibles ?? def?.perfilesVisibles,
     });
   }
   return Array.from(map.values());
@@ -147,7 +175,9 @@ export function buildUnifiedTiposMemosOptions(
 ): MemoTipoOption[] {
   const result: MemoTipoOption[] = [];
   const seenNormalizedNames = new Set<string>();
-  const foliosSeries = Array.isArray(seriesList) ? seriesList : [];
+  const foliosSeries = Array.isArray(seriesList)
+    ? sortSeriesNumerarioByOrden(seriesList)
+    : [];
 
   // 1. Series cargadas en "Control de Folios" (fuente principal exacta)
   for (const serie of foliosSeries) {
@@ -369,3 +399,168 @@ export function isMemoVisibleForUser(
     config
   );
 }
+
+/**
+ * Extrae el número entero de folio desde textos como:
+ * "Memorandum N° 005/2026", "Memorandum R N° 12/2026", "Nota V N° 3/2026", "15/2026", "15".
+ */
+export function extractNumeroFolioFromText(raw?: string | null): number | null {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  // Remover sufijo opcional "/YYYY" o "-YYYY" al final para no confundir el año con el N° de folio
+  const withoutYear = trimmed.replace(/\s*\/\s*\d{4}\s*$/, '').trim();
+  const matches = withoutYear.match(/\d+/g);
+  if (!matches || matches.length === 0) return null;
+  const parsed = parseInt(matches[matches.length - 1], 10);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1000000) return null;
+  return parsed;
+}
+
+export function formatCodigoFolioConAnio(
+  prefijo: string,
+  numero: number,
+  anio: number,
+  padDigits = 3
+): string {
+  const cleanPref = (prefijo || 'Folio N°').trim();
+  const numStr = padDigits > 0 ? String(numero).padStart(padDigits, '0') : String(numero);
+  return `${cleanPref} ${numStr}/${anio}`;
+}
+
+export function findSerieForMemo(
+  tipo: string | undefined,
+  seriesList: SerieNumerario[],
+  serieFolioId?: string,
+  delegacionId?: string
+): SerieNumerario | undefined {
+  const scoped = delegacionId
+    ? seriesList.filter((s) => !s.delegacionId || s.delegacionId === delegacionId)
+    : seriesList;
+  const pool = scoped.length > 0 ? scoped : seriesList;
+
+  if (serieFolioId) {
+    const byId = pool.find((s) => s.id === serieFolioId);
+    if (byId) return byId;
+  }
+
+  const normTipo = normalizeTipoKey(tipo);
+  if (!normTipo) return undefined;
+
+  return pool.find((s) => {
+    const normSerie = normalizeTipoKey(s.nombre);
+    if (normSerie === normTipo) return true;
+    // Equivalencias heredadas suaves (Memorándums -> Memorandum)
+    if (normTipo === 'memorandums' && normSerie === 'memorandum') return true;
+    if (normTipo === 'memorandum' && normSerie === 'memorandums') return true;
+    return false;
+  });
+}
+
+export function findFolioForMemo(
+  memo: Pick<MemoNota, 'folioId' | 'serieFolioId' | 'tipo' | 'nroFolioMemo' | 'anio' | 'fecha' | 'delegacionId'>,
+  foliosList: FolioAsignado[],
+  seriesList: SerieNumerario[]
+): FolioAsignado | undefined {
+  if (memo.folioId) {
+    const direct = foliosList.find((f) => f.id === memo.folioId);
+    if (direct) return direct;
+  }
+
+  const serie = findSerieForMemo(
+    memo.tipo,
+    seriesList,
+    memo.serieFolioId,
+    memo.delegacionId
+  );
+  if (!serie) return undefined;
+
+  const numero = extractNumeroFolioFromText(memo.nroFolioMemo);
+  if (numero === null) return undefined;
+
+  const memoAnio =
+    memo.anio || Number((memo.fecha || '').slice(0, 4)) || new Date().getFullYear();
+
+  return foliosList.find(
+    (f) => f.serieId === serie.id && f.numero === numero && (!f.anio || f.anio === memoAnio)
+  );
+}
+
+export function findMemoForFolio(
+  folio: FolioAsignado,
+  memosList: MemoNota[],
+  seriesList: SerieNumerario[]
+): MemoNota | undefined {
+  const direct = memosList.find((m) => m.folioId === folio.id);
+  if (direct) return direct;
+
+  const serie = seriesList.find((s) => s.id === folio.serieId);
+  const normSerie = normalizeTipoKey(serie?.nombre);
+
+  return memosList.find((m) => {
+    const mAnio = m.anio || Number((m.fecha || '').slice(0, 4));
+    if (folio.anio && mAnio && mAnio !== folio.anio) return false;
+    const sameSerie =
+      m.serieFolioId === folio.serieId ||
+      (normSerie && normalizeTipoKey(m.tipo) === normSerie);
+    if (!sameSerie) return false;
+    const mNum = extractNumeroFolioFromText(m.nroFolioMemo);
+    return mNum === folio.numero;
+  });
+}
+
+export function getOccupiedNumbersForSerieAnio(
+  serieId: string,
+  anio: number,
+  foliosList: FolioAsignado[],
+  memosList: MemoNota[],
+  seriesList: SerieNumerario[],
+  excludeMemoId?: string
+): Set<number> {
+  const occupied = new Set<number>();
+  for (const f of foliosList) {
+    if (f.serieId === serieId && (!f.anio || f.anio === anio)) {
+      occupied.add(f.numero);
+    }
+  }
+  const serie = seriesList.find((s) => s.id === serieId);
+  const normSerie = normalizeTipoKey(serie?.nombre);
+  for (const m of memosList) {
+    if (excludeMemoId && m.id === excludeMemoId) continue;
+    const mAnio = m.anio || Number((m.fecha || '').slice(0, 4)) || anio;
+    if (mAnio !== anio) continue;
+    const sameSerie =
+      m.serieFolioId === serieId || (normSerie && normalizeTipoKey(m.tipo) === normSerie);
+    if (!sameSerie) continue;
+    const num = extractNumeroFolioFromText(m.nroFolioMemo);
+    if (num !== null) occupied.add(num);
+  }
+  return occupied;
+}
+
+export function getFreeFolioNumbersForSerie(
+  serie: SerieNumerario | undefined,
+  anio: number,
+  foliosList: FolioAsignado[],
+  memosList: MemoNota[],
+  seriesList: SerieNumerario[],
+  count = 8,
+  excludeMemoId?: string
+): number[] {
+  if (!serie) return [];
+  const occupied = getOccupiedNumbersForSerieAnio(
+    serie.id,
+    anio,
+    foliosList,
+    memosList,
+    seriesList,
+    excludeMemoId
+  );
+  const max = Math.max(serie.limiteFolios || 1000, 1000);
+  const free: number[] = [];
+  for (let i = 1; i <= max && free.length < count; i++) {
+    if (!occupied.has(i)) free.push(i);
+  }
+  return free;
+}
+

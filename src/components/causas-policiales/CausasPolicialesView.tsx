@@ -9,6 +9,7 @@ import {
   ConfiguracionSistema,
   Personal,
 } from '../../types/police';
+import { esTipoLesionADeterminar } from '../../utils/lesionesUtils';
 import {
   ShieldAlert,
   Search,
@@ -30,12 +31,20 @@ import {
   Sparkles,
   MapPin,
   CheckCircle,
+  BarChart3,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
+import { ModuleStatsPanel, StatChartConfig, StatKpiItem } from '../common/ModuleStatsPanel';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderBarChartPng,
+  renderDonutChartPng,
+} from '../../utils/pdfChartUtils';
 
 export type OrigenCausaPolicial =
   | 'intervencion-lc'
@@ -92,6 +101,7 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
   const [fechaDesde, setFechaDesde] = useState<string>('');
   const [fechaHasta, setFechaHasta] = useState<string>('');
   const [selectedItem, setSelectedItem] = useState<ItemCausaPolicial | null>(null);
+  const [mostrarStats, setMostrarStats] = useState(false);
 
   // Consolidar todas las fuentes que involucran Personal Policial
   const todosLosCasos: ItemCausaPolicial[] = useMemo(() => {
@@ -257,7 +267,7 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
   }, [todosLosCasos]);
 
   const lesionesUnicas = useMemo(() => {
-    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas']);
+    const set = new Set<string>(['Sin Lesiones', 'Leves', 'Graves', 'Gravísimas', 'A Determinar']);
     todosLosCasos.forEach((c) => {
       if (c.tipoLesion) set.add(c.tipoLesion);
     });
@@ -302,24 +312,30 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
 
   // Filtrado reactivo
   const filteredCasos = useMemo(() => {
+    const term = searchTerm.toLowerCase();
     return todosLosCasos.filter((item) => {
       const matchSearch =
-        (item.personalPolicial.plaza || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.personalPolicial.apellidoYNombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (item.personalPolicial.dni && item.personalPolicial.dni.includes(searchTerm)) ||
-        item.caratulaOHecho.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.codigoRef.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.dependenciaInterviniente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (item.personalPolicial.dependenciaRevista &&
-          item.personalPolicial.dependenciaRevista.toLowerCase().includes(searchTerm.toLowerCase()));
+        !term ||
+        (item.personalPolicial?.plaza || '').toLowerCase().includes(term) ||
+        (item.personalPolicial?.apellidoYNombre || '').toLowerCase().includes(term) ||
+        Boolean(item.personalPolicial?.dni && item.personalPolicial.dni.includes(searchTerm)) ||
+        (item.caratulaOHecho || '').toLowerCase().includes(term) ||
+        (item.codigoRef || '').toLowerCase().includes(term) ||
+        (item.dependenciaInterviniente || '').toLowerCase().includes(term) ||
+        Boolean(
+          item.personalPolicial?.dependenciaRevista &&
+          item.personalPolicial.dependenciaRevista.toLowerCase().includes(term)
+        );
 
       const matchOrigen = filtroOrigen === 'todos' || item.origen === filtroOrigen;
       const matchRol =
         filtroRol === 'todos' ||
-        (item.personalPolicial.rol &&
-          item.personalPolicial.rol.toLowerCase().includes(filtroRol.toLowerCase()));
+        Boolean(
+          item.personalPolicial?.rol &&
+          item.personalPolicial.rol.toLowerCase().includes(filtroRol.toLowerCase())
+        );
       const matchJerarquia =
-        filtroJerarquia === 'todas' || item.personalPolicial.jerarquia === filtroJerarquia;
+        filtroJerarquia === 'todas' || item.personalPolicial?.jerarquia === filtroJerarquia;
       const matchDep =
         filtroDependencia === 'todas' || item.dependenciaInterviniente === filtroDependencia;
       const matchLesion =
@@ -387,7 +403,69 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
     };
   }, [todosLosCasos]);
 
-  // Exportar Libro / Registro Oficial a PDF con selección de papel y vista previa
+  const causasStats = useMemo(() => {
+    const kpis: StatKpiItem[] = [
+      {
+        label: 'Total Causas Consolidadas',
+        value: metricas.total,
+        detail: `${filteredCasos.length} en vista filtrada`,
+        tone: 'navy',
+      },
+      {
+        label: 'Intervenciones LC / Viales',
+        value: metricas.enIntervenciones,
+        detail: `${metricas.enInspecciones} insp. oculares`,
+        tone: 'blue',
+      },
+      {
+        label: 'Expedientes / Falta Oficio',
+        value: metricas.enExpedientes,
+        detail: `${metricas.enInformes} inf. técnicos`,
+        tone: 'emerald',
+      },
+      {
+        label: 'Imputados vs Damnificados',
+        value: `${metricas.imputados} / ${metricas.damnificados}`,
+        detail: 'Condición procesal',
+        tone: 'rose',
+      },
+    ];
+
+    const byOrigen = new Map<string, number>();
+    const byRol = new Map<string, number>();
+    todosLosCasos.forEach((c) => {
+      byOrigen.set(c.origenLabel, (byOrigen.get(c.origenLabel) || 0) + 1);
+      const rol = c.personalPolicial.rol || 'Involucrado';
+      byRol.set(rol, (byRol.get(rol) || 0) + 1);
+    });
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'causas-origen',
+        title: 'Casos por Módulo de Origen',
+        subtitle: 'Distribución de actuaciones con personal policial',
+        type: 'bar',
+        data: Array.from(byOrigen.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+        valueLabel: 'Casos',
+        primaryColor: '#11264d',
+      },
+      {
+        id: 'causas-rol',
+        title: 'Condición / Rol en el Hecho',
+        subtitle: 'Situación del efectivo involucrado',
+        type: 'donut',
+        data: Array.from(byRol.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+      },
+    ];
+
+    return { kpis, charts };
+  }, [metricas, todosLosCasos, filteredCasos.length]);
+
+  // Exportar Libro / Registro Oficial a PDF con selección de papel, gráficos y vista previa
   const handleExportLibroPdf = () => {
     const fileName = `Registro_Causas_Personal_Policial_${new Date().toISOString().slice(0, 10)}.pdf`;
     requestPdfExport({
@@ -402,10 +480,59 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
           format: resolveJsPdfFormat(opts.paperSize),
         });
 
-        const startHeaderY = drawPoliceHeader(
+        let curY = drawPoliceHeader(
           doc,
           config,
           `REGISTRO OFICIAL DE HECHOS Y CAUSAS CON PERSONAL POLICIAL INVOLUCRADO`,
+          10
+        );
+
+        const filtImp = filteredCasos.filter(
+          (c) =>
+            c.personalPolicial.rol?.toLowerCase().includes('imputado') ||
+            c.personalPolicial.rol?.toLowerCase().includes('aprehendido')
+        ).length;
+        const filtDam = filteredCasos.filter(
+          (c) =>
+            c.personalPolicial.rol?.toLowerCase().includes('damnificado') ||
+            c.personalPolicial.rol?.toLowerCase().includes('víctima')
+        ).length;
+        const filtFall = filteredCasos.filter((c) => c.fallecido).length;
+
+        curY = drawExecutiveKpiStrip(
+          doc,
+          curY + 1,
+          [
+            { label: 'Causas Listadas', value: filteredCasos.length, subtitle: 'Registro consolidado', accentColor: [17, 38, 77] },
+            { label: 'Imputados / Apreh.', value: filtImp, subtitle: 'Condición procesal', accentColor: [220, 38, 38] },
+            { label: 'Damnificados', value: filtDam, subtitle: 'Víctimas / afectados', accentColor: [15, 118, 110] },
+            { label: 'Fallecidos', value: filtFall, subtitle: 'Óbitos registrados', accentColor: [71, 85, 105] },
+          ],
+          10
+        );
+
+        const mapOrig = new Map<string, number>();
+        const mapRol = new Map<string, number>();
+        filteredCasos.forEach((c) => {
+          mapOrig.set(c.origenLabel, (mapOrig.get(c.origenLabel) || 0) + 1);
+          const rol = c.personalPolicial.rol || 'Involucrado';
+          mapRol.set(rol, (mapRol.get(rol) || 0) + 1);
+        });
+        const imgOrig = renderBarChartPng(
+          Array.from(mapOrig.entries()).map(([label, value]) => ({ label, value })),
+          { barColor: '#11264d' }
+        );
+        const imgRol = renderDonutChartPng(
+          Array.from(mapRol.entries()).map(([label, value]) => ({ label, value })),
+          { centerLabel: 'CASOS' }
+        );
+        curY = drawChartSectionGrid(
+          doc,
+          curY,
+          [
+            { title: 'Actuaciones por Módulo de Origen', subtitle: 'Fuente del registro', imageDataUrl: imgOrig },
+            { title: 'Rol / Condición del Efectivo', subtitle: 'Distribución procesal', imageDataUrl: imgRol },
+          ],
           10
         );
 
@@ -440,7 +567,7 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
         ]);
 
         autoTable(doc, {
-          startY: Math.max(startHeaderY + 4, 46),
+          startY: Math.max(curY + 2, 46),
           head: headers,
           body: bodyData,
           theme: 'grid',
@@ -548,10 +675,23 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-center">
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+            <button
+              type="button"
+              onClick={() => setMostrarStats((prev) => !prev)}
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold rounded-xl border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                mostrarStats
+                  ? 'bg-white text-slate-900 border-white'
+                  : 'bg-slate-800/80 hover:bg-slate-800 text-white border-slate-700'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>Estadísticas</span>
+            </button>
+
             <button
               onClick={handleExportLibroPdf}
-              className="flex items-center gap-2 px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white text-xs font-bold rounded-xl shadow-lg transition-colors cursor-pointer border border-red-500"
+              className="flex items-center gap-2 px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white text-xs font-bold rounded-xl shadow-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer border border-red-500"
             >
               <Download className="w-4 h-4" />
               <span>Exportar Libro Oficial PDF</span>
@@ -559,6 +699,18 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
           </div>
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Causas con Personal Policial"
+          subtitle="Consolidado de intervenciones, expedientes, roles procesales y lesiones"
+          kpis={causasStats.kpis}
+          charts={causasStats.charts}
+          onExportPdf={handleExportLibroPdf}
+          exportPdfLabel="Exportar Libro Oficial (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* Tarjetas KPI */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -804,8 +956,14 @@ export const CausasPolicialesView: React.FC<CausasPolicialesViewProps> = ({
                             {item.personalPolicial.rol || 'Involucrado'}
                           </span>
                           {item.tipoLesion && item.tipoLesion !== 'Sin Lesiones' && (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
-                              {item.tipoLesion}
+                            <span
+                              className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                                esTipoLesionADeterminar(item.tipoLesion)
+                                  ? 'bg-amber-100 text-amber-950 border-amber-400'
+                                  : 'bg-rose-50 text-rose-800 border-rose-200'
+                              }`}
+                            >
+                              {esTipoLesionADeterminar(item.tipoLesion) ? `⚠ ${item.tipoLesion}` : item.tipoLesion}
                             </span>
                           )}
                           {item.fallecido && (

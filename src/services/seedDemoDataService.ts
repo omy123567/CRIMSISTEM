@@ -2154,30 +2154,147 @@ export async function seedFiveRecordsPerModule(params: {
     },
   ];
 
-  // 14. CONTROL DE FOLIOS / NUMERARIO (5 folios en la serie Oficio Jefatura)
+  // 14. CONTROL DE FOLIOS / NUMERARIO (6 series canónicas y folios vinculados)
   const existingSeries = await db.seriesNumerario.toArray();
-  const serieJefatura: SerieNumerario =
-    existingSeries.find((s) => s.delegacionId === targetDelId) ||
-    existingSeries[0] || {
-      id: `demo-serie-${targetDelId}`,
-      nombre: 'Oficio Jefatura',
-      prefijo: 'Oficio J N°',
+  const findOrCreateDemoSerie = (
+    id: string,
+    nombre: string,
+    prefijo: string,
+    color: string,
+    descripcion: string,
+    orden: number,
+    perfilesVisibles?: ('comun' | 'jefe' | 'mayoria_judicial')[]
+  ): SerieNumerario => {
+    const existing =
+      existingSeries.find(
+        (s) =>
+          (!s.delegacionId || s.delegacionId === targetDelId) &&
+          (s.id === id || s.nombre.trim().toLowerCase() === nombre.trim().toLowerCase())
+      ) || existingSeries.find((s) => s.id === id);
+    if (existing) {
+      return {
+        ...existing,
+        orden: typeof existing.orden === 'number' ? existing.orden : orden,
+        perfilesVisibles:
+          existing.perfilesVisibles ?? perfilesVisibles,
+      };
+    }
+    return {
+      id: `${id}-${targetDelId}`,
+      nombre,
+      prefijo,
       anio: anioActual,
       limiteFolios: 1000,
       columnas: 20,
-      color: 'blue',
+      color,
+      orden,
+      perfilesVisibles,
       delegacionId: targetDelId,
-      descripcion: 'Oficios judiciales emitidos por Jefatura de Delegación',
+      descripcion,
       createdAt: nowIso,
     };
+  };
+
+  const serieMemorandum = findOrCreateDemoSerie(
+    'serie-memorandums',
+    'Memorandum',
+    'Memorandum N°',
+    'emerald',
+    'Memorándums internos, disposiciones operativas y directivas de servicio',
+    1
+  );
+  const serieNotaV = findOrCreateDemoSerie(
+    'serie-nota-v',
+    'Nota V',
+    'Nota V N°',
+    'cyan',
+    'Notas de Vicedirección, requerimientos y elevaciones administrativas',
+    2
+  );
+  const serieOficioJ = findOrCreateDemoSerie(
+    'serie-oficio-jefatura',
+    'Oficio J',
+    'Oficio J N°',
+    'blue',
+    'Oficios judiciales y comunicaciones oficiales emitidas por Jefatura de Delegación',
+    3
+  );
+  const serieOficioV = findOrCreateDemoSerie(
+    'serie-oficio-vicedireccion',
+    'Oficio V',
+    'Oficio V N°',
+    'indigo',
+    'Oficios, informes elevados y resoluciones de Vicedirección y Subjefatura',
+    4
+  );
+  const serieMemorandumR = findOrCreateDemoSerie(
+    'serie-memorandum-r',
+    'Memorandum R',
+    'Memorandum R N°',
+    'amber',
+    'Memorándums Reservados, directivas sensibles y comunicaciones de carácter reservado',
+    5,
+    ['jefe', 'mayoria_judicial']
+  );
+  const serieRadiograma = findOrCreateDemoSerie(
+    'serie-radiograma',
+    'Radiograma',
+    'Radiograma N°',
+    'purple',
+    'Radiogramas institucionales, circulares telegráficas y despachos urgentes',
+    6
+  );
+
+  const demoSeriesSeed: SerieNumerario[] = [
+    serieMemorandum,
+    serieNotaV,
+    serieOficioJ,
+    serieOficioV,
+    serieMemorandumR,
+    serieRadiograma,
+  ];
 
   const foliosSeed: FolioAsignado[] = [
     {
       id: `demo-fol-${targetDelId}-1`,
-      serieId: serieJefatura.id,
+      serieId: serieMemorandum.id,
       numero: 1,
-      codigoCaratula: `${serieJefatura.prefijo} 1/${anioActual}`,
-      categoriaDocumento: 'Oficio Judicial',
+      codigoCaratula: `${serieMemorandum.prefijo} 001/${anioActual}`,
+      categoriaDocumento: serieMemorandum.nombre,
+      anio: anioActual,
+      asunto: 'Asignación de Turnos Especiales de Guardia Pericial y Custodia de Secuestros',
+      destinatario: `Personal Superior y Subalterno - ${delNombre}`,
+      solicitante: delNombre,
+      observaciones: 'Notificado en libro de guardia a todas las secciones.',
+      usuarioRegistro: userName,
+      fechaAsignacion: addDaysYmd(now, -1),
+      horaAsignacion: '08:15',
+      delegacionId: targetDelId,
+      createdAt: nowIso,
+    },
+    {
+      id: `demo-fol-${targetDelId}-2`,
+      serieId: serieNotaV.id,
+      numero: 1,
+      codigoCaratula: `${serieNotaV.prefijo} 001/${anioActual}`,
+      categoriaDocumento: serieNotaV.nombre,
+      anio: anioActual,
+      asunto: 'Solicitud de Insumos Químicos y Reactivos para Revelado de Rastros Papiloscópicos',
+      destinatario: 'Dirección General de Policía Científica — Área Logística',
+      solicitante: `Sección Criminalística ${delSiglas}`,
+      observaciones: 'Remitido por correo institucional con copia a Jefatura.',
+      usuarioRegistro: userName,
+      fechaAsignacion: addDaysYmd(now, -2),
+      horaAsignacion: '10:05',
+      delegacionId: targetDelId,
+      createdAt: nowIso,
+    },
+    {
+      id: `demo-fol-${targetDelId}-3`,
+      serieId: serieOficioJ.id,
+      numero: 1,
+      codigoCaratula: `${serieOficioJ.prefijo} 001/${anioActual}`,
+      categoriaDocumento: serieOficioJ.nombre,
       anio: anioActual,
       asunto: 'Elevación de Inspección Ocular N° 001 e informe planimétrico',
       destinatario: 'UFI N° 1 - Delitos Complejos',
@@ -2190,69 +2307,35 @@ export async function seedFiveRecordsPerModule(params: {
       createdAt: nowIso,
     },
     {
-      id: `demo-fol-${targetDelId}-2`,
-      serieId: serieJefatura.id,
-      numero: 2,
-      codigoCaratula: `${serieJefatura.prefijo} 2/${anioActual}`,
-      categoriaDocumento: 'Memorándum',
+      id: `demo-fol-${targetDelId}-4`,
+      serieId: serieOficioV.id,
+      numero: 1,
+      codigoCaratula: `${serieOficioV.prefijo} 001/${anioActual}`,
+      categoriaDocumento: serieOficioV.nombre,
       anio: anioActual,
-      asunto: 'Diagramación de turnos de guardia y recargos semanales',
-      destinatario: 'Personal Subalterno de Delegación',
-      solicitante: 'Jefatura de Delegación',
-      observaciones: 'Notificado en orden del día.',
+      asunto: 'Elevación de Planilla Mensual de Licencias Ordinarias e Invernales',
+      destinatario: 'Departamento Personal (D-1) — Jefatura de Policía',
+      solicitante: delNombre,
+      observaciones: 'Incluye saldos computados según escala de antigüedad Art. 7.',
       usuarioRegistro: userName,
-      fechaAsignacion: addDaysYmd(now, -1),
-      horaAsignacion: '08:15',
-      delegacionId: targetDelId,
-      createdAt: nowIso,
-    },
-    {
-      id: `demo-fol-${targetDelId}-3`,
-      serieId: serieJefatura.id,
-      numero: 3,
-      codigoCaratula: `${serieJefatura.prefijo} 3/${anioActual}`,
-      categoriaDocumento: 'Oficio Judicial',
-      anio: anioActual,
-      asunto: 'Remisión de extracción forense informática con código hash',
-      destinatario: 'UFI N° 3 - Delitos Contra la Propiedad',
-      solicitante: 'Dirección General de Investigaciones',
-      observaciones: 'Acompaña soporte óptico certificado.',
-      usuarioRegistro: userName,
-      fechaAsignacion: addDaysYmd(now, -2),
+      fechaAsignacion: addDaysYmd(now, -5),
       horaAsignacion: '11:20',
       delegacionId: targetDelId,
       createdAt: nowIso,
     },
     {
-      id: `demo-fol-${targetDelId}-4`,
-      serieId: serieJefatura.id,
-      numero: 4,
-      codigoCaratula: `${serieJefatura.prefijo} 4/${anioActual}`,
-      categoriaDocumento: 'Nota Interna',
+      id: `demo-fol-${targetDelId}-5`,
+      serieId: serieMemorandumR.id,
+      numero: 1,
+      codigoCaratula: `${serieMemorandumR.prefijo} 001/${anioActual}`,
+      categoriaDocumento: serieMemorandumR.nombre,
       anio: anioActual,
-      asunto: 'Solicitud de insumos fotográficos y reactivos para rastros',
-      destinatario: 'Dirección General Policía Científica',
-      solicitante: 'Sección Criminalística Pericial',
-      observaciones: 'Elevado por vía jerárquica.',
+      asunto: 'Protocolo Reservado de Custodia de Evidencia Digital y Secuestros Telefónicos',
+      destinatario: 'Jefes de Turno y Gabinete de Informática Forense',
+      solicitante: `Jefatura ${delNombre}`,
+      observaciones: 'Carácter reservado. Registro en sobre lacrado y acta de entrega.',
       usuarioRegistro: userName,
       fechaAsignacion: addDaysYmd(now, -3),
-      horaAsignacion: '10:05',
-      delegacionId: targetDelId,
-      createdAt: nowIso,
-    },
-    {
-      id: `demo-fol-${targetDelId}-5`,
-      serieId: serieJefatura.id,
-      numero: 5,
-      codigoCaratula: `${serieJefatura.prefijo} 5/${anioActual}`,
-      categoriaDocumento: 'Informe Técnico',
-      anio: anioActual,
-      asunto: 'Dictamen pericial accidentológico sobre Ruta Nacional 86',
-      destinatario: 'UFI N° 2 - Delitos Culposos',
-      solicitante: 'Comisaría Seccional 2da',
-      observaciones: 'Anexa 18 láminas ilustrativas.',
-      usuarioRegistro: userName,
-      fechaAsignacion: addDaysYmd(now, -4),
       horaAsignacion: '16:30',
       delegacionId: targetDelId,
       createdAt: nowIso,
@@ -2427,38 +2510,22 @@ export async function seedFiveRecordsPerModule(params: {
     },
   ];
 
-  // 17. MEMOS Y NOTAS (5 registros alineados con Control de Folios)
+  // 17. MEMOS Y NOTAS (5 registros vinculados directamente con Control de Folios)
   const makeTextAttachmentUrl = (txt: string) =>
     `data:text/plain;charset=utf-8,${encodeURIComponent(txt)}`;
-
-  const findSeriesOrFallback = (matchKey: string, fallbackNombre: string, fallbackPrefijo: string) =>
-    existingSeries.find(
-      (s) =>
-        (!s.delegacionId || s.delegacionId === targetDelId) &&
-        s.nombre.toLowerCase().includes(matchKey.toLowerCase())
-    ) ||
-    existingSeries.find((s) => s.nombre.toLowerCase().includes(matchKey.toLowerCase())) || {
-      id: serieJefatura.id,
-      nombre: fallbackNombre,
-      prefijo: fallbackPrefijo,
-    };
-
-  const serieMemorandums = findSeriesOrFallback('memor', 'Memorándums', 'Mem. N°');
-  const serieVicedireccion = findSeriesOrFallback('vicedirec', 'Oficio Vicedirección', 'Oficio V N°');
-  const serieExpedientes = findSeriesOrFallback('expediente', 'Expedientes', 'Exp. N°');
-  const serieCirculares = findSeriesOrFallback('circular', 'Circulares', 'Circ. N°');
 
   const memosSeed: MemoNota[] = [
     {
       id: `demo-memo-${targetDelId}-1`,
-      tipo: serieMemorandums.nombre,
-      serieFolioId: serieMemorandums.id,
-      serieFolioNombre: serieMemorandums.nombre,
-      nroFolioMemo: `${serieMemorandums.prefijo} 001/${anioActual}`,
+      tipo: serieMemorandum.nombre,
+      serieFolioId: serieMemorandum.id,
+      serieFolioNombre: serieMemorandum.nombre,
+      folioId: foliosSeed[0].id,
+      nroFolioMemo: foliosSeed[0].codigoCaratula,
       anio: anioActual,
-      fecha: addDaysYmd(now, -1),
-      asunto: 'Asignación de Turnos Especiales de Guardia Pericial y Custodia de Secuestros',
-      destino: `Personal Superior y Subalterno - ${delNombre}`,
+      fecha: foliosSeed[0].fechaAsignacion,
+      asunto: foliosSeed[0].asunto,
+      destino: foliosSeed[0].destinatario,
       remitenteArea: delNombre,
       estado: 'Emitido',
       prioridad: 'Normal',
@@ -2470,55 +2537,6 @@ export async function seedFiveRecordsPerModule(params: {
         `MEMORANDUM N° 001/${anioActual}\nDE: Jefatura ${delNombre}\nPARA: Todo el personal\nASUNTO: Turnos especiales y cadena de custodia.\nSe recuerda estricto cumplimiento del registro fotográfico y acta de cadena de custodia en secuestros de dispositivos electrónicos.`
       ),
       contenidoExtraido: `MEMORANDUM N° 001/${anioActual} cadena de custodia registro fotografico dispositivos electronicos turnos especiales`,
-      observaciones: 'Notificado en libro de guardia a todas las secciones.',
-      delegacionId: targetDelId,
-      delegacionNombre: delNombre,
-      usuarioRegistroNombre: userName,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    },
-    {
-      id: `demo-memo-${targetDelId}-2`,
-      tipo: serieVicedireccion.nombre,
-      serieFolioId: serieVicedireccion.id,
-      serieFolioNombre: serieVicedireccion.nombre,
-      nroFolioMemo: `${serieVicedireccion.prefijo} 014/${anioActual}`,
-      anio: anioActual,
-      fecha: addDaysYmd(now, -2),
-      asunto: 'Solicitud de Insumos Químicos y Reactivos para Revelado de Rastros Papiloscópicos',
-      destino: 'Dirección General de Policía Científica — Área Logística',
-      remitenteArea: `Sección Criminalística ${delSiglas}`,
-      estado: 'Enviado',
-      prioridad: 'Urgente',
-      archivoNombre: `Oficio_V_014_${anioActual}_Insumos.txt`,
-      archivoMimeType: 'text/plain',
-      archivoExtension: 'txt',
-      archivoTamanoBytes: 280,
-      archivoDataUrl: makeTextAttachmentUrl(
-        `OFICIO VICEDIRECCION N° 014/${anioActual}\nSolicítase provisión urgente de polvo magnético negro, cinta levantadora de rastros y kits de hisopado estéril.`
-      ),
-      contenidoExtraido: `OFICIO VICEDIRECCION N° 014/${anioActual} polvo magnetico negro cinta levantadora de rastros kits de hisopado esteril`,
-      observaciones: 'Remitido por correo institucional con copia a Jefatura.',
-      delegacionId: targetDelId,
-      delegacionNombre: delNombre,
-      usuarioRegistroNombre: userName,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    },
-    {
-      id: `demo-memo-${targetDelId}-3`,
-      tipo: serieJefatura.nombre,
-      serieFolioId: serieJefatura.id,
-      serieFolioNombre: serieJefatura.nombre,
-      folioId: foliosSeed[0].id,
-      nroFolioMemo: foliosSeed[0].codigoCaratula,
-      anio: anioActual,
-      fecha: foliosSeed[0].fechaAsignacion,
-      asunto: foliosSeed[0].asunto,
-      destino: foliosSeed[0].destinatario,
-      remitenteArea: delNombre,
-      estado: 'Recepcionado',
-      prioridad: 'Normal',
       observaciones: foliosSeed[0].observaciones,
       delegacionId: targetDelId,
       delegacionNombre: delNombre,
@@ -2527,19 +2545,70 @@ export async function seedFiveRecordsPerModule(params: {
       updatedAt: nowIso,
     },
     {
-      id: `demo-memo-${targetDelId}-4`,
-      tipo: serieExpedientes.nombre,
-      serieFolioId: serieExpedientes.id,
-      serieFolioNombre: serieExpedientes.nombre,
-      nroFolioMemo: `${serieExpedientes.prefijo} 028/${anioActual}`,
+      id: `demo-memo-${targetDelId}-2`,
+      tipo: serieNotaV.nombre,
+      serieFolioId: serieNotaV.id,
+      serieFolioNombre: serieNotaV.nombre,
+      folioId: foliosSeed[1].id,
+      nroFolioMemo: foliosSeed[1].codigoCaratula,
       anio: anioActual,
-      fecha: addDaysYmd(now, -5),
-      asunto: 'Elevación de Planilla Mensual de Licencias Ordinarias e Invernales',
-      destino: 'Departamento Personal (D-1) — Jefatura de Policía',
+      fecha: foliosSeed[1].fechaAsignacion,
+      asunto: foliosSeed[1].asunto,
+      destino: foliosSeed[1].destinatario,
+      remitenteArea: `Sección Criminalística ${delSiglas}`,
+      estado: 'Enviado',
+      prioridad: 'Urgente',
+      archivoNombre: `Nota_V_001_${anioActual}_Insumos.txt`,
+      archivoMimeType: 'text/plain',
+      archivoExtension: 'txt',
+      archivoTamanoBytes: 280,
+      archivoDataUrl: makeTextAttachmentUrl(
+        `NOTA V N° 001/${anioActual}\nSolicítase provisión urgente de polvo magnético negro, cinta levantadora de rastros y kits de hisopado estéril.`
+      ),
+      contenidoExtraido: `NOTA V N° 001/${anioActual} polvo magnetico negro cinta levantadora de rastros kits de hisopado esteril`,
+      observaciones: foliosSeed[1].observaciones,
+      delegacionId: targetDelId,
+      delegacionNombre: delNombre,
+      usuarioRegistroNombre: userName,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+    {
+      id: `demo-memo-${targetDelId}-3`,
+      tipo: serieOficioJ.nombre,
+      serieFolioId: serieOficioJ.id,
+      serieFolioNombre: serieOficioJ.nombre,
+      folioId: foliosSeed[2].id,
+      nroFolioMemo: foliosSeed[2].codigoCaratula,
+      anio: anioActual,
+      fecha: foliosSeed[2].fechaAsignacion,
+      asunto: foliosSeed[2].asunto,
+      destino: foliosSeed[2].destinatario,
+      remitenteArea: delNombre,
+      estado: 'Recepcionado',
+      prioridad: 'Normal',
+      observaciones: foliosSeed[2].observaciones,
+      delegacionId: targetDelId,
+      delegacionNombre: delNombre,
+      usuarioRegistroNombre: userName,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+    {
+      id: `demo-memo-${targetDelId}-4`,
+      tipo: serieOficioV.nombre,
+      serieFolioId: serieOficioV.id,
+      serieFolioNombre: serieOficioV.nombre,
+      folioId: foliosSeed[3].id,
+      nroFolioMemo: foliosSeed[3].codigoCaratula,
+      anio: anioActual,
+      fecha: foliosSeed[3].fechaAsignacion,
+      asunto: foliosSeed[3].asunto,
+      destino: foliosSeed[3].destinatario,
       remitenteArea: delNombre,
       estado: 'Archivado',
       prioridad: 'Normal',
-      observaciones: 'Incluye saldos computados según escala de antigüedad Art. 7.',
+      observaciones: foliosSeed[3].observaciones,
       delegacionId: targetDelId,
       delegacionNombre: delNombre,
       usuarioRegistroNombre: userName,
@@ -2548,26 +2617,27 @@ export async function seedFiveRecordsPerModule(params: {
     },
     {
       id: `demo-memo-${targetDelId}-5`,
-      tipo: serieCirculares.nombre,
-      serieFolioId: serieCirculares.id,
-      serieFolioNombre: serieCirculares.nombre,
-      nroFolioMemo: `${serieCirculares.prefijo} 009/${anioActual}`,
+      tipo: serieMemorandumR.nombre,
+      serieFolioId: serieMemorandumR.id,
+      serieFolioNombre: serieMemorandumR.nombre,
+      folioId: foliosSeed[4].id,
+      nroFolioMemo: foliosSeed[4].codigoCaratula,
       anio: anioActual,
-      fecha: addDaysYmd(now, -7),
-      asunto: 'Protocolo de Preservación de Escena del Hecho en Siniestros Viales sobre Ruta Nacional',
-      destino: 'Comisarías Jurisdiccionales y Unidades Regionales',
-      remitenteArea: `Accidentología Vial ${delSiglas}`,
+      fecha: foliosSeed[4].fechaAsignacion,
+      asunto: foliosSeed[4].asunto,
+      destino: foliosSeed[4].destinatario,
+      remitenteArea: `Jefatura ${delSiglas}`,
       estado: 'Emitido',
       prioridad: 'Reservado',
-      archivoNombre: `Circular_009_${anioActual}_Vial.txt`,
+      archivoNombre: `Memorandum_R_001_${anioActual}_Custodia.txt`,
       archivoMimeType: 'text/plain',
       archivoExtension: 'txt',
       archivoTamanoBytes: 260,
       archivoDataUrl: makeTextAttachmentUrl(
-        `CIRCULAR N° 009/${anioActual}\nLineamientos de señalización perimetral, relevamiento planimétrico y toma de muestras de alcoholemia.`
+        `MEMORANDUM R N° 001/${anioActual}\nLineamientos de resguardo en bolsa Faraday, hash SHA-256 y cadena de custodia digital.`
       ),
-      contenidoExtraido: `CIRCULAR N° 009/${anioActual} senalizacion perimetral relevamiento planimetrico alcoholemia`,
-      observaciones: 'Difundida en reunión de oficiales de guardia.',
+      contenidoExtraido: `MEMORANDUM R N° 001/${anioActual} bolsa faraday hash cadena de custodia digital`,
+      observaciones: foliosSeed[4].observaciones,
       delegacionId: targetDelId,
       delegacionNombre: delNombre,
       usuarioRegistroNombre: userName,
@@ -2622,7 +2692,7 @@ export async function seedFiveRecordsPerModule(params: {
       await db.forenses.put(forensesSeed[0]);
       await db.forenses.bulkPut(forensesSeed);
       await db.licenciados.bulkPut(licenciadosSeed);
-      await db.seriesNumerario.put(serieJefatura);
+      await db.seriesNumerario.bulkPut(demoSeriesSeed);
       await db.folios.bulkPut(foliosSeed);
       await db.novedadesDelegaciones.bulkPut(novedadesSeed);
       await db.charlasPrevencion.bulkPut(charlasSeed);

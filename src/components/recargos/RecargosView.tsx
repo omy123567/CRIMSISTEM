@@ -22,6 +22,7 @@ import {
   ShieldAlert,
   Building2,
   Briefcase,
+  BarChart3,
 } from 'lucide-react';
 import { RecargoModal } from './RecargoModal';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -32,6 +33,13 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { drawPoliceHeader, drawPoliceFooter } from '../../services/pdfService';
 import { requestPdfExport, resolveJsPdfFormat, resolveJsPdfOrientation } from '../../services/pdfExportBus';
+import { ModuleStatsPanel, StatChartConfig, StatKpiItem } from '../common/ModuleStatsPanel';
+import {
+  drawExecutiveKpiStrip,
+  drawChartSectionGrid,
+  renderDonutChartPng,
+  renderHorizontalBarChartPng,
+} from '../../utils/pdfChartUtils';
 
 interface RecargosViewProps {
   recargosList: RecargoOperativo[];
@@ -68,6 +76,7 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [mostrarStats, setMostrarStats] = useState(false);
   const [selectedRecargo, setSelectedRecargo] = useState<RecargoOperativo | null>(null);
   const [deleteRecargoConfirm, setDeleteRecargoConfirm] = useState<{
     isOpen: boolean;
@@ -118,10 +127,11 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
       const oficinaTexto = oficinaVal.toLowerCase();
 
       const matchSearch =
-        r.fecha.toLowerCase().includes(term) ||
+        !term ||
+        (r.fecha || '').toLowerCase().includes(term) ||
         (r.hora && r.hora.toLowerCase().includes(term)) ||
         (r.horaPresentacion && r.horaPresentacion.toLowerCase().includes(term)) ||
-        r.tipoRecargo.toLowerCase().includes(term) ||
+        (r.tipoRecargo || '').toLowerCase().includes(term) ||
         (r.estado && r.estado.toLowerCase().includes(term)) ||
         (r.observaciones && r.observaciones.toLowerCase().includes(term)) ||
         delNombre.includes(term) ||
@@ -184,6 +194,81 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
     setFechaHasta('');
   };
 
+  const recargosStats = useMemo(() => {
+    const total = recargosList.length;
+    const vigentes = recargosList.filter((r) => r.estado === 'Vigente').length;
+    const deGuardia = recargosList.filter((r) => r.seEncuentraDeGuardia === true).length;
+    const totalAsignaciones = recargosList.reduce((acc, r) => {
+      if (Array.isArray(r.personalIds) && r.personalIds.length > 0) return acc + r.personalIds.length;
+      const splitCount = (r.personalDesignado || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean).length;
+      return acc + splitCount;
+    }, 0);
+
+    const kpis: StatKpiItem[] = [
+      {
+        label: 'Total Recargos',
+        value: total,
+        detail: `${filteredRecargos.length} en vista actual`,
+        tone: 'navy',
+      },
+      {
+        label: 'Vigentes',
+        value: vigentes,
+        detail: 'Servicios activos / programados',
+        tone: 'emerald',
+      },
+      {
+        label: 'Efectivos De Guardia',
+        value: deGuardia,
+        detail: `${total - deGuardia} en condición Franco`,
+        tone: 'blue',
+      },
+      {
+        label: 'Designaciones Totales',
+        value: totalAsignaciones,
+        detail: 'Participaciones acumuladas',
+        tone: 'amber',
+      },
+    ];
+
+    const byTipo = new Map<string, number>();
+    const byEstado = new Map<string, number>();
+    recargosList.forEach((r) => {
+      const t = r.tipoRecargo || 'Sin Tipo';
+      byTipo.set(t, (byTipo.get(t) || 0) + 1);
+      const e = r.estado || 'Sin Estado';
+      byEstado.set(e, (byEstado.get(e) || 0) + 1);
+    });
+
+    const charts: StatChartConfig[] = [
+      {
+        id: 'recargos-tipo',
+        title: 'Recargos por Tipo de Servicio',
+        subtitle: 'Servicios extraordinarios registrados',
+        type: 'horizontal-bar',
+        data: Array.from(byTipo.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+        valueLabel: 'Servicios',
+        primaryColor: '#11264d',
+      },
+      {
+        id: 'recargos-estado',
+        title: 'Estado de los Recargos',
+        subtitle: 'Vigentes, finalizados y suspendidos',
+        type: 'donut',
+        data: Array.from(byEstado.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value),
+      },
+    ];
+
+    return { kpis, charts };
+  }, [recargosList, filteredRecargos.length]);
+
   // Generar PDF oficial con orientación, tamaño de papel y desglose de servicios por delegación y personal
   const handleGenerarPdfConOpciones = (opciones: OpcionesImpresion) => {
     const fileName = `Recargos_Operativos_${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -199,10 +284,51 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
         const delNombreOficial = delegacionActiva?.nombre || config.dependencia;
         const oficinaHeader = 'OFICINA DE SERVICIOS Y OPERACIONES POLICIALES';
 
-        const currentY = drawPoliceHeader(
+        let currentY = drawPoliceHeader(
           doc,
           config,
           `PLANILLA OFICIAL DE RECARGOS OPERATIVOS Y SERVICIOS EXTRAORDINARIOS\nDELEGACIÓN: ${delNombreOficial} - ${oficinaHeader}`,
+          10
+        );
+
+        const totalFilt = filteredRecargos.length;
+        const vigentesFilt = filteredRecargos.filter((r) => r.estado === 'Vigente').length;
+        const guardiaFilt = filteredRecargos.filter((r) => r.seEncuentraDeGuardia).length;
+        currentY = drawExecutiveKpiStrip(
+          doc,
+          currentY + 1,
+          [
+            { label: 'Servicios Listados', value: totalFilt, subtitle: 'Planilla actual', accentColor: [17, 38, 77] },
+            { label: 'Vigentes', value: vigentesFilt, subtitle: 'En curso / activos', accentColor: [15, 118, 110] },
+            { label: 'De Guardia', value: guardiaFilt, subtitle: `${totalFilt - guardiaFilt} en franco`, accentColor: [29, 78, 216] },
+            { label: 'Delegaciones', value: new Set(filteredRecargos.map((r) => r.delegacionId || 'central')).size, subtitle: 'Unidades involucradas', accentColor: [217, 119, 6] },
+          ],
+          10
+        );
+
+        const mapTipo = new Map<string, number>();
+        const mapEstado = new Map<string, number>();
+        filteredRecargos.forEach((r) => {
+          const t = r.tipoRecargo || 'Otro';
+          mapTipo.set(t, (mapTipo.get(t) || 0) + 1);
+          const e = r.estado || 'Sin Estado';
+          mapEstado.set(e, (mapEstado.get(e) || 0) + 1);
+        });
+        const imgTipo = renderHorizontalBarChartPng(
+          Array.from(mapTipo.entries()).map(([label, value]) => ({ label, value })),
+          { barColor: '#11264d' }
+        );
+        const imgEstado = renderDonutChartPng(
+          Array.from(mapEstado.entries()).map(([label, value]) => ({ label, value })),
+          { centerLabel: 'RECARGOS' }
+        );
+        currentY = drawChartSectionGrid(
+          doc,
+          currentY,
+          [
+            { title: 'Servicios por Tipo de Recargo', subtitle: 'Distribución operativa', imageDataUrl: imgTipo },
+            { title: 'Estado de los Recargos', subtitle: 'Vigentes / Finalizados / Suspendidos', imageDataUrl: imgEstado },
+          ],
           10
         );
 
@@ -255,7 +381,7 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
     });
 
     autoTable(doc, {
-      startY: currentY + 4,
+      startY: currentY + 1,
       head: [
         [
           'N°',
@@ -417,10 +543,23 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMostrarStats((prev) => !prev)}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              mostrarStats
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Estadísticas</span>
+          </button>
+
           <button
             onClick={() => setIsReportModalOpen(true)}
-            className="flex items-center gap-1.5 bg-blue-800 hover:bg-blue-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+            className="flex items-center gap-1.5 bg-blue-800 hover:bg-blue-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer shadow-xs whitespace-nowrap shrink-0"
             title="Generar reportes oficiales de recargos filtrados por tipo, estado, personal, sección, delegación y fechas"
           >
             <Download className="w-3.5 h-3.5 text-blue-200" />
@@ -429,7 +568,7 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
 
           <button
             onClick={() => setIsPrintModalOpen(true)}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Planilla PDF Oficial</span>
@@ -440,13 +579,25 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
               setSelectedRecargo(null);
               setIsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>Nuevo Recargo</span>
           </button>
         </div>
       </div>
+
+      {mostrarStats && (
+        <ModuleStatsPanel
+          title="Estadísticas de Recargos de Servicios"
+          subtitle="Distribución operativa por modalidad, estado y asignaciones"
+          kpis={recargosStats.kpis}
+          charts={recargosStats.charts}
+          onExportPdf={() => setIsReportModalOpen(true)}
+          exportPdfLabel="Reporte Estadístico (PDF)"
+          onClose={() => setMostrarStats(false)}
+        />
+      )}
 
       {/* Barra de Filtros Plegable */}
       <CollapsibleFilterBar
