@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Personal, ConfiguracionSistema } from '../../types/police';
+import { Personal, ConfiguracionSistema, UsuarioSistema } from '../../types/police';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 import {
   GraduationCap,
   Plus,
@@ -29,6 +30,7 @@ import {
 interface LicenciadosViewProps {
   personalList: Personal[];
   config: ConfiguracionSistema;
+  currentUser?: UsuarioSistema;
   onSavePersonal: (p: Personal) => void;
   // Compatibilidad con props anteriores
   licenciadosList?: any[];
@@ -39,8 +41,10 @@ interface LicenciadosViewProps {
 export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
   personalList = [],
   config,
+  currentUser,
   onSavePersonal,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroEspecialidad, setFiltroEspecialidad] = useState('todas');
   const [filtroJerarquia, setFiltroJerarquia] = useState('todas');
@@ -427,13 +431,15 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
               <span>Exportar Nómina PDF</span>
             </button>
 
-            <button
-              onClick={handleOpenModalNuevo}
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-900/30 whitespace-nowrap shrink-0 transition-all cursor-pointer border border-blue-400"
-            >
-              <Plus className="w-4 h-4" />
-              <span>+ Designar Personal Licenciado</span>
-            </button>
+            {canCreate && (
+              <button
+                onClick={handleOpenModalNuevo}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-900/30 whitespace-nowrap shrink-0 transition-all cursor-pointer border border-blue-400"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Designar Personal Licenciado</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -592,7 +598,7 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
               Utilice el botón "+ Designar Personal Licenciado" para seleccionar a un efectivo de la nómina
               existente y asignarle su título de grado universitario y matrícula profesional.
             </p>
-            {personalDisponibleParaLicenciatura.length > 0 && (
+            {canCreate && personalDisponibleParaLicenciatura.length > 0 && (
               <button
                 onClick={handleOpenModalNuevo}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer"
@@ -676,20 +682,27 @@ export const LicenciadosView: React.FC<LicenciadosViewProps> = ({
                     {/* Acciones */}
                     <td className="py-3 px-3 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleOpenModalEditar(lic)}
-                          className="p-1.5 text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                          title="Editar Especialidad y Matrícula"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setPersonalToUnlicense(lic)}
-                          className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                          title="Quitar condición de Licenciado"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleOpenModalEditar(lic)}
+                            className="p-1.5 text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            title="Editar Especialidad y Matrícula"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => setPersonalToUnlicense(lic)}
+                            className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                            title="Quitar condición de Licenciado"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {!canEdit && !canDelete && (
+                          <span className="text-[11px] text-slate-400">—</span>
+                        )}
                       </div>
                     </td>
                   </tr>

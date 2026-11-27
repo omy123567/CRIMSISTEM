@@ -49,12 +49,16 @@ import {
   PlusCircle,
   Edit3,
   Smartphone,
+  Folder,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { RolModal } from './RolModal';
 import { AdminChangePasswordModal, AdminUser2faModal } from './AdminUserSecurityModals';
 import { evaluarFortalezaPassword } from '../../services/securityClient';
+import { buildModulosAgrupadosParaSelector } from '../../utils/modulosCatalogo';
+import { getTonalidadStyle } from '../../utils/moduleColors';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 
 interface UsuariosViewProps {
   usuariosList: UsuarioSistema[];
@@ -438,6 +442,18 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     );
   };
 
+  const toggleGrupoModulos = (modIds: string[]) => {
+    const allSelected = modIds.every((id) => formModulosPermitidos.includes(id));
+    setFormModulosPermitidos((prev) => {
+      if (allSelected) {
+        return prev.filter((id) => !modIds.includes(id));
+      }
+      const next = new Set(prev);
+      modIds.forEach((id) => next.add(id));
+      return Array.from(next);
+    });
+  };
+
   const toggleDelegacionPermitida = (delId: string) => {
     setFormDelegacionesPermitidas((prev) =>
       prev.includes(delId) ? prev.filter((d) => d !== delId) : [...prev, delId]
@@ -750,7 +766,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                     <th className="px-4 py-3">DELEGACIÓN ASIGNADA</th>
                     <th className="px-4 py-3 text-center">ROL ASIGNADO</th>
                     <th className="px-4 py-3 text-center">OTRAS DELEGACIONES</th>
-                    <th className="px-4 py-3 text-center">ELIMINAR</th>
+                    <th className="px-4 py-3 text-center">CARGA / EDICIÓN / BORRADO</th>
                     <th className="px-4 py-3 text-center" title="Permiso especial para modificar actuaciones/intervenciones ya cargadas">MODIF. ACTUACIONES</th>
                     <th className="px-4 py-3 text-center" title="Permiso para administrar el orden y jerarquía de submódulos">ADMIN MÓDULOS</th>
                     <th className="px-4 py-3 text-center">MÓDULOS</th>
@@ -859,19 +875,58 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                             )}
                           </td>
 
-                          {/* Eliminar */}
+                          {/* Permisos Carga / Edición / Borrado */}
                           <td className="px-4 py-3 text-center">
-                            {user.puedeEliminar ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                                <Check className="w-3.5 h-3.5 text-rose-600" />
-                                <span>Habilitado</span>
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
-                                <X className="w-3.5 h-3.5 text-slate-300" />
-                                <span>Bloqueado</span>
-                              </span>
-                            )}
+                            {(() => {
+                              const perms = getCrudPermissions(user);
+                              if (perms.isSoloLectura) {
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-800 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                                    <Eye className="w-3 h-3" />
+                                    <span>Solo Lectura</span>
+                                  </span>
+                                );
+                              }
+                              if (perms.canCreate && !perms.canEdit && !perms.canDelete) {
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200">
+                                    <PlusCircle className="w-3 h-3" />
+                                    <span>Solo Cargar</span>
+                                  </span>
+                                );
+                              }
+                              return (
+                                <div className="flex flex-wrap items-center justify-center gap-1">
+                                  <span
+                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                      perms.canCreate
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                        : 'bg-slate-50 text-slate-400 border-slate-200 line-through'
+                                    }`}
+                                  >
+                                    Cargar
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                      perms.canEdit
+                                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                        : 'bg-slate-50 text-slate-400 border-slate-200 line-through'
+                                    }`}
+                                  >
+                                    Editar
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                      perms.canDelete
+                                        ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                        : 'bg-slate-50 text-slate-400 border-slate-200 line-through'
+                                    }`}
+                                  >
+                                    Eliminar
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </td>
 
                           {/* Modificar Actuaciones Cargadas */}
@@ -1473,10 +1528,78 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
 
               {/* Permisos Granulares y Estado */}
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5 text-blue-600" />
-                  Permisos Operativos y de Carga
-                </h4>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-blue-600" />
+                    Permisos Operativos y de Carga
+                  </h4>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormEsSoloLectura(false);
+                        setFormPuedeCrear(true);
+                        setFormPuedeModificar(false);
+                        setFormPuedeEliminar(false);
+                      }}
+                      className={`px-2 py-1 rounded border font-bold cursor-pointer transition-colors ${
+                        !formEsSoloLectura && formPuedeCrear && !formPuedeModificar && !formPuedeEliminar
+                          ? 'bg-cyan-700 text-white border-cyan-700'
+                          : 'bg-white text-cyan-800 border-cyan-300 hover:bg-cyan-50'
+                      }`}
+                    >
+                      Solo Cargar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormEsSoloLectura(false);
+                        setFormPuedeCrear(true);
+                        setFormPuedeModificar(true);
+                        setFormPuedeEliminar(false);
+                      }}
+                      className={`px-2 py-1 rounded border font-bold cursor-pointer transition-colors ${
+                        !formEsSoloLectura && formPuedeCrear && formPuedeModificar && !formPuedeEliminar
+                          ? 'bg-amber-600 text-white border-amber-600'
+                          : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-50'
+                      }`}
+                    >
+                      Cargar + Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormEsSoloLectura(false);
+                        setFormPuedeCrear(true);
+                        setFormPuedeModificar(true);
+                        setFormPuedeEliminar(true);
+                      }}
+                      className={`px-2 py-1 rounded border font-bold cursor-pointer transition-colors ${
+                        !formEsSoloLectura && formPuedeCrear && formPuedeModificar && formPuedeEliminar
+                          ? 'bg-emerald-700 text-white border-emerald-700'
+                          : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-50'
+                      }`}
+                    >
+                      Cargar + Editar + Eliminar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormEsSoloLectura(true);
+                        setFormPuedeCrear(false);
+                        setFormPuedeModificar(false);
+                        setFormPuedeEliminar(false);
+                      }}
+                      className={`px-2 py-1 rounded border font-bold cursor-pointer transition-colors ${
+                        formEsSoloLectura
+                          ? 'bg-purple-700 text-white border-purple-700'
+                          : 'bg-white text-purple-800 border-purple-300 hover:bg-purple-50'
+                      }`}
+                    >
+                      Solo Lectura
+                    </button>
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
@@ -1807,15 +1930,15 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                 </label>
               </div>
 
-              {/* Módulos Permitidos */}
+              {/* Módulos Permitidos agrupados por Carpeta */}
               <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between">
                   <div>
                     <span className="font-bold text-slate-900 block">
-                      Módulos Permitidos en el Sistema *
+                      Módulos Permitidos en el Sistema * ({formModulosPermitidos.length}/{MODULOS_DISPONIBLES.length})
                     </span>
                     <span className="text-[11px] text-slate-500">
-                      Seleccione las secciones que este usuario podrá visualizar en el menú
+                      Organizados por acceso directo y carpetas. Si un usuario no tiene módulos de una carpeta, esa carpeta no se le mostrará.
                     </span>
                   </div>
                   <button
@@ -1829,29 +1952,72 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 bg-slate-50 border border-slate-200 rounded-xl">
-                  {MODULOS_DISPONIBLES.map((m) => {
-                    const isChecked = formModulosPermitidos.includes(m.id);
+                <div className="max-h-64 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  {buildModulosAgrupadosParaSelector(config?.estructuraModulos).map((grupo) => {
+                    const modIds = grupo.modulos.map((m) => m.id);
+                    const selectedCount = modIds.filter((id) =>
+                      formModulosPermitidos.includes(id)
+                    ).length;
+                    const allGroupSelected = selectedCount === modIds.length;
+                    const tonal = getTonalidadStyle(grupo.colorTonalidad);
+
                     return (
-                      <label
-                        key={m.id}
-                        className={`p-2 rounded-lg border flex items-start gap-2 cursor-pointer transition-all ${
-                          isChecked
-                            ? 'bg-blue-50 border-blue-400 text-blue-950'
-                            : 'bg-white border-slate-200 text-slate-600'
-                        }`}
+                      <div
+                        key={grupo.id}
+                        className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs"
                       >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleModulo(m.id)}
-                          className="w-4 h-4 text-blue-600 rounded mt-0.5"
-                        />
-                        <div className="truncate">
-                          <span className="font-bold text-xs block">{m.label}</span>
-                          <span className="text-[10px] text-slate-500 block truncate">{m.desc}</span>
+                        <div className="px-3 py-1.5 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${tonal.swatchBg}`}
+                            />
+                            {grupo.esCarpeta && (
+                              <Folder className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                            )}
+                            <span className="font-bold text-[11px] text-slate-800 truncate">
+                              {grupo.label}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold text-slate-500">
+                              ({selectedCount}/{modIds.length})
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleGrupoModulos(modIds)}
+                            className="text-[10px] font-bold text-blue-700 hover:underline cursor-pointer shrink-0"
+                          >
+                            {allGroupSelected ? 'Quitar grupo' : 'Marcar grupo'}
+                          </button>
                         </div>
-                      </label>
+                        <div className="p-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                          {grupo.modulos.map((m) => {
+                            const isChecked = formModulosPermitidos.includes(m.id);
+                            return (
+                              <label
+                                key={m.id}
+                                className={`p-2 rounded-lg border flex items-start gap-2 cursor-pointer transition-all ${
+                                  isChecked
+                                    ? 'bg-blue-50 border-blue-400 text-blue-950'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => toggleModulo(m.id)}
+                                  className="w-4 h-4 text-blue-600 rounded mt-0.5"
+                                />
+                                <div className="truncate">
+                                  <span className="font-bold text-xs block">{m.label}</span>
+                                  <span className="text-[10px] text-slate-500 block truncate">
+                                    {m.desc}
+                                  </span>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -1969,6 +2135,7 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
         isOpen={isRolModalOpen}
         onClose={() => setIsRolModalOpen(false)}
         rolToEdit={editingRol}
+        config={config}
         onSaveRol={(rol) => {
           if (onSaveRol) {
             onSaveRol(rol);

@@ -42,6 +42,7 @@ import { TipoLesionesCell } from '../guardias/TipoLesionesCell';
 import { generarPdfReporteIntervenciones } from '../../services/pdfService';
 import { getNextCorrelativoIntervencion } from '../../utils/numeracionUtils';
 import { esTipoLesionADeterminar, getResumenLesionADeterminarIntervencion } from '../../utils/lesionesUtils';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 
 interface IntervencionesViewProps {
   intervencionesList: IntervencionParte[];
@@ -66,6 +67,7 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
   onDeleteIntervencion,
   onSaveConfig,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   // Tab activa: 'criminalistica' (LC) o 'accidentologia' (Siniestros y Hechos Viales)
   const [activeTab, setActiveTab] = useState<'criminalistica' | 'accidentologia'>('criminalistica');
   const [searchTerm, setSearchTerm] = useState('');
@@ -299,6 +301,7 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
 
   // Manejo de Guardado de Contadores en la Configuración
   const handleGuardarContadorLC = () => {
+    if (!canEdit) return;
     const updated = {
       ...config,
       inicioNroIntervencionCriminalistica: inicioLC,
@@ -309,10 +312,12 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
   };
 
   const handleReiniciarContadorLC = () => {
+    if (!canEdit) return;
     setConfirmResetTipo('lc');
   };
 
   const handleGuardarContadorAcc = () => {
+    if (!canEdit) return;
     const updated = {
       ...config,
       inicioNroIntervencionAccidentologica: inicioAcc,
@@ -323,10 +328,12 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
   };
 
   const handleReiniciarContadorAcc = () => {
+    if (!canEdit) return;
     setConfirmResetTipo('acc');
   };
 
   const executeResetContador = () => {
+    if (!canEdit) return;
     if (confirmResetTipo === 'lc') {
       setInicioLC(1);
       setUltimoLC(0);
@@ -540,23 +547,24 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                 </button>
               )}
 
-              {activeTab === 'criminalistica' ? (
-                <button
-                  onClick={() => handleAbrirCrear('Criminalística')}
-                  className="flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Cargar Labor Criminalística (LC)</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleAbrirCrear('Accidentológica')}
-                  className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Cargar Siniestro Vial</span>
-                </button>
-              )}
+              {canCreate &&
+                (activeTab === 'criminalistica' ? (
+                  <button
+                    onClick={() => handleAbrirCrear('Criminalística')}
+                    className="flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Cargar Labor Criminalística (LC)</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleAbrirCrear('Accidentológica')}
+                    className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Cargar Siniestro Vial</span>
+                  </button>
+                ))}
             </div>
           </div>
         </div>
@@ -631,9 +639,10 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                   <input
                     type="number"
                     min="1"
+                    disabled={!canEdit}
                     value={inicioLC}
                     onChange={(e) => setInicioLC(parseInt(e.target.value, 10) || 1)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1 text-white font-mono text-xs focus:ring-1 focus:ring-indigo-400"
+                    className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1 text-white font-mono text-xs focus:ring-1 focus:ring-indigo-400 disabled:opacity-60"
                   />
                 </div>
                 <div>
@@ -643,31 +652,34 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                   <input
                     type="number"
                     min="0"
+                    disabled={!canEdit}
                     value={ultimoLC}
                     onChange={(e) => setUltimoLC(parseInt(e.target.value, 10) || 0)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1 text-white font-mono text-xs focus:ring-1 focus:ring-indigo-400"
+                    className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1 text-white font-mono text-xs focus:ring-1 focus:ring-indigo-400 disabled:opacity-60"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-700/60">
-                <button
-                  type="button"
-                  onClick={handleReiniciarContadorLC}
-                  className="flex items-center gap-1 text-[11px] text-rose-300 hover:text-rose-200 hover:underline cursor-pointer"
-                  title="Reiniciar contador de LC al número 1"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Resetear a 1</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGuardarContadorLC}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-1 rounded transition-colors cursor-pointer"
-                >
-                  Guardar Contador LC
-                </button>
-              </div>
+              {canEdit && (
+                <div className="flex items-center justify-between pt-2 border-t border-slate-700/60">
+                  <button
+                    type="button"
+                    onClick={handleReiniciarContadorLC}
+                    className="flex items-center gap-1 text-[11px] text-rose-300 hover:text-rose-200 hover:underline cursor-pointer"
+                    title="Reiniciar contador de LC al número 1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Resetear a 1</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGuardarContadorLC}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-1 rounded transition-colors cursor-pointer"
+                  >
+                    Guardar Contador LC
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Tarjeta Contador Siniestros y Hechos Viales */}
@@ -690,9 +702,10 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                   <input
                     type="number"
                     min="1"
+                    disabled={!canEdit}
                     value={inicioAcc}
                     onChange={(e) => setInicioAcc(parseInt(e.target.value, 10) || 1)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1 text-white font-mono text-xs focus:ring-1 focus:ring-blue-400"
+                    className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1 text-white font-mono text-xs focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
                   />
                 </div>
                 <div>
@@ -702,31 +715,34 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                   <input
                     type="number"
                     min="0"
+                    disabled={!canEdit}
                     value={ultimoAcc}
                     onChange={(e) => setUltimoAcc(parseInt(e.target.value, 10) || 0)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1 text-white font-mono text-xs focus:ring-1 focus:ring-blue-400"
+                    className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1 text-white font-mono text-xs focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-700/60">
-                <button
-                  type="button"
-                  onClick={handleReiniciarContadorAcc}
-                  className="flex items-center gap-1 text-[11px] text-rose-300 hover:text-rose-200 hover:underline cursor-pointer"
-                  title="Reiniciar contador de Siniestros al número 1"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Resetear a 1</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGuardarContadorAcc}
-                  className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-1 rounded transition-colors cursor-pointer"
-                >
-                  Guardar Contador Siniestros
-                </button>
-              </div>
+              {canEdit && (
+                <div className="flex items-center justify-between pt-2 border-t border-slate-700/60">
+                  <button
+                    type="button"
+                    onClick={handleReiniciarContadorAcc}
+                    className="flex items-center gap-1 text-[11px] text-rose-300 hover:text-rose-200 hover:underline cursor-pointer"
+                    title="Reiniciar contador de Siniestros al número 1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Resetear a 1</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGuardarContadorAcc}
+                    className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-1 rounded transition-colors cursor-pointer"
+                  >
+                    Guardar Contador Siniestros
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1112,10 +1128,7 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                       <TipoLesionesCell
                         intervencion={int}
                         config={config}
-                        readOnly={Boolean(
-                          currentUser?.esSoloLectura ||
-                            currentUser?.rol === 'Solo Lectura (Auditor / Consulta)'
-                        )}
+                        readOnly={!canEdit}
                         onUpdateIntervencion={(updated) => {
                           onSaveIntervencion(updated);
                           showNotice('Tipo de lesión actualizado correctamente.');
@@ -1132,20 +1145,24 @@ export const IntervencionesView: React.FC<IntervencionesViewProps> = ({
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => handleAbrirEditar(int)}
-                          className="p-1 text-slate-600 hover:bg-slate-100 rounded"
-                          title="Editar intervención"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setIntervToDelete(int)}
-                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                          title="Eliminar"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleAbrirEditar(int)}
+                            className="p-1 text-slate-600 hover:bg-slate-100 rounded"
+                            title="Editar intervención"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => setIntervToDelete(int)}
+                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

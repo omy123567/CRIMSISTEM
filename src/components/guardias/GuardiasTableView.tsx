@@ -48,6 +48,7 @@ import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { Cpu, ArrowLeftRight } from 'lucide-react';
 import { generarPdfParteGuardia } from '../../services/pdfService';
 import { getResumenLesionADeterminarParte } from '../../utils/lesionesUtils';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 
 interface GuardiasTableViewProps {
   partesList: ParteNovedadesGuardia[];
@@ -84,6 +85,7 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
   onNuevaIntervencionParaGuardia,
   onEditarIntervencion,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   // Buscadores y filtros requeridos: fecha, guardia, personal, contenido
   const [searchTerm, setSearchTerm] = useState('');
   const [fechaDesde, setFechaDesde] = useState('');
@@ -211,6 +213,10 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
             <button
               type="button"
               onClick={() => {
+                if (!canEdit && !canCreate) {
+                  setAvisoBloqueoModal('Su usuario no tiene permisos para modificar guardias cargadas.');
+                  return;
+                }
                 const check = verificarPermisoGuardia(p);
                 if (!check.puede) {
                   setAvisoBloqueoModal(check.motivo || '');
@@ -249,6 +255,10 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
             <button
               type="button"
               onClick={() => {
+                if (!canEdit && !canCreate) {
+                  setAvisoBloqueoModal('Su usuario no tiene permisos para modificar guardias cargadas.');
+                  return;
+                }
                 const check = verificarPermisoGuardia(p);
                 if (!check.puede) {
                   setAvisoBloqueoModal(check.motivo || '');
@@ -296,6 +306,10 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
             <button
               type="button"
               onClick={() => {
+                if (!canEdit && !canCreate) {
+                  setAvisoBloqueoModal('Su usuario no tiene permisos para modificar guardias cargadas.');
+                  return;
+                }
                 const check = verificarPermisoGuardia(p);
                 if (!check.puede) {
                   setAvisoBloqueoModal(check.motivo || '');
@@ -362,7 +376,13 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
           render: (p: ParteNovedadesGuardia) => (
             <button
               type="button"
-              onClick={() => setCibercrimenModalParte(p)}
+              onClick={() => {
+                if (!canEdit && !canCreate) {
+                  setAvisoBloqueoModal('Su usuario no tiene permisos para cargar o modificar registros de Cibercrimen.');
+                  return;
+                }
+                setCibercrimenModalParte(p);
+              }}
               className="inline-flex items-center gap-1 font-mono font-bold text-indigo-950 hover:text-indigo-800 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors text-[11px]"
               title="Cibercrimen - Resguardo de evidencia, filmaciones y pericias digitales"
             >
@@ -614,29 +634,33 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                 </span>
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                setColumnOrder(defaultColOrder);
-                try {
-                  localStorage.removeItem('sispol_guardias_column_order');
-                } catch (e) {}
-                if (onSaveConfig) onSaveConfig({ ...config, ordenColumnasGuardia: defaultColOrder });
-              }}
-              className="px-2.5 py-1 border border-slate-300 bg-white rounded-lg text-slate-600 hover:bg-slate-100 flex items-center gap-1 text-[11px] font-semibold cursor-pointer"
-              title="Restablecer el orden por defecto de las columnas de la tabla"
-            >
-              <ArrowLeftRight className="w-3 h-3 text-blue-700" />
-              <span className="hidden sm:inline">Columnas</span>
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => {
+                  setColumnOrder(defaultColOrder);
+                  try {
+                    localStorage.removeItem('sispol_guardias_column_order');
+                  } catch (e) {}
+                  if (onSaveConfig) onSaveConfig({ ...config, ordenColumnasGuardia: defaultColOrder });
+                }}
+                className="px-2.5 py-1 border border-slate-300 bg-white rounded-lg text-slate-600 hover:bg-slate-100 flex items-center gap-1 text-[11px] font-semibold cursor-pointer"
+                title="Restablecer el orden por defecto de las columnas de la tabla"
+              >
+                <ArrowLeftRight className="w-3 h-3 text-blue-700" />
+                <span className="hidden sm:inline">Columnas</span>
+              </button>
+            )}
 
-            <button
-              onClick={onNewGuardia}
-              className="px-3 py-1 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Nuevo Turno</span>
-            </button>
+            {canCreate && (
+              <button
+                onClick={onNewGuardia}
+                className="px-3 py-1 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Nuevo Turno</span>
+              </button>
+            )}
           </div>
         }
       >
@@ -1044,30 +1068,34 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
                             <span className="hidden xl:inline">Descargar PDF</span>
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const check = verificarPermisoGuardia(p);
-                              if (!check.puede) {
-                                setAvisoBloqueoModal(check.motivo || '');
-                                return;
-                              }
-                              onEditGuardia(p);
-                            }}
-                            className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded"
-                            title="Editar Datos Generales de la Guardia"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const check = verificarPermisoGuardia(p);
+                                if (!check.puede) {
+                                  setAvisoBloqueoModal(check.motivo || '');
+                                  return;
+                                }
+                                onEditGuardia(p);
+                              }}
+                              className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded"
+                              title="Editar Datos Generales de la Guardia"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
 
-                          <button
-                            type="button"
-                            onClick={() => setGuardiaDeleteConfirm({ isOpen: true, parte: p })}
-                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                            title="Eliminar Guardia"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => setGuardiaDeleteConfirm({ isOpen: true, parte: p })}
+                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                              title="Eliminar Guardia"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1198,16 +1226,24 @@ export const GuardiasTableView: React.FC<GuardiasTableViewProps> = ({
         <DetalleIntervencionesTipoModal
           parte={tipoModalData.parte}
           tipo={tipoModalData.tipo}
-          onNuevaIntervencion={(tipoDefault) => {
-            if (onNuevaIntervencionParaGuardia) {
-              onNuevaIntervencionParaGuardia(tipoModalData.parte, tipoDefault);
-            } else {
-              onSelectGuardia(tipoModalData.parte);
-            }
-          }}
-          onEditarIntervencion={(interv) => {
-            if (onEditarIntervencion) onEditarIntervencion(interv);
-          }}
+          onNuevaIntervencion={
+            canCreate
+              ? (tipoDefault) => {
+                  if (onNuevaIntervencionParaGuardia) {
+                    onNuevaIntervencionParaGuardia(tipoModalData.parte, tipoDefault);
+                  } else {
+                    onSelectGuardia(tipoModalData.parte);
+                  }
+                }
+              : undefined
+          }
+          onEditarIntervencion={
+            canEdit
+              ? (interv) => {
+                  if (onEditarIntervencion) onEditarIntervencion(interv);
+                }
+              : undefined
+          }
           onClose={() => setTipoModalData(null)}
         />
       )}

@@ -42,6 +42,7 @@ import {
   renderBarChartPng,
   renderDonutChartPng,
 } from '../../utils/pdfChartUtils';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 
 interface NovedadesDelegacionesViewProps {
   novedadesList: AvisoNovedad[];
@@ -63,6 +64,7 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
   onCrearNovedad,
   onEliminarNovedad,
 }) => {
+  const { canCreate, canDelete } = getCrudPermissions(currentUser);
   // Formulario único según requerimiento estricto:
   // "únicamente debe tener: Mensaje, a quien ira dirigido (Delegacion) o a todos. Prioridad."
   const [mensaje, setMensaje] = useState('');
@@ -461,6 +463,7 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Formulario de Emisión (Requerimiento exacto: Mensaje, Dirigido a, Prioridad) */}
+        {canCreate && (
         <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
             <div className="p-2 bg-blue-900 rounded-lg text-white">
@@ -653,9 +656,10 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
             </button>
           </form>
         </div>
+        )}
 
         {/* Tablero / Feed de Novedades */}
-        <div className="lg:col-span-7 space-y-3">
+        <div className={canCreate ? 'lg:col-span-7 space-y-3' : 'lg:col-span-12 space-y-3'}>
           {/* Barra de Filtros del Feed Plegable */}
           <CollapsibleFilterBar
             title="Filtros de Novedades y Comunicaciones"
@@ -811,7 +815,7 @@ export const NovedadesDelegacionesView: React.FC<NovedadesDelegacionesViewProps>
                       </div>
 
                       <div className="flex items-center gap-1">
-                        {onEliminarNovedad && (currentUser?.rol === 'superusuario' || currentUser?.puedeEliminar) && (
+                        {onEliminarNovedad && canDelete && (
                           <button
                             type="button"
                             onClick={() => setDeleteConfirm({ isOpen: true, id: n.id })}

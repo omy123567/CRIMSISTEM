@@ -57,6 +57,7 @@ import {
   getNextIoNumber,
   sanitizeUltimoNroIO,
 } from '../../utils/numeracionUtils';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 
 interface InspeccionesViewProps {
   inspeccionesList: InspeccionOcular[];
@@ -89,6 +90,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
   onSaveConfig,
   onNavigateToGuardias,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   const añoActual = useMemo(() => new Date().getFullYear(), []);
 
   const puedeVerTodasDelegaciones = useMemo(() => {
@@ -501,6 +503,14 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
 
   // Handler para validar/confirmar cantidad de fotos al hacer clic sobre el estado
   const handleToggleValidarFotos = (io: InspeccionOcular) => {
+    if (!canEdit) {
+      setQuickSuccessMsg(
+        'Acceso restringido: Su usuario solo tiene permisos para consultar o cargar registros y no puede editar ni validar fotografías.'
+      );
+      setTimeout(() => setQuickSuccessMsg(null), 4000);
+      return;
+    }
+
     const puedeValidar = Boolean(
       currentUser?.rol === 'superusuario' || currentUser?.puedeConfirmarFotografias
     );
@@ -536,6 +546,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
 
   // RESETEAR CONTADOR A 1
   const handleConfirmResetContador = () => {
+    if (!canEdit) return;
     if (onSaveConfig) {
       onSaveConfig({
         ...config,
@@ -552,6 +563,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
   // CARGA RÁPIDA DIRECTA DESDE LA TABLA
   const handleCargarDesdeTabla = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCreate) return;
     setQuickErrorMsg(null);
     const direccionFinal = inlineDireccion.trim();
     if (!inlineNroIO.trim() || !direccionFinal) {
@@ -622,7 +634,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
 
   // INLINE ROW EDITING: Guardar edición de fila (sin repetir N° y actualizando al último cargado)
   const handleSaveInlineEdit = () => {
-    if (!editingRowData) return;
+    if (!canEdit || !editingRowData) return;
     setQuickErrorMsg(null);
     const numEditado = extractIoNumber(editingRowData.nroIO);
     if (numEditado <= 0) {
@@ -688,7 +700,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
 
         <div className="flex flex-wrap items-center gap-2 self-end md:self-center">
           {/* BOTÓN RESETEAR CONTADOR A 1 */}
-          {onSaveConfig && (
+          {onSaveConfig && canEdit && (
             <button
               onClick={() => setIsResetModalOpen(true)}
               className="px-3 py-1.5 bg-red-800/90 hover:bg-red-700 text-white border border-red-600/50 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
@@ -699,7 +711,7 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
             </button>
           )}
 
-          {onSaveConfig && (
+          {onSaveConfig && canEdit && (
             <button
               onClick={() => setIsControlNumeradorOpen(true)}
               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
@@ -818,16 +830,18 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={() => {
-              setSelectedInspeccion(null);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Nueva I.O. Detallada</span>
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => {
+                setSelectedInspeccion(null);
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Nueva I.O. Detallada</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1302,26 +1316,52 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
                             {io.cantidadFotografias || 0} tomas
                           </div>
                           <div className="mt-1">
-                            {io.fotosConfirmadas || io.confirmadoPorUsuario ? (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleValidarFotos(io)}
-                                className="inline-flex items-center gap-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-400 cursor-pointer transition-colors shadow-2xs"
-                                title={`Confirmado por: ${io.confirmadoPorUsuario || 'Oficial'}. Haga clic para alternar si cuenta con permiso.`}
-                              >
-                                <Check className="w-3 h-3 text-emerald-700 stroke-[3]" />
-                                <span>Confirmado</span>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleValidarFotos(io)}
-                                className="inline-flex items-center gap-1 bg-amber-200 hover:bg-amber-300 text-amber-950 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-400 cursor-pointer transition-colors shadow-2xs animate-pulse"
-                                title="Fotos pendientes de validación oficial. Haga clic para confirmar (requiere permiso)."
-                              >
-                                <span>Pendiente</span>
-                              </button>
-                            )}
+                            {(() => {
+                              const puedeValidarFotos =
+                                canEdit &&
+                                Boolean(
+                                  currentUser?.rol === 'superusuario' ||
+                                    currentUser?.puedeConfirmarFotografias
+                                );
+                              if (io.fotosConfirmadas || io.confirmadoPorUsuario) {
+                                return puedeValidarFotos ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleValidarFotos(io)}
+                                    className="inline-flex items-center gap-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-400 cursor-pointer transition-colors shadow-2xs"
+                                    title={`Confirmado por: ${io.confirmadoPorUsuario || 'Oficial'}. Haga clic para alternar si cuenta con permiso.`}
+                                  >
+                                    <Check className="w-3 h-3 text-emerald-700 stroke-[3]" />
+                                    <span>Confirmado</span>
+                                  </button>
+                                ) : (
+                                  <span
+                                    className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-900 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-400 shadow-2xs"
+                                    title={`Confirmado por: ${io.confirmadoPorUsuario || 'Oficial'}`}
+                                  >
+                                    <Check className="w-3 h-3 text-emerald-700 stroke-[3]" />
+                                    <span>Confirmado</span>
+                                  </span>
+                                );
+                              }
+                              return puedeValidarFotos ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleValidarFotos(io)}
+                                  className="inline-flex items-center gap-1 bg-amber-200 hover:bg-amber-300 text-amber-950 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-400 cursor-pointer transition-colors shadow-2xs animate-pulse"
+                                  title="Fotos pendientes de validación oficial. Haga clic para confirmar (requiere permiso)."
+                                >
+                                  <span>Pendiente</span>
+                                </button>
+                              ) : (
+                                <span
+                                  className="inline-flex items-center gap-1 bg-amber-200 text-amber-950 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-400 shadow-2xs"
+                                  title="Fotos pendientes de validación oficial"
+                                >
+                                  <span>Pendiente</span>
+                                </span>
+                              );
+                            })()}
                           </div>
                         </td>
 
@@ -1356,35 +1396,41 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
                               <Download className="w-3.5 h-3.5" />
                             </button>
 
-                            <button
-                              onClick={() => {
-                                setEditingRowId(io.id);
-                                setEditingRowData({ ...io });
-                              }}
-                              className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors"
-                              title="Editar directamente en la tabla"
-                            >
-                              Editar en fila
-                            </button>
+                            {canEdit && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setEditingRowId(io.id);
+                                    setEditingRowData({ ...io });
+                                  }}
+                                  className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors"
+                                  title="Editar directamente en la tabla"
+                                >
+                                  Editar en fila
+                                </button>
 
-                            <button
-                              onClick={() => {
-                                setSelectedInspeccion(io);
-                                setIsModalOpen(true);
-                              }}
-                              className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded cursor-pointer"
-                              title="Editar con formulario completo"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedInspeccion(io);
+                                    setIsModalOpen(true);
+                                  }}
+                                  className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded cursor-pointer"
+                                  title="Editar con formulario completo"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
 
-                            <button
-                              onClick={() => setDeleteIoConfirm({ isOpen: true, io })}
-                              className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded cursor-pointer"
-                              title="Eliminar"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {canDelete && (
+                              <button
+                                onClick={() => setDeleteIoConfirm({ isOpen: true, io })}
+                                className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded cursor-pointer"
+                                title="Eliminar"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1427,23 +1473,27 @@ export const InspeccionesView: React.FC<InspeccionesViewProps> = ({
                     >
                       <Download className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                      onClick={() => {
-                        setSelectedInspeccion(io);
-                        setIsModalOpen(true);
-                      }}
-                      className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded cursor-pointer"
-                      title="Editar Inspección"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteIoConfirm({ isOpen: true, io })}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                      title="Eliminar"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          setSelectedInspeccion(io);
+                          setIsModalOpen(true);
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded cursor-pointer"
+                        title="Editar Inspección"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        onClick={() => setDeleteIoConfirm({ isOpen: true, io })}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
 

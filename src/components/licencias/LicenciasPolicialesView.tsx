@@ -74,6 +74,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { LicenciaModal } from './LicenciaModal';
 import { InterrumpirLicenciaModal } from './InterrumpirLicenciaModal';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 
 interface LicenciasPolicialesViewProps {
   personalList: Personal[];
@@ -112,6 +113,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
   onDeleteFeriado,
   onSaveConfig,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   const [activeTab, setActiveTab] = useState<'registro' | 'saldos' | 'feriados' | 'reportes'>('registro');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPersonalFilter, setSelectedPersonalFilter] = useState<string>('todos');
@@ -543,6 +545,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
     diasEscala: number,
     currentlyVencido: boolean
   ) => {
+    if (!canEdit) return;
     const now = new Date().toISOString();
     const record: SaldoLicenciaAnio = currentSaldo
       ? {
@@ -571,12 +574,14 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
   };
 
   const handleAddTipoLicencia = async (nuevoTipo: TipoLicenciaConfig) => {
+    if (!canEdit) return;
     if (tiposLicencia.some((t) => t.nombre.toLowerCase() === nuevoTipo.nombre.toLowerCase())) return;
     const updatedCatalog = [...tiposLicencia, nuevoTipo];
     await onSaveConfig({ ...config, tiposLicenciaCatalogo: updatedCatalog });
   };
 
   const handleDeleteTipoLicencia = async (id: string) => {
+    if (!canEdit) return;
     const target = tiposLicencia.find((t) => t.id === id);
     if (!target || target.esDefault) return;
     const updatedCatalog = tiposLicencia.filter((t) => t.id !== id);
@@ -585,6 +590,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
 
   const handleAddManualFeriado = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCreate) return;
     if (!newFeriadoFecha || !newFeriadoNombre.trim()) return;
     const now = new Date().toISOString();
     await onSaveFeriado({
@@ -653,6 +659,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
   };
 
   const handleConfirmImportCandidates = async () => {
+    if (!canCreate) return;
     const selected = importCandidates.filter((c) => c.selected);
     if (selected.length === 0) return;
     const now = new Date().toISOString();
@@ -791,14 +798,16 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsTiposModalOpen(true)}
-            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer"
-          >
-            <Tags className="w-3.5 h-3.5 text-blue-800" />
-            <span>Tipos de Licencia</span>
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setIsTiposModalOpen(true)}
+              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer"
+            >
+              <Tags className="w-3.5 h-3.5 text-blue-800" />
+              <span>Tipos de Licencia</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleExportCsv}
@@ -815,20 +824,22 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
             <FileText className="w-3.5 h-3.5" />
             <span>Reporte PDF</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setEditingLicencia(null);
-              setPreselectedPersonalId(
-                selectedPersonalFilter !== 'todos' ? selectedPersonalFilter : undefined
-              );
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-sm cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Registrar Licencia</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingLicencia(null);
+                setPreselectedPersonalId(
+                  selectedPersonalFilter !== 'todos' ? selectedPersonalFilter : undefined
+                );
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-sm cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Registrar Licencia</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1112,23 +1123,25 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => setInterruptingLicencia(lic)}
-                              className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer ${
-                                lic.fueInterrumpida
-                                  ? 'bg-red-100 text-red-800 hover:bg-red-200'
-                                  : 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
-                              }`}
-                              title={
-                                lic.fueInterrumpida
-                                  ? 'Ver / modificar interrupción (Art. 15)'
-                                  : 'Interrumpir licencia desde tabla (Art. 15)'
-                              }
-                            >
-                              <ShieldAlert className="w-3 h-3" />
-                              <span>{lic.fueInterrumpida ? 'Art. 15' : 'Interrumpir'}</span>
-                            </button>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => setInterruptingLicencia(lic)}
+                                className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer ${
+                                  lic.fueInterrumpida
+                                    ? 'bg-red-100 text-red-800 hover:bg-red-200'
+                                    : 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
+                                }`}
+                                title={
+                                  lic.fueInterrumpida
+                                    ? 'Ver / modificar interrupción (Art. 15)'
+                                    : 'Interrumpir licencia desde tabla (Art. 15)'
+                                }
+                              >
+                                <ShieldAlert className="w-3 h-3" />
+                                <span>{lic.fueInterrumpida ? 'Art. 15' : 'Interrumpir'}</span>
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => generarPdfConstanciaLicencia(lic, config)}
@@ -1137,26 +1150,30 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                             >
                               <FileText className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingLicencia(lic);
-                                setPreselectedPersonalId(undefined);
-                                setIsModalOpen(true);
-                              }}
-                              className="p-1.5 text-slate-600 hover:bg-slate-100 rounded cursor-pointer"
-                              title="Editar licencia"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteLicConfirm(lic)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                              title="Eliminar licencia"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingLicencia(lic);
+                                  setPreselectedPersonalId(undefined);
+                                  setIsModalOpen(true);
+                                }}
+                                className="p-1.5 text-slate-600 hover:bg-slate-100 rounded cursor-pointer"
+                                title="Editar licencia"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteLicConfirm(lic)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                                title="Eliminar licencia"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1398,55 +1415,57 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                                 <span>{b.antiguedadEnAnio}a.</span>
                                 <span>Usados: {b.diasUsados}d.</span>
                               </div>
-                              <div className="flex items-center justify-center gap-1 pt-0.5">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setEditingSaldoCell({
-                                      personal: row.personal,
-                                      anio: b.anio,
-                                      diasCorrespondientes: b.diasCorrespondientes,
-                                      diasUsados: b.saldoRecord?.diasUsados ?? b.diasUsados,
-                                      vencido: b.vencido,
-                                      motivoVencimiento: b.saldoRecord?.motivoVencimiento || '',
-                                    })
-                                  }
-                                  className="px-1.5 py-0.5 rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 text-[10px] font-semibold cursor-pointer"
-                                  title="Editar días asignados/usados manualmente"
-                                >
-                                  Ajustar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleToggleVencido(
-                                      row.personal,
-                                      b.anio,
-                                      b.saldoRecord,
-                                      b.diasCorrespondientes,
+                              {canEdit && (
+                                <div className="flex items-center justify-center gap-1 pt-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditingSaldoCell({
+                                        personal: row.personal,
+                                        anio: b.anio,
+                                        diasCorrespondientes: b.diasCorrespondientes,
+                                        diasUsados: b.saldoRecord?.diasUsados ?? b.diasUsados,
+                                        vencido: b.vencido,
+                                        motivoVencimiento: b.saldoRecord?.motivoVencimiento || '',
+                                      })
+                                    }
+                                    className="px-1.5 py-0.5 rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 text-[10px] font-semibold cursor-pointer"
+                                    title="Editar días asignados/usados manualmente"
+                                  >
+                                    Ajustar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleToggleVencido(
+                                        row.personal,
+                                        b.anio,
+                                        b.saldoRecord,
+                                        b.diasCorrespondientes,
+                                        b.vencido
+                                      )
+                                    }
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-0.5 cursor-pointer ${
                                       b.vencido
-                                    )
-                                  }
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-0.5 cursor-pointer ${
-                                    b.vencido
-                                      ? 'bg-emerald-700 text-white hover:bg-emerald-800'
-                                      : 'bg-red-100 text-red-800 hover:bg-red-200'
-                                  }`}
-                                  title={b.vencido ? 'Reactivar período' : 'Marcar período como Vencido'}
-                                >
-                                  {b.vencido ? (
-                                    <>
-                                      <RotateCcw className="w-2.5 h-2.5" />
-                                      <span>Reactivar</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Ban className="w-2.5 h-2.5" />
-                                      <span>Vencer</span>
-                                    </>
-                                  )}
-                                </button>
-                              </div>
+                                        ? 'bg-emerald-700 text-white hover:bg-emerald-800'
+                                        : 'bg-red-100 text-red-800 hover:bg-red-200'
+                                    }`}
+                                    title={b.vencido ? 'Reactivar período' : 'Marcar período como Vencido'}
+                                  >
+                                    {b.vencido ? (
+                                      <>
+                                        <RotateCcw className="w-2.5 h-2.5" />
+                                        <span>Reactivar</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Ban className="w-2.5 h-2.5" />
+                                        <span>Vencer</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </td>
@@ -1455,17 +1474,19 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                         {row.totalDisponibles} d.
                       </td>
                       <td className="py-2.5 px-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingLicencia(null);
-                            setPreselectedPersonalId(row.personal.id);
-                            setIsModalOpen(true);
-                          }}
-                          className="px-2.5 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-lg font-semibold text-[11px] cursor-pointer"
-                        >
-                          + Licencia
-                        </button>
+                        {canCreate && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingLicencia(null);
+                              setPreselectedPersonalId(row.personal.id);
+                              setIsModalOpen(true);
+                            }}
+                            className="px-2.5 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-lg font-semibold text-[11px] cursor-pointer"
+                          >
+                            + Licencia
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -1504,7 +1525,8 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
       {/* TAB 3: FERIADOS Y DÍAS NO LABORABLES */}
       {activeTab === 'feriados' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {canCreate && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Actualización desde Sitio / URL */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 text-xs">
               <div className="flex items-center gap-2 font-bold text-slate-900">
@@ -1594,6 +1616,7 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
               </div>
             </div>
           </div>
+          )}
 
           {importFeedback && (
             <div
@@ -1632,13 +1655,15 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                   >
                     Descartar
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmImportCandidates}
-                    className="px-3.5 py-1.5 bg-blue-900 hover:bg-blue-950 text-white font-bold rounded-lg cursor-pointer"
-                  >
-                    Importar Seleccionados
-                  </button>
+                  {canCreate && (
+                    <button
+                      type="button"
+                      onClick={handleConfirmImportCandidates}
+                      className="px-3.5 py-1.5 bg-blue-900 hover:bg-blue-950 text-white font-bold rounded-lg cursor-pointer"
+                    >
+                      Importar Seleccionados
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="max-h-56 overflow-y-auto bg-white border border-blue-200 rounded-lg divide-y divide-slate-100">
@@ -1666,52 +1691,54 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
           )}
 
           {/* Alta manual de feriado / día no laborable */}
-          <form
-            onSubmit={handleAddManualFeriado}
-            className="bg-white p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end text-xs"
-          >
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Fecha *</label>
-              <input
-                type="date"
-                required
-                value={newFeriadoFecha}
-                onChange={(e) => setNewFeriadoFecha(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block font-semibold text-slate-700 mb-1">Nombre / Motivo del Feriado *</label>
-              <input
-                type="text"
-                required
-                value={newFeriadoNombre}
-                onChange={(e) => setNewFeriadoNombre(e.target.value)}
-                placeholder="Ej. Día de la Soberanía Nacional / Asueto Provincial"
-                className="w-full px-3 py-2 rounded-lg border border-slate-300"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Tipo</label>
-              <select
-                value={newFeriadoTipo}
-                onChange={(e) => setNewFeriadoTipo(e.target.value as TipoFeriado)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-              >
-                <option value="Nacional">Nacional</option>
-                <option value="Provincial">Provincial</option>
-                <option value="No Laborable">No Laborable</option>
-                <option value="Asueto">Asueto</option>
-              </select>
-            </div>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-slate-900 hover:bg-slate-950 text-white font-bold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+          {canCreate && (
+            <form
+              onSubmit={handleAddManualFeriado}
+              className="bg-white p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end text-xs"
             >
-              <Plus className="w-4 h-4" />
-              <span>Agregar Feriado</span>
-            </button>
-          </form>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Fecha *</label>
+                <input
+                  type="date"
+                  required
+                  value={newFeriadoFecha}
+                  onChange={(e) => setNewFeriadoFecha(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block font-semibold text-slate-700 mb-1">Nombre / Motivo del Feriado *</label>
+                <input
+                  type="text"
+                  required
+                  value={newFeriadoNombre}
+                  onChange={(e) => setNewFeriadoNombre(e.target.value)}
+                  placeholder="Ej. Día de la Soberanía Nacional / Asueto Provincial"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Tipo</label>
+                <select
+                  value={newFeriadoTipo}
+                  onChange={(e) => setNewFeriadoTipo(e.target.value as TipoFeriado)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                >
+                  <option value="Nacional">Nacional</option>
+                  <option value="Provincial">Provincial</option>
+                  <option value="No Laborable">No Laborable</option>
+                  <option value="Asueto">Asueto</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-950 text-white font-bold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Agregar Feriado</span>
+              </button>
+            </form>
+          )}
 
           {/* Filtros Plegables y Tabla de Feriados */}
           <CollapsibleFilterBar
@@ -1801,14 +1828,16 @@ export const LicenciasPolicialesView: React.FC<LicenciasPolicialesViewProps> = (
                         </td>
                         <td className="py-2 px-4 text-slate-500">{f.origen || 'Sistema'}</td>
                         <td className="py-2 px-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setDeleteFeriadoConfirm(f)}
-                            className="p-1 text-slate-400 hover:text-red-600 rounded cursor-pointer"
-                            title="Eliminar feriado"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteFeriadoConfirm(f)}
+                              className="p-1 text-slate-400 hover:text-red-600 rounded cursor-pointer"
+                              title="Eliminar feriado"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))

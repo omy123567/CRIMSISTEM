@@ -6,8 +6,8 @@ import { getResumenLesionADeterminarIntervencion } from '../../utils/lesionesUti
 interface DetalleIntervencionesTipoModalProps {
   parte: ParteNovedadesGuardia;
   tipo: 'LC' | 'SegVial';
-  onNuevaIntervencion: (tipoDefault: 'Criminalística' | 'Accidentológica') => void;
-  onEditarIntervencion: (interv: IntervencionParte) => void;
+  onNuevaIntervencion?: (tipoDefault: 'Criminalística' | 'Accidentológica') => void;
+  onEditarIntervencion?: (interv: IntervencionParte) => void;
   onClose: () => void;
 }
 
@@ -77,16 +77,18 @@ export const DetalleIntervencionesTipoModal: React.FC<DetalleIntervencionesTipoM
             <span className="font-bold text-slate-800 text-xs">
               INTERVENCIONES REGISTRADAS ({intervencionesFiltradas.length})
             </span>
-            <button
-              onClick={() => {
-                onNuevaIntervencion(isLC ? 'Criminalística' : 'Accidentológica');
-                onClose();
-              }}
-              className="px-3.5 py-1.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Cargar Intervención {isLC ? 'LC' : 'Seg. Vial'}</span>
-            </button>
+            {onNuevaIntervencion && (
+              <button
+                onClick={() => {
+                  onNuevaIntervencion(isLC ? 'Criminalística' : 'Accidentológica');
+                  onClose();
+                }}
+                className="px-3.5 py-1.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Cargar Intervención {isLC ? 'LC' : 'Seg. Vial'}</span>
+              </button>
+            )}
           </div>
 
           {intervencionesFiltradas.length === 0 ? (
@@ -94,15 +96,17 @@ export const DetalleIntervencionesTipoModal: React.FC<DetalleIntervencionesTipoM
               <p className="text-sm font-medium">
                 No hay intervenciones de {isLC ? 'Labor Criminalística' : 'Seguridad Vial'} registradas en esta guardia.
               </p>
-              <button
-                onClick={() => {
-                  onNuevaIntervencion(isLC ? 'Criminalística' : 'Accidentológica');
-                  onClose();
-                }}
-                className="mt-3 text-xs text-blue-800 font-bold hover:underline"
-              >
-                + Registrar la primera intervención ahora
-              </button>
+              {onNuevaIntervencion && (
+                <button
+                  onClick={() => {
+                    onNuevaIntervencion(isLC ? 'Criminalística' : 'Accidentológica');
+                    onClose();
+                  }}
+                  className="mt-3 text-xs text-blue-800 font-bold hover:underline"
+                >
+                  + Registrar la primera intervención ahora
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -138,16 +142,18 @@ export const DetalleIntervencionesTipoModal: React.FC<DetalleIntervencionesTipoM
                       </h4>
                     </div>
 
-                    <button
-                      onClick={() => {
-                        onEditarIntervencion(interv);
-                        onClose();
-                      }}
-                      className="px-3 py-1 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-900 rounded-lg font-semibold text-xs flex items-center gap-1 transition-colors"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Ver / Editar</span>
-                    </button>
+                    {onEditarIntervencion && (
+                      <button
+                        onClick={() => {
+                          onEditarIntervencion(interv);
+                          onClose();
+                        }}
+                        className="px-3 py-1 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-900 rounded-lg font-semibold text-xs flex items-center gap-1 transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Ver / Editar</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-slate-600">

@@ -34,6 +34,8 @@ import {
 import { UsuarioSistema, ConfiguracionSistema, ModuloEstructuraConfig, TonalidadModulo } from '../../types/police';
 import { AdministrarModulosModal } from './AdministrarModulosModal';
 import { getTonalidadStyle } from '../../utils/moduleColors';
+import { getDefaultEstructuraModulos } from '../../utils/modulosCatalogo';
+import { isUserModuleAllowed } from '../../utils/permisosUtils';
 
 export type ActiveTab =
   | 'dashboard'
@@ -274,26 +276,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Verificar si un módulo está permitido para el usuario
   const isModuleAllowed = (id: string, esGrupoPersonalizado?: boolean) => {
     if (esGrupoPersonalizado) return true; // Visibilidad de carpeta se evalúa según sus hijos permitidos
-    if (!currentUser) return true;
-    if (id === 'auditoria') {
-      return currentUser.rol === 'superusuario';
-    }
-    if (currentUser.rol === 'superusuario') return true;
-    if (
-      id === 'usuarios' &&
-      (currentUser.puedeCambiarPasswordOtros ||
-        currentUser.puedeGestionar2faOtros ||
-        currentUser.accionesPersonalizadas?.puedeCambiarPasswordOtros ||
-        currentUser.accionesPersonalizadas?.puedeGestionar2faOtros)
-    ) {
-      return true;
-    }
-    if (currentUser.modulosPermitidos && currentUser.modulosPermitidos.length > 0) {
-      return currentUser.modulosPermitidos.includes(id);
-    }
-    if (currentUser.rol === 'Administrador') return true;
-    if (id === 'usuarios' || id === 'config') return false;
-    return true;
+    return isUserModuleAllowed(currentUser, id);
   };
 
   const getFolderIconComponent = (iconoPersonalizado?: string) => {
@@ -316,14 +299,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const [draggedSidebarId, setDraggedSidebarId] = useState<string | null>(null);
 
-  // Mapear configuración de estructura personalizada
+  // Mapear configuración de estructura personalizada (con respaldo canónico de 5 carpetas)
+  const effectiveEstructura =
+    config?.estructuraModulos && config.estructuraModulos.length > 0
+      ? config.estructuraModulos
+      : getDefaultEstructuraModulos();
+
   const estructuraMap = new Map<string, ModuloEstructuraConfig>();
-  if (config?.estructuraModulos && config.estructuraModulos.length > 0) {
-    config.estructuraModulos.forEach((it) => estructuraMap.set(it.id, it));
-  }
+  effectiveEstructura.forEach((it) => estructuraMap.set(it.id, it));
 
   // Integrar carpetas personalizadas dinámicas creadas por el usuario
-  const customFolders = (config?.estructuraModulos || [])
+  const customFolders = effectiveEstructura
     .filter((it) => it.esGrupoPersonalizado)
     .map((folder) => ({
       id: folder.id,
@@ -465,20 +451,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
 
-  // Expandir automáticamente el padre si un submódulo está activo
+  // Expandir automáticamente la carpeta/padre que contiene el módulo activo
   useEffect(() => {
-    submodulosMap.forEach((children, parentId) => {
-      if (children.some((c) => c.id === activeTab)) {
-        setExpandedParents((prev) => ({ ...prev, [parentId]: true }));
-      }
-    });
-  }, [activeTab]);
+    const activeConf = estructuraMap.get(activeTab);
+    if (activeConf?.padreId) {
+      setExpandedParents((prev) => ({ ...prev, [activeConf.padreId!]: true }));
+    }
+  }, [activeTab, config?.estructuraModulosUpdatedAt]);
 
   const toggleExpand = (parentId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setExpandedParents((prev) => ({
       ...prev,
-      [parentId]: !(prev[parentId] ?? true),
+      [parentId]: !(prev[parentId] ?? false),
     }));
   };
 
@@ -532,8 +517,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const children = submodulosMap.get(item.id) || [];
             const hasChildren = children.length > 0;
             const isCustomFolder = Boolean((item as any).esGrupoPersonalizado);
-            // Las carpetas personalizadas se muestran expandidas por defecto para visibilidad inmediata
-            const isExpanded = expandedParents[item.id] ?? isCustomFolder;
+            // Las carpetas permanecen contraídas por defecto salvo que el módulo activo esté dentro
+            const isExpanded = expandedParents[item.id] ?? false;
             const isAnyChildActive = children.some((c) => c.id === activeTab);
             const tonal = getTonalidadStyle((item as any).colorTonalidad, item.id);
 

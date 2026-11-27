@@ -4,7 +4,9 @@ import {
   Personal,
   ConfiguracionSistema,
   InspeccionOcular,
+  UsuarioSistema,
 } from '../../types/police';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 import { db } from '../../db/database';
 import {
   FileText,
@@ -48,6 +50,7 @@ interface InformesTecnicosViewProps {
   personalList: Personal[];
   config: ConfiguracionSistema;
   inspeccionesList?: InspeccionOcular[];
+  currentUser?: UsuarioSistema;
   onSaveInforme: (inf: InformeTecnico) => void;
   onDeleteInforme: (id: string) => void;
 }
@@ -57,9 +60,11 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
   personalList,
   config,
   inspeccionesList: propInspecciones = [],
+  currentUser,
   onSaveInforme,
   onDeleteInforme,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroTipo, setFiltroTipo] = useState('todos');
@@ -626,13 +631,15 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
             </button>
           )}
 
-          <button
-            onClick={() => handleOpenModal()}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Cargar Informe Técnico</span>
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => handleOpenModal()}
+              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Cargar Informe Técnico</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -925,20 +932,24 @@ export const InformesTecnicosView: React.FC<InformesTecnicosViewProps> = ({
                         >
                           <Download className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => handleOpenModal(inf)}
-                          className="p-1 text-slate-600 hover:bg-slate-100 rounded"
-                          title="Editar Informe Técnico"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setInformeToDelete(inf)}
-                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                          title="Eliminar"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleOpenModal(inf)}
+                            className="p-1 text-slate-600 hover:bg-slate-100 rounded"
+                            title="Editar Informe Técnico"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => setInformeToDelete(inf)}
+                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

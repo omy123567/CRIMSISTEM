@@ -98,77 +98,62 @@ import {
   sanitizeUltimoNroIO,
 } from './utils/numeracionUtils';
 import { PanelLeftOpen, ShieldAlert, CheckCircle2, Clock, X } from 'lucide-react';
+import { standardizeModulosFolders, MODULOS_BASE_CATALOGO } from './utils/modulosCatalogo';
+import { getCrudPermissions, isUserModuleAllowed } from './utils/permisosUtils';
 
 const ensureConfigLicencias = (conf: ConfiguracionSistema): ConfiguracionSistema => {
-  let updated: ConfiguracionSistema = {
+  const { estructuraModulos } = standardizeModulosFolders(conf.estructuraModulos);
+  return {
     ...conf,
     tiposLicenciaCatalogo: normalizeTiposLicenciaCatalogo(conf.tiposLicenciaCatalogo),
     tiposMemoCatalogo: normalizeTiposMemoCatalogo(conf.tiposMemoCatalogo),
+    estructuraModulos,
   };
-  if (
-    updated.estructuraModulos &&
-    updated.estructuraModulos.length > 0 &&
-    !updated.estructuraModulos.some((m) => m.id === 'licencias')
-  ) {
-    updated = {
-      ...updated,
-      estructuraModulos: [
-        ...updated.estructuraModulos,
-        {
-          id: 'licencias',
-          label: 'Licencia Policial',
-          desc: 'Régimen, Saldos, Feriados y Reportes',
-          visible: true,
-          orden: updated.estructuraModulos.length,
-          padreId: null,
-          colorTonalidad: 'esmeralda',
-        },
-      ],
-    };
+};
+
+const isTabCurrentlyAccessible = (
+  tab: ActiveTab,
+  user: UsuarioSistema | null,
+  cfg: ConfiguracionSistema
+): boolean => {
+  if (!isUserModuleAllowed(user, tab)) return false;
+  const estructura = cfg.estructuraModulos || [];
+  if (estructura.length === 0) return true;
+  const entry = estructura.find((m) => m.id === tab && !m.esGrupoPersonalizado);
+  if (entry) {
+    if (entry.visible === false) return false;
+    if (entry.padreId) {
+      const parent = estructura.find((m) => m.id === entry.padreId);
+      if (parent && parent.visible === false) return false;
+    }
   }
-  if (
-    updated.estructuraModulos &&
-    updated.estructuraModulos.length > 0 &&
-    !updated.estructuraModulos.some((m) => m.id === 'memos-notas')
-  ) {
-    updated = {
-      ...updated,
-      estructuraModulos: [
-        ...updated.estructuraModulos,
-        {
-          id: 'memos-notas',
-          label: 'Memos y Notas',
-          desc: 'Memorándums, Nota V, Notas & Anexos',
-          visible: true,
-          orden: updated.estructuraModulos.length,
-          padreId: null,
-          colorTonalidad: 'cian',
-        },
-      ],
-    };
+  return true;
+};
+
+const getFirstAllowedTab = (
+  user: UsuarioSistema | null,
+  cfg: ConfiguracionSistema
+): ActiveTab => {
+  const estructura = cfg.estructuraModulos || [];
+  const validIds = new Set(MODULOS_BASE_CATALOGO.map((m) => m.id));
+  if (estructura.length > 0) {
+    const structMap = new Map(estructura.map((m) => [m.id, m]));
+    const sorted = [...estructura].sort((a, b) => (a.orden ?? 999) - (b.orden ?? 999));
+    for (const item of sorted) {
+      if (item.esGrupoPersonalizado) continue;
+      if (!validIds.has(item.id)) continue;
+      if (item.visible === false) continue;
+      if (item.padreId) {
+        const parent = structMap.get(item.padreId);
+        if (parent && parent.visible === false) continue;
+      }
+      if (isUserModuleAllowed(user, item.id)) {
+        return item.id as ActiveTab;
+      }
+    }
   }
-  if (
-    updated.estructuraModulos &&
-    updated.estructuraModulos.length > 0 &&
-    !updated.estructuraModulos.some((m) => m.id === 'inventario')
-  ) {
-    updated = {
-      ...updated,
-      estructuraModulos: [
-        ...updated.estructuraModulos,
-        {
-          id: 'inventario',
-          label: 'Inventario y Cambio de Jefe',
-          desc: 'Patrimonio, Bienes y Actas de Relevo',
-          visible: true,
-          orden: updated.estructuraModulos.length,
-          padreId: null,
-          colorTonalidad: 'azul',
-        },
-      ],
-    };
-  }
-  return updated;
+  const fallback = MODULOS_BASE_CATALOGO.find((m) => isUserModuleAllowed(user, m.id));
+  return (fallback?.id as ActiveTab) || 'dashboard';
 };
 
 export default function App() {
@@ -491,11 +476,37 @@ export default function App() {
     };
   }, [activeDelegacionId, delegacionesList, currentUser?.id]);
 
-  // Verificación de permiso de eliminación
+  // Verificación de permisos CRUD según perfil de usuario ("solo cargar" vs "editar/eliminar")
+  const verificarPermisoCrear = (): boolean => {
+    if (!currentUser) return false;
+    const { canCreate } = getCrudPermissions(currentUser);
+    if (!canCreate) {
+      showNotice(
+        'Acceso denegado: Su usuario no cuenta con autorización para crear o cargar nuevos registros.',
+        true
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const verificarPermisoModificar = (): boolean => {
+    if (!currentUser) return false;
+    const { canEdit } = getCrudPermissions(currentUser);
+    if (!canEdit) {
+      showNotice(
+        'Acceso denegado: Su usuario tiene permiso únicamente para cargar registros (sin edición/modificación).',
+        true
+      );
+      return false;
+    }
+    return true;
+  };
+
   const verificarPermisoEliminar = (): boolean => {
     if (!currentUser) return false;
-    if (currentUser.rol === 'superusuario') return true;
-    if (currentUser.puedeEliminar === false) {
+    const { canDelete } = getCrudPermissions(currentUser);
+    if (!canDelete) {
       showNotice(
         'Acceso denegado: Su usuario no cuenta con autorización para eliminar registros del sistema. Contacte a un Administrador.',
         true
@@ -658,6 +669,7 @@ export default function App() {
     fecha: string,
     prioridadNotificacion: PrioridadNovedad = 'Urgente'
   ) => {
+    if (!verificarPermisoModificar()) return;
     const origenId = personal.delegacionId || activeDelegacionId || 'del-laguna-blanca';
     const destinoDel = delegacionesList.find((d) => d.id === nuevaDelegacionId);
     const destinoNombre = destinoDel?.nombre || nuevaDelegacionId;
@@ -734,6 +746,8 @@ export default function App() {
 
   // --- CRUD PERSONAL ---
   const handleSavePersonal = async (p: Personal) => {
+    const exists = personalList.some((item) => item.id === p.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: Personal = {
       ...p,
       delegacionId: p.delegacionId || activeDelegacionId,
@@ -760,6 +774,8 @@ export default function App() {
 
   // --- CRUD GRUPOS ---
   const handleSaveGrupo = async (g: GrupoPersonal) => {
+    const exists = gruposList.some((item) => item.id === g.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: GrupoPersonal = {
       ...g,
       delegacionId: g.delegacionId || activeDelegacionId,
@@ -786,6 +802,8 @@ export default function App() {
 
   // --- CRUD EXPEDIENTES ---
   const handleSaveExpediente = async (exp: ExpedienteJudicial) => {
+    const exists = expedientesList.some((item) => item.id === exp.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: ExpedienteJudicial = {
       ...exp,
       delegacionId: exp.delegacionId || activeDelegacionId,
@@ -812,6 +830,8 @@ export default function App() {
 
   // --- CRUD FALTA DE OFICIO ---
   const handleSaveCasoFaltaOficio = async (c: CasoFaltaOficio) => {
+    const exists = casosFaltaOficioList.some((item) => item.id === c.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: CasoFaltaOficio = {
       ...c,
       delegacionId: c.delegacionId || activeDelegacionId,
@@ -838,6 +858,7 @@ export default function App() {
 
   // Consolidar casos agrupados en un nuevo expediente
   const handleConsolidarAgrupacion = async (nuevoExp: ExpedienteJudicial, casosIds: string[]) => {
+    if (!verificarPermisoCrear()) return;
     const expWithDel: ExpedienteJudicial = {
       ...nuevoExp,
       delegacionId: nuevoExp.delegacionId || activeDelegacionId,
@@ -877,7 +898,11 @@ export default function App() {
   };
 
   // --- CRUD MÓVILES ---
-  const handleSaveMovil = async (m: MovilPolicial) => {
+  const handleSaveMovil = async (m: MovilPolicial, options?: { internalBypass?: boolean }) => {
+    const exists = movilesList.some((item) => item.id === m.id);
+    if (!options?.internalBypass && (exists ? !verificarPermisoModificar() : !verificarPermisoCrear())) {
+      return;
+    }
     const entity: MovilPolicial = {
       ...m,
       delegacionId: m.delegacionId || activeDelegacionId,
@@ -904,6 +929,7 @@ export default function App() {
 
   // --- CRUD REPARACIONES ---
   const handleSaveReparacion = async (r: ReparacionMecanica) => {
+    if (!verificarPermisoCrear()) return;
     await db.reparaciones.put(r);
     saveItemToServer('reparaciones', r);
     setReparacionesList((prev) => [r, ...prev]);
@@ -921,7 +947,7 @@ export default function App() {
           r.tipoIntervencion === 'Service Programado' ? r.kilometraje + 10000 : movil.proximoServiceKm,
         updatedAt: new Date().toISOString(),
       };
-      await handleSaveMovil(movilActualizado);
+      await handleSaveMovil(movilActualizado, { internalBypass: true });
     }
   };
 
@@ -935,6 +961,7 @@ export default function App() {
   // --- CRUD RECARGOS ---
   const handleSaveRecargo = async (rec: RecargoOperativo) => {
     const isEdit = recargosList.some((r) => r.id === rec.id);
+    if (isEdit ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: RecargoOperativo = {
       ...rec,
       delegacionId: rec.delegacionId || activeDelegacionId,
@@ -979,8 +1006,14 @@ export default function App() {
   };
 
   // --- CRUD PARTES DE GUARDIA & INTERVENCIONES ---
-  const handleSaveParte = async (p: ParteNovedadesGuardia) => {
+  const handleSaveParte = async (
+    p: ParteNovedadesGuardia,
+    options?: { internalBypass?: boolean }
+  ) => {
     const isNew = !partesGuardiaList.some((item) => item.id === p.id);
+    if (!options?.internalBypass && (isNew ? !verificarPermisoCrear() : !verificarPermisoModificar())) {
+      return;
+    }
     const entity: ParteNovedadesGuardia = {
       ...p,
       delegacionId: p.delegacionId || activeDelegacionId,
@@ -1101,6 +1134,7 @@ export default function App() {
 
   const handleSaveIntervencion = async (inter: IntervencionParte) => {
     const isNew = !intervencionesList.some((i) => i.id === inter.id);
+    if (isNew ? !verificarPermisoCrear() : !verificarPermisoModificar()) return;
     const anioInt = inter.inspeccionFecha
       ? Number(inter.inspeccionFecha.slice(0, 4)) || new Date().getFullYear()
       : new Date().getFullYear();
@@ -1164,7 +1198,7 @@ export default function App() {
         intervenciones: updatedIntervenciones,
         updatedAt: new Date().toISOString(),
       };
-      await handleSaveParte(parteActualizado);
+      await handleSaveParte(parteActualizado, { internalBypass: true });
     }
 
     // 3. Actualizar contadores independientes por tipo (LC vs Accidentológica) y último N° de I.O.
@@ -1202,7 +1236,7 @@ export default function App() {
     }
 
     if (configChanged) {
-      await handleSaveConfig(nextConfig);
+      await handleSaveConfig(nextConfig, { internalBypass: true });
     }
 
     // 4. Sincronización automática con módulo de Accidentología Vial si es siniestro con personal policial
@@ -1287,7 +1321,7 @@ export default function App() {
         updatedAt: new Date().toISOString(),
       };
 
-      await handleSaveAccidentologia(accReg);
+      await handleSaveAccidentologia(accReg, { internalBypass: true });
     }
   };
 
@@ -1309,12 +1343,14 @@ export default function App() {
         intervenciones: updatedIntervenciones,
         updatedAt: new Date().toISOString(),
       };
-      await handleSaveParte(parteActualizado);
+      await handleSaveParte(parteActualizado, { internalBypass: true });
     }
   };
 
   // --- CRUD INSPECCIONES OCULARES ---
   const handleSaveInspeccion = async (ins: InspeccionOcular) => {
+    const exists = inspeccionesList.some((item) => item.id === ins.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: InspeccionOcular = {
       ...ins,
       delegacionId: ins.delegacionId || activeDelegacionId,
@@ -1401,10 +1437,13 @@ export default function App() {
       const nuevoUltimoIO = Math.max(lastLoaded, currentNum);
 
       if (nuevoUltimoIO !== config.ultimoNroIO) {
-        await handleSaveConfig({
-          ...config,
-          ultimoNroIO: nuevoUltimoIO,
-        });
+        await handleSaveConfig(
+          {
+            ...config,
+            ultimoNroIO: nuevoUltimoIO,
+          },
+          { internalBypass: true }
+        );
       }
     }
   };
@@ -1427,15 +1466,20 @@ export default function App() {
       delegacionId: activeDelegacionId,
     });
     if (lastLoaded !== sanitizeUltimoNroIO(config.ultimoNroIO)) {
-      await handleSaveConfig({
-        ...config,
-        ultimoNroIO: lastLoaded,
-      });
+      await handleSaveConfig(
+        {
+          ...config,
+          ultimoNroIO: lastLoaded,
+        },
+        { internalBypass: true }
+      );
     }
   };
 
   // --- CRUD FORENSES ---
   const handleSaveForense = async (f: ForenseTurno) => {
+    const exists = forensesList.some((item) => item.id === f.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: ForenseTurno = {
       ...f,
       delegacionId: f.delegacionId || activeDelegacionId,
@@ -1462,6 +1506,8 @@ export default function App() {
 
   // --- CRUD LICENCIADOS ---
   const handleSaveLicenciado = async (lic: LicenciadoTurno) => {
+    const exists = licenciadosList.some((item) => item.id === lic.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: LicenciadoTurno = {
       ...lic,
       delegacionId: lic.delegacionId || activeDelegacionId,
@@ -1488,6 +1534,8 @@ export default function App() {
 
   // --- CRUD INFORMES TÉCNICOS ---
   const handleSaveInformeTecnico = async (inf: InformeTecnico) => {
+    const exists = informesTecnicosList.some((item) => item.id === inf.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: InformeTecnico = {
       ...inf,
       delegacionId: inf.delegacionId || activeDelegacionId,
@@ -1610,6 +1658,7 @@ export default function App() {
     newFolios: FolioAsignado[],
     options?: { createLinkedMemo?: boolean }
   ) => {
+    if (!verificarPermisoCrear()) return;
     const withDelegacion = newFolios.map((f) => ({
       ...f,
       delegacionId: f.delegacionId || activeDelegacionId,
@@ -1676,6 +1725,7 @@ export default function App() {
   };
 
   const handleUpdateFolio = async (folio: FolioAsignado) => {
+    if (!verificarPermisoModificar()) return;
     await db.folios.put(folio);
     saveItemToServer('folios', folio);
     setFoliosList((prev) => prev.map((f) => (f.id === folio.id ? folio : f)));
@@ -1744,6 +1794,8 @@ export default function App() {
   };
 
   const handleSaveSerie = async (serie: SerieNumerario) => {
+    const exists = seriesNumerarioList.some((item) => item.id === serie.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const entity: SerieNumerario = {
       ...serie,
       orden:
@@ -1839,18 +1891,24 @@ export default function App() {
   };
 
   // --- ACCIDENTOLOGÍA VIAL CON PERSONAL POLICIAL INVOLUCRADO ---
-  const handleSaveAccidentologia = async (registro: AccidentologiaRegistro) => {
+  const handleSaveAccidentologia = async (
+    registro: AccidentologiaRegistro,
+    options?: { internalBypass?: boolean }
+  ) => {
+    const exists = accidentologiaList.some((r) => r.id === registro.id);
+    if (!options?.internalBypass && (exists ? !verificarPermisoModificar() : !verificarPermisoCrear())) {
+      return;
+    }
     await db.accidentologia.put(registro);
     saveItemToServer('accidentologia', registro);
     setAccidentologiaList((prev) => {
-      const exists = prev.some((r) => r.id === registro.id);
       return exists ? prev.map((r) => (r.id === registro.id ? registro : r)) : [registro, ...prev];
     });
 
     await registrarAuditoria({
       currentUser: currentUser || undefined,
       modulo: 'Accidentología',
-      accion: 'CREAR',
+      accion: exists ? 'MODIFICAR' : 'CREAR',
       descripcion: `Registro de Siniestro Vial ${registro.codigo} (${registro.jerarquia} ${registro.apellidoYNombre})`,
       delegacionId: activeDelegacionId,
     });
@@ -1874,6 +1932,7 @@ export default function App() {
 
   // --- NOVEDADES INTER-DELEGACIONES ---
   const handleCrearNovedad = async (avisoData: Omit<AvisoNovedad, 'id' | 'createdAt'> | AvisoNovedad) => {
+    if (!verificarPermisoCrear()) return;
     const aviso: AvisoNovedad = {
       ...avisoData,
       id: 'id' in avisoData && avisoData.id ? avisoData.id : `nov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -1923,6 +1982,7 @@ export default function App() {
   // --- CRUD CHARLAS Y PREVENCIÓN COMUNITARIA ---
   const handleSaveCharla = async (charla: CharlaPrevencion) => {
     const isNew = !charlasList.some((c) => c.id === charla.id);
+    if (isNew ? !verificarPermisoCrear() : !verificarPermisoModificar()) return;
     const entity: CharlaPrevencion = {
       ...charla,
       delegacionId: charla.delegacionId || activeDelegacionId,
@@ -1967,6 +2027,7 @@ export default function App() {
   // --- CRUD LICENCIAS POLICIALES, SALDOS Y FERIADOS ---
   const handleSaveLicencia = async (lic: LicenciaPolicial) => {
     const isNew = !licenciasPolicialesList.some((l) => l.id === lic.id);
+    if (isNew ? !verificarPermisoCrear() : !verificarPermisoModificar()) return;
     const ownerPersonal = personalList.find((p) => p.id === lic.personalId);
     const entity: LicenciaPolicial = {
       ...lic,
@@ -2010,6 +2071,8 @@ export default function App() {
   };
 
   const handleSaveSaldoLicencia = async (saldo: SaldoLicenciaAnio) => {
+    const exists = saldosLicenciasList.some((item) => item.id === saldo.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     const ownerPersonal = personalList.find((p) => p.id === saldo.personalId);
     const entity: SaldoLicenciaAnio = {
       ...saldo,
@@ -2037,6 +2100,8 @@ export default function App() {
   };
 
   const handleSaveFeriado = async (feriado: FeriadoDiaNoLaborable) => {
+    const exists = feriadosList.some((item) => item.id === feriado.id);
+    if (exists ? !verificarPermisoModificar() : !verificarPermisoCrear()) return;
     await db.feriados.put(feriado);
     saveItemToServer('feriados', feriado);
     setFeriadosList((prev) => {
@@ -2052,6 +2117,7 @@ export default function App() {
 
   const handleSaveFeriadosBulk = async (nuevos: FeriadoDiaNoLaborable[]) => {
     if (!nuevos || nuevos.length === 0) return;
+    if (!verificarPermisoCrear()) return;
     await db.feriados.bulkPut(nuevos);
     await Promise.all(nuevos.map((f) => saveItemToServer('feriados', f)));
     setFeriadosList((prev) => {
@@ -2075,6 +2141,7 @@ export default function App() {
     options?: { syncControlFolios?: boolean }
   ) => {
     const isNew = !memosNotasList.some((m) => m.id === memo.id);
+    if (isNew ? !verificarPermisoCrear() : !verificarPermisoModificar()) return;
     const delId = memo.delegacionId || activeDelegacionId;
     const matchedSerie = findSerieForMemo(
       memo.tipo,
@@ -2180,6 +2247,7 @@ export default function App() {
   // --- CRUD INVENTARIO Y CAMBIO DE JEFE ---
   const handleSaveInventarioBien = async (bien: InventarioBien) => {
     const isNew = !inventarioBienesList.some((b) => b.id === bien.id);
+    if (isNew ? !verificarPermisoCrear() : !verificarPermisoModificar()) return;
     const entity: InventarioBien = {
       ...bien,
       delegacionId: bien.delegacionId || activeDelegacionId,
@@ -2207,6 +2275,7 @@ export default function App() {
 
   const handleBulkImportInventarioBienes = async (bienes: InventarioBien[]) => {
     if (!bienes || bienes.length === 0) return;
+    if (!verificarPermisoCrear()) return;
     const entities = bienes.map((b) => ({
       ...b,
       delegacionId: b.delegacionId || activeDelegacionId,
@@ -2248,6 +2317,7 @@ export default function App() {
 
   const handleSaveActaCambioJefe = async (acta: ActaCambioJefe) => {
     const isNew = !actasCambioJefeList.some((a) => a.id === acta.id);
+    if (isNew ? !verificarPermisoCrear() : !verificarPermisoModificar()) return;
     const entity: ActaCambioJefe = {
       ...acta,
       delegacionId: acta.delegacionId || activeDelegacionId,
@@ -2345,7 +2415,7 @@ export default function App() {
     setCurrentUser(sanitizedUser);
     sessionStorage.setItem('sispol_current_user', JSON.stringify(sanitizedUser));
     setActiveDelegacionId(sanitizedUser.delegacionId || 'del-laguna-blanca');
-    setActiveTab('dashboard');
+    setActiveTab(getFirstAllowedTab(sanitizedUser, config));
     lastActivityRef.current = Date.now();
     setInactivityCountdown(null);
     // Sincronizar datos del servidor inmediatamente tras autenticación con token
@@ -2353,6 +2423,17 @@ export default function App() {
       reloadAllData();
     }, 50);
   };
+
+  // Redirección automática si el usuario actual pierde acceso al módulo activo o cambia su visibilidad
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!isTabCurrentlyAccessible(activeTab, currentUser, config)) {
+      const nextTab = getFirstAllowedTab(currentUser, config);
+      if (nextTab !== activeTab) {
+        setActiveTab(nextTab);
+      }
+    }
+  }, [currentUser, activeTab, config]);
 
   const handleLogout = useCallback(() => {
     logoutOnServer();
@@ -2407,7 +2488,18 @@ export default function App() {
   }, [currentUser, inactivityCountdown, handleLogout]);
 
   // --- CONFIGURACIÓN GENERAL (Aislada por Delegación pero Estructura de Módulos Compartida) ---
-  const handleSaveConfig = async (newConfig: ConfiguracionSistema) => {
+  const handleSaveConfig = async (
+    newConfig: ConfiguracionSistema,
+    options?: { internalBypass?: boolean }
+  ) => {
+    if (
+      !options?.internalBypass &&
+      currentUser?.rol !== 'superusuario' &&
+      !currentUser?.puedeAdministrarModulos &&
+      !verificarPermisoModificar()
+    ) {
+      return;
+    }
     const structTimestamp =
       newConfig.estructuraModulosUpdatedAt ||
       (newConfig.estructuraModulos ? new Date().toISOString() : undefined);
@@ -2636,6 +2728,7 @@ export default function App() {
               gruposList={filteredGrupos}
               personalList={filteredPersonal}
               config={config}
+              currentUser={currentUser || undefined}
               onSaveGrupo={handleSaveGrupo}
               onDeleteGrupo={handleDeleteGrupo}
               onNavigateToGuardias={() => setActiveTab('guardias')}
@@ -2648,6 +2741,7 @@ export default function App() {
               casosFaltaOficioList={filteredCasosFaltaOficio}
               personalList={filteredPersonal}
               config={config}
+              currentUser={currentUser || undefined}
               onSaveExpediente={handleSaveExpediente}
               onDeleteExpediente={handleDeleteExpediente}
               onSaveCasoFaltaOficio={handleSaveCasoFaltaOficio}
@@ -2663,6 +2757,7 @@ export default function App() {
               casosFaltaOficioList={filteredCasosFaltaOficio}
               personalList={filteredPersonal}
               config={config}
+              currentUser={currentUser || undefined}
               onSaveExpediente={handleSaveExpediente}
               onDeleteExpediente={handleDeleteExpediente}
               onSaveCasoFaltaOficio={handleSaveCasoFaltaOficio}
@@ -2785,6 +2880,7 @@ export default function App() {
               forensesList={filteredForenses}
               partesGuardiaList={filteredPartesGuardia}
               config={config}
+              currentUser={currentUser || undefined}
               activeDelegacionId={activeDelegacionId}
               onSaveForense={handleSaveForense}
               onDeleteForense={handleDeleteForense}
@@ -2796,6 +2892,7 @@ export default function App() {
             <LicenciadosView
               personalList={filteredPersonal}
               config={config}
+              currentUser={currentUser || undefined}
               onSavePersonal={handleSavePersonal}
               licenciadosList={filteredLicenciados}
               onSaveLicenciado={handleSaveLicenciado}
@@ -2808,6 +2905,7 @@ export default function App() {
               informesList={filteredInformesTecnicos}
               personalList={filteredPersonal}
               config={config}
+              currentUser={currentUser || undefined}
               inspeccionesList={filteredInspecciones}
               onSaveInforme={handleSaveInformeTecnico}
               onDeleteInforme={handleDeleteInformeTecnico}

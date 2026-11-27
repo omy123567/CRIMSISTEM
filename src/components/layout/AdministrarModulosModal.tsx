@@ -10,6 +10,11 @@ import {
   getTonalidadStyle,
 } from '../../utils/moduleColors';
 import {
+  MODULOS_BASE_CATALOGO,
+  getDefaultEstructuraModulos,
+} from '../../utils/modulosCatalogo';
+export { MODULOS_BASE_CATALOGO, getDefaultEstructuraModulos };
+import {
   FolderTree,
   X,
   ArrowUp,
@@ -44,47 +49,6 @@ interface AdministrarModulosModalProps {
   config: ConfiguracionSistema;
   onSaveConfig: (cfg: ConfiguracionSistema) => void;
 }
-
-export const MODULOS_BASE_CATALOGO: Array<{ id: string; label: string; desc: string }> = [
-  { id: 'dashboard', label: 'Dashboard Ejecutivo', desc: 'KPIs y Estadísticas' },
-  { id: 'personal', label: 'Personal y Legajos', desc: 'Nómina, Armas y Chalecos' },
-  { id: 'licencias', label: 'Licencia Policial', desc: 'Régimen Art. 7, 11, 15 & Feriados' },
-  { id: 'grupos', label: 'Grupos', desc: 'Secciones de Guardia & Nómina' },
-  { id: 'expedientes', label: 'Expedientes Judiciales', desc: 'Oficios, Tareas y PPI' },
-  { id: 'falta-oficio', label: 'Casos Falta de Oficio', desc: 'Urgencias preliminares' },
-  { id: 'moviles', label: 'Parque Automotor', desc: 'Móviles y Reparaciones' },
-  { id: 'recargos', label: 'Recargos Operativos', desc: 'Servicios extraordinarios' },
-  { id: 'guardias', label: 'Parte de Novedades', desc: 'Guardia & Criminalística' },
-  { id: 'novedades-delegaciones', label: 'Novedades y Avisos', desc: 'Avisos Inter-Delegaciones & Traslados' },
-  { id: 'charlas-prevencion', label: 'Charlas y Prevención', desc: 'Prevención Comunitaria & Agenda' },
-  { id: 'inspecciones', label: 'Inspecciones Oculares', desc: 'Intervenciones Criminalísticas' },
-  { id: 'intervenciones', label: 'Intervenciones', desc: 'LC & Siniestros Viales' },
-  { id: 'causas-policiales', label: 'Causas c/ Pers. Policial', desc: 'Hechos con Efectivos Policiales' },
-  { id: 'personas', label: 'Personas', desc: 'Involucrados & Testigos' },
-  { id: 'vehiculos', label: 'Vehículos', desc: 'Rodados en Siniestros Viales' },
-  { id: 'forense', label: 'Forense Policial', desc: 'Médico y Examinados' },
-  { id: 'licenciados', label: 'Licenciado', desc: 'Personal Profesional' },
-  { id: 'informes-tecnicos', label: 'Informes Técnicos', desc: 'Oficios, Dictámenes & Elevación' },
-  { id: 'accidentologia', label: 'Accidentología Policial', desc: 'Siniestros con Personal Policial' },
-  { id: 'numerario', label: 'Control de Folios', desc: 'Numerario oficial y folios' },
-  { id: 'memos-notas', label: 'Memos y Notas', desc: 'Memorándums, Nota V, Notas & Anexos' },
-  { id: 'inventario', label: 'Inventario y Cambio de Jefe', desc: 'Patrimonio, Bienes y Actas de Relevo' },
-  { id: 'auditoria', label: 'Auditoría del Sistema', desc: 'Trazabilidad y Log de Acciones' },
-  { id: 'usuarios', label: 'Gestión de Usuarios', desc: 'Roles, Permisos & Cuentas' },
-  { id: 'config', label: 'Configuración & Membrete', desc: 'Ajustes, Membrete & Backups' },
-];
-
-export const getDefaultEstructuraModulos = (): ModuloEstructuraConfig[] => {
-  return MODULOS_BASE_CATALOGO.map((m, idx) => ({
-    id: m.id,
-    label: m.label,
-    desc: m.desc,
-    orden: idx + 1,
-    padreId: null,
-    visible: true,
-    colorTonalidad: getDefaultTonalidadForModule(m.id),
-  }));
-};
 
 function buildMergedItems(config: ConfiguracionSistema): ModuloEstructuraConfig[] {
   if (config.estructuraModulos && config.estructuraModulos.length > 0) {

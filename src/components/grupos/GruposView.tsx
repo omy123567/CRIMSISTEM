@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { GrupoPersonal, Personal, ConfiguracionSistema } from '../../types/police';
+import { GrupoPersonal, Personal, ConfiguracionSistema, UsuarioSistema } from '../../types/police';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 import {
   Users,
   Search,
@@ -31,6 +32,7 @@ interface GruposViewProps {
   gruposList: GrupoPersonal[];
   personalList: Personal[];
   config: ConfiguracionSistema;
+  currentUser?: UsuarioSistema;
   onSaveGrupo: (grupo: GrupoPersonal) => void;
   onDeleteGrupo: (id: string) => void;
   onNavigateToGuardias?: () => void;
@@ -40,10 +42,12 @@ export const GruposView: React.FC<GruposViewProps> = ({
   gruposList,
   personalList,
   config,
+  currentUser,
   onSaveGrupo,
   onDeleteGrupo,
   onNavigateToGuardias,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'todos' | 'activos' | 'inactivos'>('todos');
   const [filtroJefe, setFiltroJefe] = useState('todos');
@@ -302,16 +306,18 @@ export const GruposView: React.FC<GruposViewProps> = ({
             <span className="hidden sm:inline">Exportar Nómina</span>
           </button>
 
-          <button
-            onClick={() => {
-              setSelectedGrupo(null);
-              setIsModalOpen(true);
-            }}
-            className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-sm transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Nuevo Grupo / Guardia</span>
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => {
+                setSelectedGrupo(null);
+                setIsModalOpen(true);
+              }}
+              className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-sm transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Nuevo Grupo / Guardia</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -405,15 +411,17 @@ export const GruposView: React.FC<GruposViewProps> = ({
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
           <Users className="w-12 h-12 mx-auto mb-3 opacity-30 text-blue-900" />
           <p className="text-sm font-medium">No se encontraron grupos con los criterios de búsqueda.</p>
-          <button
-            onClick={() => {
-              setSelectedGrupo(null);
-              setIsModalOpen(true);
-            }}
-            className="mt-3 text-xs text-blue-800 font-bold hover:underline"
-          >
-            Crear el primer grupo de guardia
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => {
+                setSelectedGrupo(null);
+                setIsModalOpen(true);
+              }}
+              className="mt-3 text-xs text-blue-800 font-bold hover:underline cursor-pointer"
+            >
+              Crear el primer grupo de guardia
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -450,23 +458,27 @@ export const GruposView: React.FC<GruposViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => {
-                          setSelectedGrupo(grupo);
-                          setIsModalOpen(true);
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Editar Grupo"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteGrupoConfirm({ isOpen: true, grupo })}
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                        title="Eliminar Grupo"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => {
+                            setSelectedGrupo(grupo);
+                            setIsModalOpen(true);
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                          title="Editar Grupo"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => setDeleteGrupoConfirm({ isOpen: true, grupo })}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="Eliminar Grupo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -484,16 +496,18 @@ export const GruposView: React.FC<GruposViewProps> = ({
                       <Shield className="w-3.5 h-3.5 text-blue-700" />
                       Personal Integrante ({members.length})
                     </span>
-                    <button
-                      onClick={() => {
-                        setSelectedGrupo(grupo);
-                        setIsModalOpen(true);
-                      }}
-                      className="text-blue-800 hover:underline text-[11px] flex items-center gap-1 font-bold"
-                    >
-                      <UserPlus className="w-3 h-3" />
-                      Gestionar Efectivos
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          setSelectedGrupo(grupo);
+                          setIsModalOpen(true);
+                        }}
+                        className="text-blue-800 hover:underline text-[11px] flex items-center gap-1 font-bold cursor-pointer"
+                      >
+                        <UserPlus className="w-3 h-3" />
+                        Gestionar Efectivos
+                      </button>
+                    )}
                   </div>
 
                   {members.length === 0 ? (

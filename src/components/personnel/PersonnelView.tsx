@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Personal, ConfiguracionSistema, DelegacionPolicial, UsuarioSistema, PrioridadNovedad } from '../../types/police';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 import {
   Search,
   Plus,
@@ -68,6 +69,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
   onDeletePersonal,
   onTransferirPersonal,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filtroJerarquia, setFiltroJerarquia] = useState<string>('todas');
@@ -445,7 +447,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
             <span>Nómina PDF</span>
           </button>
 
-          {onTransferirPersonal && personalList.length > 0 && delegacionesList.length > 1 && (
+          {onTransferirPersonal && canEdit && personalList.length > 0 && delegacionesList.length > 1 && (
             <button
               type="button"
               onClick={() => setTrasladarModal({ isOpen: true, personal: null })}
@@ -457,16 +459,18 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
             </button>
           )}
 
-          <button
-            onClick={() => {
-              setSelectedPersonal(null);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nuevo Efectivo</span>
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => {
+                setSelectedPersonal(null);
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nuevo Efectivo</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -757,7 +761,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                   </button>
 
                   <div className="flex items-center gap-1">
-                    {onTransferirPersonal && (
+                    {onTransferirPersonal && canEdit && (
                       <button
                         type="button"
                         onClick={() => setTrasladarModal({ isOpen: true, personal: p })}
@@ -768,23 +772,27 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                         <span>Trasladar</span>
                       </button>
                     )}
-                    <button
-                      onClick={() => {
-                        setSelectedPersonal(p);
-                        setIsModalOpen(true);
-                      }}
-                      className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded transition-colors"
-                      title="Editar efectivo"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteConfirm({ isOpen: true, personal: p })}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                      title="Eliminar registro"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          setSelectedPersonal(p);
+                          setIsModalOpen(true);
+                        }}
+                        className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                        title="Editar efectivo"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        onClick={() => setDeleteConfirm({ isOpen: true, personal: p })}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        title="Eliminar registro"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -835,35 +843,41 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => generarPdfLegajoPersonal(p, config)}
-                    className="p-1.5 text-blue-700 hover:bg-blue-50 rounded"
+                    className="p-1.5 text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
                     title="Legajo PDF"
                   >
                     <Download className="w-3.5 h-3.5" />
                   </button>
-                  <button
-                    onClick={() => setTrasladarModal({ isOpen: true, personal: p })}
-                    className="p-1.5 text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 rounded"
-                    title="Trasladar a otra Delegación"
-                  >
-                    <ArrowRightLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedPersonal(p);
-                      setIsModalOpen(true);
-                    }}
-                    className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
-                    title="Editar"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setDeleteConfirm({ isOpen: true, personal: p })}
-                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                    title="Eliminar"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {onTransferirPersonal && canEdit && (
+                    <button
+                      onClick={() => setTrasladarModal({ isOpen: true, personal: p })}
+                      className="p-1.5 text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 rounded cursor-pointer"
+                      title="Trasladar a otra Delegación"
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button
+                      onClick={() => {
+                        setSelectedPersonal(p);
+                        setIsModalOpen(true);
+                      }}
+                      className="p-1.5 text-slate-600 hover:bg-slate-100 rounded cursor-pointer"
+                      title="Editar"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      onClick={() => setDeleteConfirm({ isOpen: true, personal: p })}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                      title="Eliminar"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -936,35 +950,41 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => generarPdfLegajoPersonal(p, config)}
-                        className="p-1 text-blue-700 hover:bg-blue-50 rounded"
+                        className="p-1 text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
                         title="Legajo PDF"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={() => setTrasladarModal({ isOpen: true, personal: p })}
-                        className="p-1 text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 rounded"
-                        title="Trasladar a otra Delegación"
-                      >
-                        <ArrowRightLeft className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setSelectedPersonal(p);
-                          setIsModalOpen(true);
-                        }}
-                        className="p-1 text-slate-600 hover:bg-slate-100 rounded"
-                        title="Editar"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirm({ isOpen: true, personal: p })}
-                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                        title="Eliminar"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {onTransferirPersonal && canEdit && (
+                        <button
+                          onClick={() => setTrasladarModal({ isOpen: true, personal: p })}
+                          className="p-1 text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 rounded cursor-pointer"
+                          title="Trasladar a otra Delegación"
+                        >
+                          <ArrowRightLeft className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {canEdit && (
+                        <button
+                          onClick={() => {
+                            setSelectedPersonal(p);
+                            setIsModalOpen(true);
+                          }}
+                          className="p-1 text-slate-600 hover:bg-slate-100 rounded cursor-pointer"
+                          title="Editar"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => setDeleteConfirm({ isOpen: true, personal: p })}
+                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                          title="Eliminar"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -984,7 +1004,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
             setIsModalOpen(false);
           }}
           onRequestTransfer={
-            onTransferirPersonal && delegacionesList.length > 1
+            onTransferirPersonal && canEdit && delegacionesList.length > 1
               ? (pers) => {
                   setIsModalOpen(false);
                   setTrasladarModal({ isOpen: true, personal: pers });

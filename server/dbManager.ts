@@ -12,6 +12,7 @@ import {
 } from '../src/db/database';
 import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from '../src/services/licenciaService';
 import { DEFAULT_TIPOS_MEMO } from '../src/utils/memosCatalogUtils';
+import { standardizeModulosFolders } from '../src/utils/modulosCatalogo';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -272,6 +273,25 @@ export function initDatabase(): SispolDatabase {
         parsed.configuracion = memRMig.configuraciones;
       }
       parsed.memorandumRRestrictedV3 = true;
+      modified = true;
+    }
+
+    if (!parsed.modulosFoldersStandardizedV4) {
+      if (Array.isArray(parsed.configuracion)) {
+        const nowIso = new Date().toISOString();
+        parsed.configuracion = parsed.configuracion.map((cfg: any) => {
+          const res = standardizeModulosFolders(cfg?.estructuraModulos);
+          if (res.changed) {
+            return {
+              ...cfg,
+              estructuraModulos: res.estructuraModulos,
+              estructuraModulosUpdatedAt: nowIso,
+            };
+          }
+          return cfg;
+        });
+      }
+      parsed.modulosFoldersStandardizedV4 = true;
       modified = true;
     }
 

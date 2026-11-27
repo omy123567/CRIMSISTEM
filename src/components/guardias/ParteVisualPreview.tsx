@@ -326,14 +326,16 @@ export const ParteVisualPreview: React.FC<ParteVisualPreviewProps> = ({
               <span className="text-slate-500 font-semibold">
                 No hay intervenciones correlativas registradas en este turno de guardia.
               </span>
-              <div className="mt-2">
-                <button
-                  onClick={onAddIntervencion}
-                  className="bg-blue-900 text-white font-bold text-xs px-3 py-1.5 rounded cursor-pointer"
-                >
-                  + Agregar Primera Intervención Correlativa
-                </button>
-              </div>
+              {onAddIntervencion && (
+                <div className="mt-2">
+                  <button
+                    onClick={onAddIntervencion}
+                    className="bg-blue-900 text-white font-bold text-xs px-3 py-1.5 rounded cursor-pointer"
+                  >
+                    + Agregar Primera Intervención Correlativa
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             parte.intervenciones.map((interv, idx) => {

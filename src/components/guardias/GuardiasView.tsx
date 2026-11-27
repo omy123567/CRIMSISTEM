@@ -53,6 +53,7 @@ import {
   getNextCorrelativoIntervencion,
   getNextIoNumber,
 } from '../../utils/numeracionUtils';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 
 interface GuardiasViewProps {
   partesList: ParteNovedadesGuardia[];
@@ -91,6 +92,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
   onDeleteIntervencion,
   onSaveConfig,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   // Modo de visualización: 'tabla' (matriz de guardias), 'intervenciones' (tabla oficial de intervenciones), o 'detalle' (cuaderno de novedades)
   const [viewMode, setViewMode] = useState<GuardiaViewMode>('tabla');
   const [selectedParteId, setSelectedParteId] = useState<string>(() => {
@@ -511,16 +513,18 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
             </button>
           )}
 
-          <button
-            onClick={() => {
-              setSelectedParteId('');
-              setIsParteModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Nuevo Turno de Guardia</span>
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => {
+                setSelectedParteId('');
+                setIsParteModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Nuevo Turno de Guardia</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -613,14 +617,16 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                   </span>
                 </button>
               )}
-              <button
-                onClick={handleNuevaInspeccionOcular}
-                className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-md transition-colors cursor-pointer"
-                title="Carga una nueva Inspección Ocular y suma +1 al contador oficial de intervenciones"
-              >
-                <Plus className="w-4 h-4 stroke-[3]" />
-                <span>+ Cargar Inspección Ocular (+1 Intervención)</span>
-              </button>
+              {canCreate && (
+                <button
+                  onClick={handleNuevaInspeccionOcular}
+                  className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-md transition-colors cursor-pointer"
+                  title="Carga una nueva Inspección Ocular y suma +1 al contador oficial de intervenciones"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>+ Cargar Inspección Ocular (+1 Intervención)</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -812,10 +818,7 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                             <TipoLesionesCell
                               intervencion={interv}
                               config={config}
-                              readOnly={Boolean(
-                                currentUser?.esSoloLectura ||
-                                  currentUser?.rol === 'Solo Lectura (Auditor / Consulta)'
-                              )}
+                              readOnly={!canEdit}
                               onUpdateIntervencion={(updated) =>
                                 handleQuickUpdateIntervencion(parte, updated)
                               }
@@ -841,19 +844,21 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                                   <Clock className="w-3 h-3 text-amber-700" />
                                   <span>Pendiente de Confirmación</span>
                                 </span>
-                                <button
-                                  onClick={() =>
-                                    setConfirmarFotosModal({
-                                      isOpen: true,
-                                      interv,
-                                      parteId: parte.id,
-                                    })
-                                  }
-                                  className="mt-0.5 bg-blue-900 hover:bg-blue-950 text-white text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer transition-colors shadow-2xs"
-                                  title="Confirmar por otro usuario que las fotos están conformes"
-                                >
-                                  ✓ Confirmar Fotos
-                                </button>
+                                {canEdit && (
+                                  <button
+                                    onClick={() =>
+                                      setConfirmarFotosModal({
+                                        isOpen: true,
+                                        interv,
+                                        parteId: parte.id,
+                                      })
+                                    }
+                                    className="mt-0.5 bg-blue-900 hover:bg-blue-950 text-white text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer transition-colors shadow-2xs"
+                                    title="Confirmar por otro usuario que las fotos están conformes"
+                                  >
+                                    ✓ Confirmar Fotos
+                                  </button>
+                                )}
                               </div>
                             )}
                           </td>
@@ -871,17 +876,19 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
                           {/* 8. Acciones */}
                           <td className="border border-slate-300 px-3 py-2.5 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-1">
-                              <button
-                                onClick={() => {
-                                  setSelectedParteId(parte.id);
-                                  setSelectedInterv(interv);
-                                  setTipoIntervencionForzado(interv.tipoIntervencion);
-                                  setIsIntervModalOpen(true);
-                                }}
-                                className="px-2 py-1 bg-slate-800 hover:bg-blue-900 text-white rounded text-[10px] font-bold cursor-pointer transition-colors"
-                              >
-                                Editar
-                              </button>
+                              {canEdit && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedParteId(parte.id);
+                                    setSelectedInterv(interv);
+                                    setTipoIntervencionForzado(interv.tipoIntervencion);
+                                    setIsIntervModalOpen(true);
+                                  }}
+                                  className="px-2 py-1 bg-slate-800 hover:bg-blue-900 text-white rounded text-[10px] font-bold cursor-pointer transition-colors"
+                                >
+                                  Editar
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -942,41 +949,47 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
               </select>
 
               {/* Botón Cargar LC exclusivo */}
-              <button
-                onClick={() => {
-                  setSelectedInterv(null);
-                  setTipoIntervencionForzado('Criminalística');
-                  setIsIntervModalOpen(true);
-                }}
-                className="bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
-                title="Cargar intervención de Labor Criminalística (LC - Hechos no de tránsito)"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Cargar LC</span>
-              </button>
+              {canCreate && (
+                <button
+                  onClick={() => {
+                    setSelectedInterv(null);
+                    setTipoIntervencionForzado('Criminalística');
+                    setIsIntervModalOpen(true);
+                  }}
+                  className="bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                  title="Cargar intervención de Labor Criminalística (LC - Hechos no de tránsito)"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Cargar LC</span>
+                </button>
+              )}
 
               {/* Botón Cargar Seg. Vial exclusivo */}
-              <button
-                onClick={() => {
-                  setSelectedInterv(null);
-                  setTipoIntervencionForzado('Accidentológica');
-                  setIsIntervModalOpen(true);
-                }}
-                className="bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
-                title="Cargar intervención de Seguridad Vial (Seg. Vial - Siniestros Viales)"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Cargar Seg. Vial</span>
-              </button>
+              {canCreate && (
+                <button
+                  onClick={() => {
+                    setSelectedInterv(null);
+                    setTipoIntervencionForzado('Accidentológica');
+                    setIsIntervModalOpen(true);
+                  }}
+                  className="bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                  title="Cargar intervención de Seguridad Vial (Seg. Vial - Siniestros Viales)"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Cargar Seg. Vial</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setIsParteModalOpen(true)}
-                className="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                title="Editar Datos de la Guardia"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                <span>Editar Guardia</span>
-              </button>
+              {canEdit && (
+                <button
+                  onClick={() => setIsParteModalOpen(true)}
+                  className="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
+                  title="Editar Datos de la Guardia"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Editar Guardia</span>
+                </button>
+              )}
 
               <button
                 onClick={() => generarPdfParteGuardia(activeParte, config, { licenciasPoliciales, personalList })}
@@ -996,18 +1009,26 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
             personalList={personalList}
             licenciasPoliciales={licenciasPoliciales}
             onClose={() => setViewMode('tabla')}
-            onEditParte={() => setIsParteModalOpen(true)}
-            onAddIntervencion={() => {
-              setSelectedInterv(null);
-              setTipoIntervencionForzado('Criminalística');
-              setIsIntervModalOpen(true);
-            }}
-            onEditIntervencion={(interv) => {
-              setSelectedInterv(interv);
-              setTipoIntervencionForzado(interv.tipoIntervencion);
-              setIsIntervModalOpen(true);
-            }}
-            onDeleteIntervencion={handleDeleteIntervencionWrapper}
+            onEditParte={canEdit ? () => setIsParteModalOpen(true) : undefined}
+            onAddIntervencion={
+              canCreate
+                ? () => {
+                    setSelectedInterv(null);
+                    setTipoIntervencionForzado('Criminalística');
+                    setIsIntervModalOpen(true);
+                  }
+                : undefined
+            }
+            onEditIntervencion={
+              canEdit
+                ? (interv) => {
+                    setSelectedInterv(interv);
+                    setTipoIntervencionForzado(interv.tipoIntervencion);
+                    setIsIntervModalOpen(true);
+                  }
+                : undefined
+            }
+            onDeleteIntervencion={canDelete ? handleDeleteIntervencionWrapper : undefined}
           />
         </div>
       )}
@@ -1020,12 +1041,14 @@ export const GuardiasView: React.FC<GuardiasViewProps> = ({
           <p className="text-xs text-slate-500 mt-1">
             Abra un nuevo libro de novedades de guardia para comenzar a cargar intervenciones y personal.
           </p>
-          <button
-            onClick={() => setIsParteModalOpen(true)}
-            className="mt-4 bg-blue-900 text-white font-bold text-xs px-4 py-2 rounded-lg cursor-pointer"
-          >
-            Crear Primer Turno de Guardia
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => setIsParteModalOpen(true)}
+              className="mt-4 bg-blue-900 text-white font-bold text-xs px-4 py-2 rounded-lg cursor-pointer"
+            >
+              Crear Primer Turno de Guardia
+            </button>
+          )}
         </div>
       )}
 

@@ -29,6 +29,9 @@ interface GestionSeriesModalProps {
   activeSerieId: string;
   canReorderSeries?: boolean;
   canEditVisibility?: boolean;
+  canCreate?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
   onReorderSeries?: (orderedSeries: SerieNumerario[]) => Promise<void> | void;
   onSaveSerie: (serie: SerieNumerario) => Promise<void> | void;
   onDeleteSerie: (id: string) => Promise<void> | void;
@@ -53,6 +56,9 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
   activeSerieId,
   canReorderSeries = false,
   canEditVisibility = true,
+  canCreate = true,
+  canEdit = true,
+  canDelete = true,
   onReorderSeries,
   onSaveSerie,
   onDeleteSerie,
@@ -179,14 +185,16 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                 <span className="font-bold text-slate-800 text-xs">
                   Series Registradas ({orderedSeries.length})
                 </span>
-                <button
-                  type="button"
-                  onClick={handleOpenNew}
-                  className="bg-blue-900 hover:bg-blue-950 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Nueva Serie</span>
-                </button>
+                {canCreate && (
+                  <button
+                    type="button"
+                    onClick={handleOpenNew}
+                    className="bg-blue-900 hover:bg-blue-950 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Nueva Serie</span>
+                  </button>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -276,15 +284,17 @@ export const GestionSeriesModal: React.FC<GestionSeriesModalProps> = ({
                             Seleccionar
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEdit(s)}
-                          className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded-lg cursor-pointer"
-                          title="Editar configuración de serie"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        {orderedSeries.length > 1 && (
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(s)}
+                            className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded-lg cursor-pointer"
+                            title="Editar configuración de serie"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canDelete && orderedSeries.length > 1 && (
                           <button
                             type="button"
                             onClick={() => setSerieToDelete(s)}

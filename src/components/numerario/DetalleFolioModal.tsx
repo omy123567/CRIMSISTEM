@@ -21,6 +21,8 @@ interface DetalleFolioModalProps {
   serie?: SerieNumerario | null;
   linkedMemo?: MemoNota | null;
   canChangeFolioNumber?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
   existingFolios?: FolioAsignado[];
   onUpdate: (updated: FolioAsignado) => Promise<void> | void;
   onLiberar: (folio: FolioAsignado, liberarRangoCompleto?: boolean) => Promise<void> | void;
@@ -32,6 +34,8 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
   serie,
   linkedMemo,
   canChangeFolioNumber = false,
+  canEdit = true,
+  canDelete = true,
   existingFolios = [],
   onUpdate,
   onLiberar,
@@ -374,26 +378,32 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
 
           {/* Botonera de acciones */}
           <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => setIsConfirmLiberarOpen(true)}
-              className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer w-full sm:w-auto justify-center transition-colors"
-            >
-              <Trash2 className="w-4 h-4 text-red-600" />
-              <span>Liberar Folio #{folio.numero}</span>
-            </button>
+            {canDelete ? (
+              <button
+                type="button"
+                onClick={() => setIsConfirmLiberarOpen(true)}
+                className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer w-full sm:w-auto justify-center transition-colors"
+              >
+                <Trash2 className="w-4 h-4 text-red-600" />
+                <span>Liberar Folio #{folio.numero}</span>
+              </button>
+            ) : (
+              <div />
+            )}
 
             <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
               {!isEditing ? (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditing(true)}
-                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
-                  >
-                    <Edit2 className="w-3.5 h-3.5 text-slate-600" />
-                    <span>Modificar Datos</span>
-                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                      <span>Modificar Datos</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={onClose}

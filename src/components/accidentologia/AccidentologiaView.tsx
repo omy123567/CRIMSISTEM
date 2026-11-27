@@ -38,6 +38,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { CollapsibleFilterBar } from '../common/CollapsibleFilterBar';
 import { generarPdfReporteAccidentologia } from '../../services/pdfService';
 import { esTipoLesionADeterminar } from '../../utils/lesionesUtils';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 
 interface AccidentologiaViewProps {
   accidentologiaList: AccidentologiaRegistro[];
@@ -66,6 +67,7 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
   onDeleteRegistro,
   onSincronizarIntervenciones,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   // Pestaña activa del módulo (Módulo 1, 2, 3, Consolidado o 4: Reportes)
   const [activeTab, setActiveTab] = useState<AccidentologiaTab>('consolidado');
 
@@ -122,6 +124,7 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
 
   // Sincronización automática de intervenciones viales con personal policial al montar o recibir nuevas intervenciones
   React.useEffect(() => {
+    if (!canCreate) return;
     const idsExistentes = new Set(accidentologiaList.map((a) => a.intervencionId).filter(Boolean));
 
     intervencionesList.forEach((iv) => {
@@ -208,7 +211,7 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
         onSaveRegistro(nuevoReg);
       }
     });
-  }, [intervencionesList, activeDelegacionId]);
+  }, [intervencionesList, activeDelegacionId, canCreate]);
 
   const localidadesUnicas = useMemo(() => {
     const set = new Set<string>();
@@ -356,6 +359,7 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
 
   // Sincronización automática de intervenciones accidentológicas
   const handleAutoSync = () => {
+    if (!canCreate) return;
     let agregados = 0;
     const idsExistentes = new Set(accidentologiaList.map((a) => a.intervencionId).filter(Boolean));
 
@@ -532,14 +536,16 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleAutoSync}
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold border border-slate-300 transition-colors shadow-2xs cursor-pointer"
-            title="Importar automáticamente intervenciones registradas en guardias"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-blue-800" />
-            <span>Sincronizar Intervenciones</span>
-          </button>
+          {canCreate && (
+            <button
+              onClick={handleAutoSync}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold border border-slate-300 transition-colors shadow-2xs cursor-pointer"
+              title="Importar automáticamente intervenciones registradas en guardias"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-blue-800" />
+              <span>Sincronizar Intervenciones</span>
+            </button>
+          )}
 
           <button
             onClick={() => generarPdfReporteAccidentologia(filteredRegistros, config)}
@@ -550,16 +556,18 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
             <span>Exportar PDF</span>
           </button>
 
-          <button
-            onClick={() => {
-              setEditingRegistro(null);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Nuevo Siniestro Vial</span>
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => {
+                setEditingRegistro(null);
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Nuevo Siniestro Vial</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -890,7 +898,7 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 self-end md:self-center shrink-0">
-                      {esRegistroPendiente(r) && (
+                      {canEdit && esRegistroPendiente(r) && (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -904,27 +912,31 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
                           <span>Completar Lesiones/Alcohotest</span>
                         </button>
                       )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingRegistro(r);
-                          setIsModalOpen(true);
-                        }}
-                        className="p-1.5 text-blue-900 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
-                        title="Editar registro"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteConfirm({ isOpen: true, reg: r });
-                        }}
-                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                        title="Eliminar registro"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingRegistro(r);
+                            setIsModalOpen(true);
+                          }}
+                          className="p-1.5 text-blue-900 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                          title="Editar registro"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirm({ isOpen: true, reg: r });
+                          }}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="Eliminar registro"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       {isExpanded ? (
                         <ChevronDown className="w-4 h-4 text-slate-400" />
                       ) : (
@@ -1054,16 +1066,18 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
                   </td>
                   <td className="py-2.5 px-3 font-medium">{r.estadoClima}</td>
                   <td className="py-2.5 px-3 text-center">
-                    <button
-                      onClick={() => {
-                        setEditingRegistro(r);
-                        setIsModalOpen(true);
-                      }}
-                      className="text-blue-900 hover:text-blue-950 p-1 cursor-pointer"
-                      title="Editar"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          setEditingRegistro(r);
+                          setIsModalOpen(true);
+                        }}
+                        className="text-blue-900 hover:text-blue-950 p-1 cursor-pointer"
+                        title="Editar"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1134,7 +1148,7 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
                   </td>
                   <td className="py-2.5 px-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
-                      {esRegistroPendiente(r) && (
+                      {canEdit && esRegistroPendiente(r) && (
                         <button
                           type="button"
                           onClick={() => setRegistroParaCompletar(r)}
@@ -1144,16 +1158,18 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
                           Completar
                         </button>
                       )}
-                      <button
-                        onClick={() => {
-                          setEditingRegistro(r);
-                          setIsModalOpen(true);
-                        }}
-                        className="text-blue-900 hover:text-blue-950 p-1 cursor-pointer"
-                        title="Editar"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => {
+                            setEditingRegistro(r);
+                            setIsModalOpen(true);
+                          }}
+                          className="text-blue-900 hover:text-blue-950 p-1 cursor-pointer"
+                          title="Editar"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1213,16 +1229,18 @@ export const AccidentologiaView: React.FC<AccidentologiaViewProps> = ({
                     {r.evidencias || '---'}
                   </td>
                   <td className="py-2.5 px-3 text-center">
-                    <button
-                      onClick={() => {
-                        setEditingRegistro(r);
-                        setIsModalOpen(true);
-                      }}
-                      className="text-blue-900 hover:text-blue-950 p-1 cursor-pointer"
-                      title="Editar"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          setEditingRegistro(r);
+                          setIsModalOpen(true);
+                        }}
+                        className="text-blue-900 hover:text-blue-950 p-1 cursor-pointer"
+                        title="Editar"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

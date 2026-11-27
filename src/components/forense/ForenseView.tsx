@@ -3,7 +3,9 @@ import {
   ForenseTurno,
   ConfiguracionSistema,
   ParteNovedadesGuardia,
+  UsuarioSistema,
 } from '../../types/police';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 import {
   Stethoscope,
   Plus,
@@ -36,6 +38,7 @@ interface ForenseViewProps {
   forensesList: ForenseTurno[];
   partesGuardiaList?: ParteNovedadesGuardia[];
   config: ConfiguracionSistema;
+  currentUser?: UsuarioSistema;
   activeDelegacionId?: string;
   onSaveForense: (f: ForenseTurno) => void;
   onDeleteForense: (id: string) => void;
@@ -46,11 +49,13 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
   forensesList,
   partesGuardiaList = [],
   config,
+  currentUser,
   activeDelegacionId = 'del-laguna-blanca',
   onSaveForense,
   onDeleteForense,
   onSaveParte,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroMedico, setFiltroMedico] = useState('todos');
   const [fechaDesde, setFechaDesde] = useState('');
@@ -419,14 +424,16 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
             <Download className="w-4 h-4 text-slate-600" />
             <span>Exportar PDF</span>
           </button>
-          <button
-            type="button"
-            onClick={() => handleOpenModal()}
-            className="flex items-center gap-1.5 bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Cargar Médico de Turno</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => handleOpenModal()}
+              className="flex items-center gap-1.5 bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Cargar Médico de Turno</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -563,7 +570,7 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
                   </div>
                 </div>
 
-                {onSaveParte && (
+                {onSaveParte && canEdit && (
                   <div className="pt-2 border-t border-slate-100 flex justify-end">
                     <button
                       type="button"
@@ -620,24 +627,30 @@ export const ForenseView: React.FC<ForenseViewProps> = ({
                   </span>
                 </div>
 
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenModal(f)}
-                    className="p-1.5 text-slate-600 hover:bg-slate-100 rounded cursor-pointer"
-                    title="Editar"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setForenseToDelete(f)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                    title="Eliminar registro"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                {(canEdit || canDelete) && (
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-1">
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenModal(f)}
+                        className="p-1.5 text-slate-600 hover:bg-slate-100 rounded cursor-pointer"
+                        title="Editar"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => setForenseToDelete(f)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                        title="Eliminar registro"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -34,6 +34,10 @@ import {
 import { crearOfflineVerifier } from '../services/securityClient';
 import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from '../services/licenciaService';
 import { DEFAULT_TIPOS_MEMO, normalizeTipoKey } from '../utils/memosCatalogUtils';
+import {
+  getDefaultEstructuraModulos,
+  standardizeModulosFolders,
+} from '../utils/modulosCatalogo';
 
 export class SisPolDatabase extends Dexie {
   personal!: Table<Personal, string>;
@@ -348,30 +352,7 @@ export const DEFAULT_CONFIG: ConfiguracionSistema = {
   recordatorioServiceKm: 500,
   tiposLicenciaCatalogo: DEFAULT_TIPOS_LICENCIA,
   tiposMemoCatalogo: DEFAULT_TIPOS_MEMO,
-  estructuraModulos: [
-    { id: 'dashboard', label: 'Dashboard Ejecutivo', desc: 'KPIs y Estadísticas', orden: 1, padreId: null, visible: true },
-    { id: 'personal', label: 'Personal y Legajos', desc: 'Nómina, Armas y Chalecos', orden: 2, padreId: null, visible: true },
-    { id: 'licencias', label: 'Licencia Policial', desc: 'Régimen, Saldos Art. 7 y Feriados', orden: 3, padreId: null, visible: true },
-    { id: 'grupos', label: 'Grupos', desc: 'Secciones de Guardia & Nómina', orden: 4, padreId: null, visible: true },
-    { id: 'expedientes', label: 'Expedientes Judiciales', desc: 'Oficios, Tareas y PPI', orden: 5, padreId: null, visible: true },
-    { id: 'falta-oficio', label: 'Casos Falta de Oficio', desc: 'Urgencias preliminares', orden: 6, padreId: null, visible: true },
-    { id: 'moviles', label: 'Parque Automotor', desc: 'Móviles y Reparaciones', orden: 7, padreId: null, visible: true },
-    { id: 'recargos', label: 'Recargos Operativos', desc: 'Servicios extraordinarios', orden: 8, padreId: null, visible: true },
-    { id: 'guardias', label: 'Parte de Novedades', desc: 'Guardia & Criminalística', orden: 9, padreId: null, visible: true },
-    { id: 'inspecciones', label: 'Inspecciones Oculares', desc: 'Intervenciones Criminalísticas', orden: 10, padreId: null, visible: true },
-    { id: 'intervenciones', label: 'Intervenciones', desc: 'LC & Siniestros Viales', orden: 11, padreId: null, visible: true },
-    { id: 'causas-policiales', label: 'Causas c/ Pers. Policial', desc: 'Hechos con Efectivos Policiales', orden: 12, padreId: null, visible: true },
-    { id: 'personas', label: 'Personas', desc: 'Involucrados & Testigos', orden: 13, padreId: null, visible: true },
-    { id: 'vehiculos', label: 'Vehículos', desc: 'Rodados en Siniestros Viales', orden: 14, padreId: null, visible: true },
-    { id: 'forense', label: 'Forense Policial', desc: 'Médico y Examinados', orden: 15, padreId: null, visible: true },
-    { id: 'licenciados', label: 'Licenciado', desc: 'Personal Profesional', orden: 16, padreId: null, visible: true },
-    { id: 'informes-tecnicos', label: 'Informes Técnicos', desc: 'Oficios, Dictámenes & Elevación', orden: 17, padreId: null, visible: true },
-    { id: 'numerario', label: 'Control de Folios', desc: 'Numerario y Asignación de Folios', orden: 18, padreId: null, visible: true },
-    { id: 'memos-notas', label: 'Memos y Notas', desc: 'Memorándums, Nota V, Notas & Anexos', orden: 19, padreId: null, visible: true },
-    { id: 'inventario', label: 'Inventario y Cambio de Jefe', desc: 'Patrimonio, Bienes y Actas de Relevo', orden: 20, padreId: null, visible: true },
-    { id: 'usuarios', label: 'Gestión de Usuarios', desc: 'Roles, Permisos & Cuentas', orden: 21, padreId: null, visible: true },
-    { id: 'config', label: 'Configuración & Membrete', desc: 'Ajustes, Membrete & Backups', orden: 22, padreId: null, visible: true },
-  ],
+  estructuraModulos: getDefaultEstructuraModulos(),
 };
 
 export const DEFAULT_DELEGACIONES: DelegacionPolicial[] = [
@@ -1361,10 +1342,35 @@ export async function seedInitialDataIfEmpty() {
     // ignore
   }
 
-  // 3. Asegurar configuración inicial
+  // 3. Asegurar configuración inicial y migración única de carpetas en menú
   const countConf = await db.configuracion.count();
   if (countConf === 0) {
     await db.configuracion.put(DEFAULT_CONFIG);
+  } else {
+    const foldersMigrated =
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem('sispol_modulos_folders_v4') === '1';
+    if (!foldersMigrated) {
+      const curConfigs = await db.configuracion.toArray();
+      const updatedConfigs: ConfiguracionSistema[] = [];
+      const nowIso = new Date().toISOString();
+      for (const cfg of curConfigs) {
+        const res = standardizeModulosFolders(cfg.estructuraModulos);
+        if (res.changed) {
+          updatedConfigs.push({
+            ...cfg,
+            estructuraModulos: res.estructuraModulos,
+            estructuraModulosUpdatedAt: nowIso,
+          });
+        }
+      }
+      if (updatedConfigs.length > 0) {
+        await db.configuracion.bulkPut(updatedConfigs);
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('sispol_modulos_folders_v4', '1');
+      }
+    }
   }
 
   // 4. Asegurar roles y numerarios base

@@ -40,6 +40,7 @@ import {
   renderDonutChartPng,
   renderHorizontalBarChartPng,
 } from '../../utils/pdfChartUtils';
+import { getCrudPermissions } from '../../utils/permisosUtils';
 
 interface RecargosViewProps {
   recargosList: RecargoOperativo[];
@@ -64,6 +65,7 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
   onSaveRecargo,
   onDeleteRecargo,
 }) => {
+  const { canCreate, canEdit, canDelete } = getCrudPermissions(currentUser);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroEstado, setFiltroEstado] = useState('todos');
@@ -574,16 +576,18 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
             <span>Planilla PDF Oficial</span>
           </button>
 
-          <button
-            onClick={() => {
-              setSelectedRecargo(null);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nuevo Recargo</span>
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => {
+                setSelectedRecargo(null);
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nuevo Recargo</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -869,25 +873,32 @@ export const RecargosView: React.FC<RecargosViewProps> = ({
                       </td>
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => {
-                              setSelectedRecargo(rec);
-                              setIsModalOpen(true);
-                            }}
-                            className="p-1.5 text-slate-500 hover:text-blue-900 hover:bg-blue-100 rounded cursor-pointer"
-                            title="Editar Recargo"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() =>
-                              setDeleteRecargoConfirm({ isOpen: true, recargo: rec })
-                            }
-                            className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-100 rounded cursor-pointer"
-                            title="Eliminar Recargo"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canEdit && (
+                            <button
+                              onClick={() => {
+                                setSelectedRecargo(rec);
+                                setIsModalOpen(true);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-blue-900 hover:bg-blue-100 rounded cursor-pointer"
+                              title="Editar Recargo"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              onClick={() =>
+                                setDeleteRecargoConfirm({ isOpen: true, recargo: rec })
+                              }
+                              className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-100 rounded cursor-pointer"
+                              title="Eliminar Recargo"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {!canEdit && !canDelete && (
+                            <span className="text-[11px] text-slate-400">—</span>
+                          )}
                         </div>
                       </td>
                     </tr>
