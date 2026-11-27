@@ -48,6 +48,8 @@ export interface SispolDatabase {
   saldosLicencias: any[];
   feriados: any[];
   memosNotas: any[];
+  inventarioBienes: any[];
+  actasCambioJefe: any[];
 }
 
 function getInitialDatabase(): SispolDatabase {
@@ -81,6 +83,8 @@ function getInitialDatabase(): SispolDatabase {
     saldosLicencias: [],
     feriados: DEFAULT_FERIADOS_ARGENTINA.map((f) => ({ ...f })),
     memosNotas: [],
+    inventarioBienes: [],
+    actasCambioJefe: [],
   };
 }
 
@@ -157,6 +161,13 @@ export function initDatabase(): SispolDatabase {
           ];
           cfgMod = true;
         }
+        if (Array.isArray(copy.estructuraModulos) && !copy.estructuraModulos.some((m: any) => m.id === 'inventario')) {
+          copy.estructuraModulos = [
+            ...copy.estructuraModulos,
+            { id: 'inventario', label: 'Inventario y Cambio de Jefe', desc: 'Patrimonio, Bienes y Actas de Relevo', orden: copy.estructuraModulos.length + 1, padreId: null, visible: true },
+          ];
+          cfgMod = true;
+        }
         if (cfgMod) modified = true;
         return copy;
       });
@@ -170,8 +181,14 @@ export function initDatabase(): SispolDatabase {
         }
       }
       parsed.roles = parsed.roles.map((r: any) => {
-        if ((r.id === 'rol-superusuario' || r.id === 'rol-admin') && Array.isArray(r.modulosPermitidos)) {
-          let updatedMods = [...r.modulosPermitidos];
+        if (
+          (r.id === 'rol-superusuario' ||
+            r.id === 'rol-admin' ||
+            r.id === 'rol-jefe' ||
+            r.id === 'rol-mayoria-judicial') &&
+          Array.isArray(r.modulosPermitidos)
+        ) {
+          const updatedMods = [...r.modulosPermitidos];
           let changed = false;
           if (!updatedMods.includes('licencias')) {
             updatedMods.push('licencias');
@@ -179,6 +196,10 @@ export function initDatabase(): SispolDatabase {
           }
           if (!updatedMods.includes('memos-notas')) {
             updatedMods.push('memos-notas');
+            changed = true;
+          }
+          if (!updatedMods.includes('inventario')) {
+            updatedMods.push('inventario');
             changed = true;
           }
           if (changed) {
@@ -192,8 +213,16 @@ export function initDatabase(): SispolDatabase {
 
     if (Array.isArray(parsed.usuarios)) {
       parsed.usuarios = parsed.usuarios.map((u: any) => {
-        if ((u.rol === 'superusuario' || u.rol === 'Administrador') && Array.isArray(u.modulosPermitidos)) {
-          let updatedMods = [...u.modulosPermitidos];
+        const rolLow = String(u.rol || '').toLowerCase();
+        if (
+          (u.rol === 'superusuario' ||
+            u.rol === 'Administrador' ||
+            rolLow.includes('jefe') ||
+            rolLow.includes('mayoria') ||
+            rolLow.includes('judicial')) &&
+          Array.isArray(u.modulosPermitidos)
+        ) {
+          const updatedMods = [...u.modulosPermitidos];
           let changed = false;
           if (!updatedMods.includes('licencias')) {
             updatedMods.push('licencias');
@@ -201,6 +230,10 @@ export function initDatabase(): SispolDatabase {
           }
           if (!updatedMods.includes('memos-notas')) {
             updatedMods.push('memos-notas');
+            changed = true;
+          }
+          if (!updatedMods.includes('inventario')) {
+            updatedMods.push('inventario');
             changed = true;
           }
           if (changed) {
@@ -328,6 +361,8 @@ export function wipeOperationalData(): SispolDatabase {
   db.licenciasPoliciales = [];
   db.saldosLicencias = [];
   db.memosNotas = [];
+  db.inventarioBienes = [];
+  db.actasCambioJefe = [];
 
   saveDatabase(db);
   return db;

@@ -45,6 +45,8 @@ const COLLECTIONS = [
   'saldosLicencias',
   'feriados',
   'memosNotas',
+  'inventarioBienes',
+  'actasCambioJefe',
 ] as const;
 
 type CollectionName = (typeof COLLECTIONS)[number];

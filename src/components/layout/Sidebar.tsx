@@ -29,6 +29,7 @@ import {
   BookOpen,
   CalendarCheck,
   Files,
+  PackageCheck,
 } from 'lucide-react';
 import { UsuarioSistema, ConfiguracionSistema, ModuloEstructuraConfig, TonalidadModulo } from '../../types/police';
 import { AdministrarModulosModal } from './AdministrarModulosModal';
@@ -57,6 +58,7 @@ export type ActiveTab =
   | 'accidentologia'
   | 'numerario'
   | 'memos-notas'
+  | 'inventario'
   | 'usuarios'
   | 'auditoria'
   | 'config';
@@ -77,6 +79,7 @@ interface SidebarProps {
     vehiculosTotal?: number;
     charlasProximas?: number;
     memosNotas?: number;
+    inventarioBienes?: number;
   };
 }
 
@@ -236,6 +239,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       desc: 'Memorándums, Nota V, Notas & Anexos',
       badge: badgeCounts.memosNotas ? `${badgeCounts.memosNotas}` : undefined,
       badgeColor: 'bg-cyan-600/30 text-cyan-300 border-cyan-600/50',
+    },
+    {
+      id: 'inventario',
+      label: 'Inventario y Cambio de Jefe',
+      icon: PackageCheck,
+      desc: 'Patrimonio, Bienes y Actas de Relevo',
+      badge: badgeCounts.inventarioBienes ? `${badgeCounts.inventarioBienes}` : undefined,
+      badgeColor: 'bg-blue-600/30 text-blue-300 border-blue-600/50',
     },
     {
       id: 'usuarios',

@@ -29,6 +29,8 @@ import {
   SaldoLicenciaAnio,
   FeriadoDiaNoLaborable,
   MemoNota,
+  InventarioBien,
+  ActaCambioJefe,
 } from './types/police';
 
 import { Navbar } from './components/layout/Navbar';
@@ -58,6 +60,7 @@ import { UsuariosView } from './components/usuarios/UsuariosView';
 import { AuditoriaView } from './components/auditoria/AuditoriaView';
 import { LicenciasPolicialesView } from './components/licencias/LicenciasPolicialesView';
 import { MemosNotasView } from './components/memos/MemosNotasView';
+import { InventarioView } from './components/inventario/InventarioView';
 import { esTipoLesionADeterminar, getResumenLesionADeterminarIntervencion } from './utils/lesionesUtils';
 import {
   extractNumeroFolioFromText,
@@ -144,6 +147,27 @@ const ensureConfigLicencias = (conf: ConfiguracionSistema): ConfiguracionSistema
       ],
     };
   }
+  if (
+    updated.estructuraModulos &&
+    updated.estructuraModulos.length > 0 &&
+    !updated.estructuraModulos.some((m) => m.id === 'inventario')
+  ) {
+    updated = {
+      ...updated,
+      estructuraModulos: [
+        ...updated.estructuraModulos,
+        {
+          id: 'inventario',
+          label: 'Inventario y Cambio de Jefe',
+          desc: 'Patrimonio, Bienes y Actas de Relevo',
+          visible: true,
+          orden: updated.estructuraModulos.length,
+          padreId: null,
+          colorTonalidad: 'azul',
+        },
+      ],
+    };
+  }
   return updated;
 };
 
@@ -208,6 +232,8 @@ export default function App() {
   const [saldosLicenciasList, setSaldosLicenciasList] = useState<SaldoLicenciaAnio[]>([]);
   const [feriadosList, setFeriadosList] = useState<FeriadoDiaNoLaborable[]>([]);
   const [memosNotasList, setMemosNotasList] = useState<MemoNota[]>([]);
+  const [inventarioBienesList, setInventarioBienesList] = useState<InventarioBien[]>([]);
+  const [actasCambioJefeList, setActasCambioJefeList] = useState<ActaCambioJefe[]>([]);
 
   // Delegación activa en visualización
   const [activeDelegacionId, setActiveDelegacionId] = useState<string>(() => {
@@ -277,6 +303,8 @@ export default function App() {
         saldosLic,
         fers,
         memos,
+        invBienes,
+        actasJefe,
       ] = await Promise.all([
         db.personal.toArray(),
         db.grupos.toArray(),
@@ -303,6 +331,8 @@ export default function App() {
         db.saldosLicencias.toArray(),
         db.feriados.toArray(),
         db.memosNotas.toArray(),
+        db.inventarioBienes.toArray(),
+        db.actasCambioJefe.toArray(),
       ]);
 
       setPersonalList(pers);
@@ -330,6 +360,8 @@ export default function App() {
       setSaldosLicenciasList(saldosLic);
       setFeriadosList(fers && fers.length > 0 ? fers : DEFAULT_FERIADOS_ARGENTINA);
       setMemosNotasList(memos);
+      setInventarioBienesList(invBienes);
+      setActasCambioJefeList(actasJefe);
 
       // Si el usuario ya está logueado, sincronizar su sesión fresca sin contraseñas en claro
       if (currentUser) {
@@ -579,6 +611,18 @@ export default function App() {
         isMemoVisibleForUser(m, currentUser, seriesNumerarioList, config)
     );
   }, [memosNotasList, activeDelegacionId, currentUser, seriesNumerarioList, config]);
+
+  const filteredInventarioBienes = useMemo(() => {
+    return inventarioBienesList.filter(
+      (b) => !b.delegacionId || b.delegacionId === activeDelegacionId
+    );
+  }, [inventarioBienesList, activeDelegacionId]);
+
+  const filteredActasCambioJefe = useMemo(() => {
+    return actasCambioJefeList.filter(
+      (a) => !a.delegacionId || a.delegacionId === activeDelegacionId
+    );
+  }, [actasCambioJefeList, activeDelegacionId]);
 
   // Intervenciones de la delegación activa (combinadas de partes de guardia e independientes)
   const filteredIntervenciones = useMemo(() => {
@@ -2133,6 +2177,118 @@ export default function App() {
     });
   };
 
+  // --- CRUD INVENTARIO Y CAMBIO DE JEFE ---
+  const handleSaveInventarioBien = async (bien: InventarioBien) => {
+    const isNew = !inventarioBienesList.some((b) => b.id === bien.id);
+    const entity: InventarioBien = {
+      ...bien,
+      delegacionId: bien.delegacionId || activeDelegacionId,
+    };
+    await db.inventarioBienes.put(entity);
+    await saveItemToServer('inventarioBienes', entity);
+    setInventarioBienesList((prev) => {
+      const idx = prev.findIndex((b) => b.id === entity.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = entity;
+        return copy;
+      }
+      return [entity, ...prev];
+    });
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Inventario y Cambio de Jefe',
+      accion: isNew ? 'CREAR' : 'MODIFICAR',
+      descripcion: `${isNew ? 'Registró' : 'Actualizó'} bien "${entity.nroInventario} - ${entity.denominacion}" (${entity.estadoConservacion})`,
+      delegacionId: entity.delegacionId,
+    });
+  };
+
+  const handleBulkImportInventarioBienes = async (bienes: InventarioBien[]) => {
+    if (!bienes || bienes.length === 0) return;
+    const entities = bienes.map((b) => ({
+      ...b,
+      delegacionId: b.delegacionId || activeDelegacionId,
+    }));
+    await db.inventarioBienes.bulkPut(entities);
+    for (const ent of entities) {
+      await saveItemToServer('inventarioBienes', ent);
+    }
+    setInventarioBienesList((prev) => {
+      const map = new Map(prev.map((x) => [x.id, x]));
+      for (const ent of entities) map.set(ent.id, ent);
+      return Array.from(map.values());
+    });
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Inventario y Cambio de Jefe',
+      accion: 'CREAR',
+      descripcion: `Importó automáticamente ${entities.length} bien(es) desde módulos del sistema al inventario.`,
+      delegacionId: activeDelegacionId,
+    });
+  };
+
+  const handleDeleteInventarioBien = async (id: string) => {
+    if (!verificarPermisoEliminar()) return;
+    const target = inventarioBienesList.find((b) => b.id === id);
+    await db.inventarioBienes.delete(id);
+    await deleteItemFromServer('inventarioBienes', id);
+    setInventarioBienesList((prev) => prev.filter((b) => b.id !== id));
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Inventario y Cambio de Jefe',
+      accion: 'ELIMINAR',
+      descripcion: `Eliminó bien "${target?.nroInventario || id} - ${target?.denominacion || ''}"`,
+      delegacionId: target?.delegacionId || activeDelegacionId,
+    });
+  };
+
+  const handleSaveActaCambioJefe = async (acta: ActaCambioJefe) => {
+    const isNew = !actasCambioJefeList.some((a) => a.id === acta.id);
+    const entity: ActaCambioJefe = {
+      ...acta,
+      delegacionId: acta.delegacionId || activeDelegacionId,
+    };
+    await db.actasCambioJefe.put(entity);
+    await saveItemToServer('actasCambioJefe', entity);
+    setActasCambioJefeList((prev) => {
+      const idx = prev.findIndex((a) => a.id === entity.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = entity;
+        return copy;
+      }
+      return [entity, ...prev];
+    });
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Inventario y Cambio de Jefe',
+      accion: isNew ? 'CREAR' : 'MODIFICAR',
+      descripcion: `${isNew ? 'Confeccionó' : 'Actualizó'} ${entity.nroActa} (${entity.tipoCambio}) — Saliente: ${entity.jefeSaliente?.apellidoYNombre} / Entrante: ${entity.jefeEntrante?.apellidoYNombre}`,
+      delegacionId: entity.delegacionId,
+    });
+  };
+
+  const handleDeleteActaCambioJefe = async (id: string) => {
+    if (!verificarPermisoEliminar()) return;
+    const target = actasCambioJefeList.find((a) => a.id === id);
+    await db.actasCambioJefe.delete(id);
+    await deleteItemFromServer('actasCambioJefe', id);
+    setActasCambioJefeList((prev) => prev.filter((a) => a.id !== id));
+
+    await registrarAuditoria({
+      currentUser: currentUser || undefined,
+      modulo: 'Inventario y Cambio de Jefe',
+      accion: 'ELIMINAR',
+      descripcion: `Eliminó Acta de Cambio de Jefe "${target?.nroActa || id}"`,
+      delegacionId: target?.delegacionId || activeDelegacionId,
+    });
+  };
+
   // --- CAMBIO DE CONTRASEÑA ---
   const handleSavePassword = async (
     userId: string,
@@ -2419,6 +2575,7 @@ export default function App() {
               armasRetenidas: armasRetenidasCount,
               charlasProximas: charlasProximasCount,
               memosNotas: filteredMemosNotas.length,
+              inventarioBienes: filteredInventarioBienes.length,
               inspecciones:
                 filteredInspecciones.length +
                 filteredPartesGuardia.reduce(
@@ -2454,6 +2611,8 @@ export default function App() {
               novedadesList={novedadesList}
               gruposList={filteredGrupos}
               forensesList={filteredForenses}
+              inventarioBienesList={filteredInventarioBienes}
+              actasCambioJefeList={filteredActasCambioJefe}
               currentUser={currentUser || undefined}
               config={config}
               onNavigate={(tab) => setActiveTab(tab)}
@@ -2704,6 +2863,27 @@ export default function App() {
               onSaveConfig={handleSaveConfig}
               onSaveUsuario={handleSaveUsuario}
               onSaveSerie={handleSaveSerie}
+            />
+          )}
+
+          {activeTab === 'inventario' && (
+            <InventarioView
+              bienesList={filteredInventarioBienes}
+              actasList={filteredActasCambioJefe}
+              personalList={filteredPersonal}
+              movilesList={filteredMoviles}
+              expedientesList={filteredExpedientes}
+              casosFaltaOficioList={filteredCasosFaltaOficio}
+              seriesNumerarioList={filteredSeriesNumerario}
+              delegacionesList={delegacionesList}
+              activeDelegacionId={activeDelegacionId}
+              config={config}
+              currentUser={currentUser}
+              onSaveBien={handleSaveInventarioBien}
+              onBulkImportBienes={handleBulkImportInventarioBienes}
+              onDeleteBien={handleDeleteInventarioBien}
+              onSaveActa={handleSaveActaCambioJefe}
+              onDeleteActa={handleDeleteActaCambioJefe}
             />
           )}
 

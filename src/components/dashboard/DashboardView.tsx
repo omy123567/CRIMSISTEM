@@ -22,6 +22,8 @@ import {
   GrupoPersonal,
   ForenseTurno,
   UsuarioSistema,
+  InventarioBien,
+  ActaCambioJefe,
 } from '../../types/police';
 import {
   Users,
@@ -96,6 +98,8 @@ interface DashboardViewProps {
   novedadesList?: AvisoNovedad[];
   gruposList?: GrupoPersonal[];
   forensesList?: ForenseTurno[];
+  inventarioBienesList?: InventarioBien[];
+  actasCambioJefeList?: ActaCambioJefe[];
   currentUser?: UsuarioSistema;
   config: ConfiguracionSistema;
   onNavigate: (tab: any) => void;
@@ -136,6 +140,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   reparacionesList = [],
   gruposList = [],
   forensesList = [],
+  inventarioBienesList = [],
+  actasCambioJefeList = [],
   currentUser,
   config,
   onNavigate,
@@ -495,6 +501,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         detalle: `${charlasList.filter((c) => c.estado === 'Realizada').length} realizadas · ${charlasList.filter((c) => c.estado === 'Programada').length} programadas`,
         alerta: `${forensesList.length} forenses catálogo`,
       },
+      {
+        id: 'inventario',
+        modulo: 'Inventario y Cambio de Jefe',
+        total: inventarioBienesList.length,
+        detalle: `${actasCambioJefeList.length} actas de relevo · ${inventarioBienesList.filter((b) => b.verificadoOk).length} bienes verificados`,
+        alerta: `${inventarioBienesList.filter((b) => b.estadoConservacion === 'Malo / Deteriorado' || b.estadoConservacion === 'Fuera de Servicio' || b.estadoConservacion === 'En Reparación').length} con novedad`,
+      },
     ];
   }, [
     expedientesList,
@@ -522,6 +535,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     accidentologiaList,
     charlasList,
     forensesList.length,
+    inventarioBienesList,
+    actasCambioJefeList,
   ]);
 
   // Próximas Charlas y Prevención Comunitaria

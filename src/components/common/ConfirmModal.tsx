@@ -15,6 +15,7 @@ interface ConfirmModalProps {
   onConfirm: () => void;
   onClose?: () => void;
   onCancel?: () => void;
+  closeOnBackdropClick?: boolean;
 }
 
 export const ConfirmModal: React.FC<ConfirmModalProps> = ({
@@ -31,6 +32,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   onConfirm,
   onClose,
   onCancel,
+  closeOnBackdropClick = true,
 }) => {
   if (!isOpen) return null;
 
@@ -42,7 +44,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150"
-      onClick={handleClose}
+      onClick={closeOnBackdropClick ? handleClose : undefined}
     >
       <div
         className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150"

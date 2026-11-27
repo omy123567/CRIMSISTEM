@@ -28,6 +28,8 @@ import {
   SaldoLicenciaAnio,
   FeriadoDiaNoLaborable,
   MemoNota,
+  InventarioBien,
+  ActaCambioJefe,
 } from '../types/police';
 import { crearOfflineVerifier } from '../services/securityClient';
 import { DEFAULT_FERIADOS_ARGENTINA, DEFAULT_TIPOS_LICENCIA } from '../services/licenciaService';
@@ -61,6 +63,8 @@ export class SisPolDatabase extends Dexie {
   saldosLicencias!: Table<SaldoLicenciaAnio, string>;
   feriados!: Table<FeriadoDiaNoLaborable, string>;
   memosNotas!: Table<MemoNota, string>;
+  inventarioBienes!: Table<InventarioBien, string>;
+  actasCambioJefe!: Table<ActaCambioJefe, string>;
 
   constructor() {
     super('SisPolDB');
@@ -117,6 +121,10 @@ export class SisPolDatabase extends Dexie {
     });
     this.version(13).stores({
       memosNotas: 'id, tipo, nroFolioMemo, serieFolioId, fecha, destino, estado, delegacionId, createdAt',
+    });
+    this.version(14).stores({
+      inventarioBienes: 'id, nroInventario, categoria, denominacion, estadoConservacion, situacionPatrimonial, ubicacionSector, origenModulo, origenModuloRefId, delegacionId, createdAt',
+      actasCambioJefe: 'id, nroActa, fecha, tipoCambio, estado, delegacionId, createdAt',
     });
   }
 }
@@ -360,8 +368,9 @@ export const DEFAULT_CONFIG: ConfiguracionSistema = {
     { id: 'informes-tecnicos', label: 'Informes Técnicos', desc: 'Oficios, Dictámenes & Elevación', orden: 17, padreId: null, visible: true },
     { id: 'numerario', label: 'Control de Folios', desc: 'Numerario y Asignación de Folios', orden: 18, padreId: null, visible: true },
     { id: 'memos-notas', label: 'Memos y Notas', desc: 'Memorándums, Nota V, Notas & Anexos', orden: 19, padreId: null, visible: true },
-    { id: 'usuarios', label: 'Gestión de Usuarios', desc: 'Roles, Permisos & Cuentas', orden: 20, padreId: null, visible: true },
-    { id: 'config', label: 'Configuración & Membrete', desc: 'Ajustes, Membrete & Backups', orden: 21, padreId: null, visible: true },
+    { id: 'inventario', label: 'Inventario y Cambio de Jefe', desc: 'Patrimonio, Bienes y Actas de Relevo', orden: 20, padreId: null, visible: true },
+    { id: 'usuarios', label: 'Gestión de Usuarios', desc: 'Roles, Permisos & Cuentas', orden: 21, padreId: null, visible: true },
+    { id: 'config', label: 'Configuración & Membrete', desc: 'Ajustes, Membrete & Backups', orden: 22, padreId: null, visible: true },
   ],
 };
 
@@ -523,7 +532,7 @@ export const DEFAULT_ROLES: RolSistema[] = [
       'dashboard', 'personal', 'licencias', 'grupos', 'expedientes', 'falta-oficio',
       'moviles', 'recargos', 'guardias', 'inspecciones', 'intervenciones',
       'causas-policiales', 'accidentologia', 'personas', 'vehiculos',
-      'forense', 'licenciados', 'informes-tecnicos', 'numerario', 'memos-notas',
+      'forense', 'licenciados', 'informes-tecnicos', 'numerario', 'memos-notas', 'inventario',
       'usuarios', 'auditoria', 'config', 'charlas-prevencion'
     ],
     acciones: {
@@ -556,7 +565,7 @@ export const DEFAULT_ROLES: RolSistema[] = [
       'dashboard', 'personal', 'licencias', 'grupos', 'expedientes', 'falta-oficio',
       'moviles', 'recargos', 'guardias', 'inspecciones', 'intervenciones',
       'causas-policiales', 'accidentologia', 'personas', 'vehiculos',
-      'forense', 'licenciados', 'informes-tecnicos', 'numerario', 'memos-notas',
+      'forense', 'licenciados', 'informes-tecnicos', 'numerario', 'memos-notas', 'inventario',
       'usuarios', 'config', 'charlas-prevencion'
     ],
     acciones: {
@@ -582,14 +591,14 @@ export const DEFAULT_ROLES: RolSistema[] = [
   {
     id: 'rol-jefe',
     nombre: 'Jefe',
-    descripcion: 'Jefe de Delegación / Jefatura con acceso a series reservadas, folios, licencias y supervisión operativa.',
+    descripcion: 'Jefe de Delegación / Jefatura con acceso a series reservadas, folios, licencias, inventario y supervisión operativa.',
     color: 'indigo',
     esSistema: true,
     modulosPermitidos: [
       'dashboard', 'personal', 'licencias', 'grupos', 'expedientes', 'falta-oficio',
       'moviles', 'recargos', 'guardias', 'inspecciones', 'intervenciones',
       'causas-policiales', 'accidentologia', 'personas', 'vehiculos',
-      'forense', 'licenciados', 'informes-tecnicos', 'numerario', 'memos-notas',
+      'forense', 'licenciados', 'informes-tecnicos', 'numerario', 'memos-notas', 'inventario',
       'novedades-delegaciones', 'charlas-prevencion'
     ],
     acciones: {
@@ -613,13 +622,13 @@ export const DEFAULT_ROLES: RolSistema[] = [
   {
     id: 'rol-mayoria-judicial',
     nombre: 'Mayoría / Judicial',
-    descripcion: 'Personal de Mayoría y Judicial habilitado para oficios, expedientes, folios judiciales y memorándums reservados.',
+    descripcion: 'Personal de Mayoría y Judicial habilitado para oficios, expedientes, folios judiciales, inventario y memorándums reservados.',
     color: 'purple',
     esSistema: true,
     modulosPermitidos: [
       'dashboard', 'personal', 'licencias', 'expedientes', 'falta-oficio',
       'inspecciones', 'intervenciones', 'causas-policiales', 'personas', 'vehiculos',
-      'forense', 'informes-tecnicos', 'numerario', 'memos-notas', 'novedades-delegaciones'
+      'forense', 'informes-tecnicos', 'numerario', 'memos-notas', 'inventario', 'novedades-delegaciones'
     ],
     acciones: {
       puedeCrear: true,
@@ -922,6 +931,7 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
       'informes-tecnicos',
       'numerario',
       'memos-notas',
+      'inventario',
       'accidentologia',
       'novedades-delegaciones',
       'charlas-prevencion',
@@ -964,6 +974,7 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
       'informes-tecnicos',
       'numerario',
       'memos-notas',
+      'inventario',
       'accidentologia',
       'novedades-delegaciones',
       'charlas-prevencion',
@@ -1028,6 +1039,7 @@ export const DEFAULT_USUARIOS: UsuarioSistema[] = [
       'vehiculos',
       'forense',
       'memos-notas',
+      'inventario',
       'novedades-delegaciones',
       'charlas-prevencion',
       'usuarios',
@@ -1440,5 +1452,7 @@ export async function wipeAllOperationalData() {
     db.licenciasPoliciales.clear(),
     db.saldosLicencias.clear(),
     db.memosNotas.clear(),
+    db.inventarioBienes.clear(),
+    db.actasCambioJefe.clear(),
   ]);
 }

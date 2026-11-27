@@ -1209,3 +1209,134 @@ export interface MemoNota {
   createdAt: string;
   updatedAt: string;
 }
+
+// --- MÓDULO: INVENTARIO Y CAMBIO DE JEFE ---
+export type CategoriaInventarioBien =
+  | 'Equipamiento Pericial y Criminalístico'
+  | 'Informática y Comunicaciones'
+  | 'Mobiliario y Oficina'
+  | 'Armamento y Protección'
+  | 'Vehículos y Movilidad'
+  | 'Instrumental Forense / Laboratorio'
+  | 'Documentación y Libros Oficiales'
+  | 'Infraestructura e Inmuebles'
+  | 'Otros Bienes';
+
+export type EstadoConservacionBien =
+  | 'Muy Bueno'
+  | 'Bueno'
+  | 'Regular'
+  | 'Malo / Deteriorado'
+  | 'Fuera de Servicio'
+  | 'En Reparación';
+
+export type SituacionPatrimonialBien =
+  | 'En Uso / Operativo'
+  | 'En Depósito / Resguardo'
+  | 'Asignado a Personal'
+  | 'En Reparación / Taller'
+  | 'Baja Patrimonial';
+
+export interface InventarioBien {
+  id: string;
+  nroInventario: string;
+  categoria: CategoriaInventarioBien | string;
+  denominacion: string;
+  marcaModelo?: string;
+  nroSerie?: string;
+  cantidad: number;
+  unidad?: string;
+  estadoConservacion: EstadoConservacionBien | string;
+  situacionPatrimonial: SituacionPatrimonialBien | string;
+  ubicacionSector: string;
+  responsableId?: string;
+  responsableNombre?: string;
+  fechaAlta: string;
+  ultimaVerificacionFecha?: string;
+  verificadoOk?: boolean;
+  valorEstimado?: number;
+  origenModulo?: 'manual' | 'moviles' | 'personal_armamento' | 'personal_chalecos' | 'control_folios';
+  origenModuloRefId?: string;
+  observaciones?: string;
+  adjuntos?: AdjuntoArchivo[];
+  delegacionId: string;
+  delegacionNombre?: string;
+  usuarioRegistro?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EstadoRecepcionActaItem = 'Conforme' | 'Con Observación' | 'Faltante';
+
+export interface ActaCambioJefeItemSnapshot {
+  bienId: string;
+  nroInventario: string;
+  categoria: string;
+  denominacion: string;
+  marcaModeloSerie?: string;
+  cantidad: number;
+  unidad?: string;
+  estadoConservacion: string;
+  ubicacionSector: string;
+  estadoRecepcion: EstadoRecepcionActaItem;
+  observacion?: string;
+}
+
+export type TipoCambioJefe =
+  | 'Cambio de Jefatura Titular'
+  | 'Relevo Interino / Licencia'
+  | 'Entrega Parcial / Auditoría'
+  | 'Apertura de Inventario';
+
+export type EstadoActaCambioJefe =
+  | 'Borrador / En Preparación'
+  | 'Cerrada y Firmada'
+  | 'Anulada';
+
+export interface PersonaActaAutoridad {
+  personalId?: string;
+  jerarquia: string;
+  apellidoYNombre: string;
+  dni?: string;
+  cargo?: string;
+}
+
+export interface SituacionOperativaActa {
+  efectivosActivos: number;
+  efectivosLicencia: number;
+  movilesOperativos: number;
+  movilesTallerFueraServicio: number;
+  expedientesPendientes: number;
+  casosFaltaOficioPendientes: number;
+  librosFoliosActivos: number;
+  llavesSellosYValores?: string;
+}
+
+export interface ActaCambioJefe {
+  id: string;
+  nroActa: string;
+  fecha: string;
+  hora: string;
+  tipoCambio: TipoCambioJefe | string;
+  estado: EstadoActaCambioJefe | string;
+  dependenciaNombre: string;
+  jefeSaliente: PersonaActaAutoridad;
+  jefeEntrante: PersonaActaAutoridad;
+  veedorSuperior?: PersonaActaAutoridad;
+  situacionOperativa: SituacionOperativaActa;
+  itemsVerificados: ActaCambioJefeItemSnapshot[];
+  totalBienesActa: number;
+  totalConformes: number;
+  totalObservados: number;
+  totalFaltantes: number;
+  observacionesGenerales?: string;
+  adjuntos?: AdjuntoArchivo[];
+  delegacionId: string;
+  delegacionNombre?: string;
+  creadoPorUsuario?: string;
+  fechaCierre?: string;
+  integrityHash?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+

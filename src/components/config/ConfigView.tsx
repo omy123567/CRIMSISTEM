@@ -873,6 +873,8 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
               { label: 'Licenciados', value: counts.licenciados, color: 'text-slate-900' },
               { label: 'Folios Asign.', value: counts.folios, color: 'text-slate-900' },
               { label: 'Memos y Notas', value: counts.memosNotas, color: 'text-cyan-800' },
+              { label: 'Inv. Bienes', value: counts.inventarioBienes, color: 'text-blue-900' },
+              { label: 'Actas Relevo Jefe', value: counts.actasCambioJefe, color: 'text-indigo-800' },
               { label: 'Charlas Prev.', value: counts.charlasPrevencion, color: 'text-emerald-800' },
               { label: 'Novedades Del.', value: counts.novedadesDelegaciones, color: 'text-slate-900' },
             ].map((item) => (
@@ -1116,6 +1118,8 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
               { id: 'accidentologia', label: 'Accidentología Vial' },
               { id: 'informesTecnicos', label: 'Informes Técnicos' },
               { id: 'memosNotas', label: 'Memos y Notas' },
+              { id: 'inventarioBienes', label: 'Inventario Bienes' },
+              { id: 'actasCambioJefe', label: 'Actas Cambio Jefe' },
               { id: 'moviles', label: 'Móviles Policiales' },
               { id: 'recargos', label: 'Recargos Operativos' },
             ].map((m) => (

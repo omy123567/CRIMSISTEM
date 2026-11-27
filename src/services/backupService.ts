@@ -38,6 +38,8 @@ export interface DatabaseCounts {
   saldosLicencias: number;
   feriados: number;
   memosNotas: number;
+  inventarioBienes: number;
+  actasCambioJefe: number;
 }
 
 export interface BackupModuleCatalogItem {
@@ -68,6 +70,8 @@ export const BACKUP_MODULES_CATALOG: BackupModuleCatalogItem[] = [
   { id: 'seriesNumerario', label: 'Series de Folios', category: 'Administración', supportsDelegacionFilter: true },
   { id: 'folios', label: 'Folios Asignados', category: 'Administración', supportsDelegacionFilter: true },
   { id: 'memosNotas', label: 'Memos y Notas', category: 'Administración', supportsDelegacionFilter: true },
+  { id: 'inventarioBienes', label: 'Inventario de Bienes y Patrimonio', category: 'Administración', supportsDelegacionFilter: true },
+  { id: 'actasCambioJefe', label: 'Actas de Cambio de Jefe', category: 'Administración', supportsDelegacionFilter: true },
   { id: 'novedadesDelegaciones', label: 'Novedades Inter-Delegaciones', category: 'Administración', supportsDelegacionFilter: true },
   { id: 'charlasPrevencion', label: 'Charlas de Prevención', category: 'Operativo', supportsDelegacionFilter: true },
   { id: 'delegaciones', label: 'Delegaciones Policiales', category: 'Sistema', supportsDelegacionFilter: false },
@@ -102,6 +106,8 @@ export const MODULOS_OPERATIVOS_PERIODO: ModuloPeriodoInfo[] = [
   { id: 'accidentologia', label: 'Accidentología y Siniestros Viales', dateFields: ['fecha', 'createdAt'] },
   { id: 'charlasPrevencion', label: 'Charlas de Prevención', dateFields: ['fecha', 'createdAt'] },
   { id: 'memosNotas', label: 'Memos y Notas', dateFields: ['fecha', 'createdAt'] },
+  { id: 'inventarioBienes', label: 'Inventario de Bienes', dateFields: ['fechaAlta', 'ultimaVerificacionFecha', 'createdAt'] },
+  { id: 'actasCambioJefe', label: 'Actas de Cambio de Jefe', dateFields: ['fecha', 'createdAt'] },
   { id: 'reparaciones', label: 'Reparaciones Mecánicas de Móviles', dateFields: ['fecha', 'createdAt'] },
   { id: 'auditoria', label: 'Registros de Auditoría del Sistema', dateFields: ['fechaHora'] },
 ];
@@ -253,6 +259,8 @@ export async function getDatabaseCounts(): Promise<DatabaseCounts> {
     saldosLicencias,
     feriados,
     memosNotas,
+    inventarioBienes,
+    actasCambioJefe,
   ] = await Promise.all([
     db.personal.count(),
     db.expedientes.count(),
@@ -280,6 +288,8 @@ export async function getDatabaseCounts(): Promise<DatabaseCounts> {
     db.saldosLicencias.count(),
     db.feriados.count(),
     db.memosNotas.count(),
+    db.inventarioBienes.count(),
+    db.actasCambioJefe.count(),
   ]);
 
   return {
@@ -309,6 +319,8 @@ export async function getDatabaseCounts(): Promise<DatabaseCounts> {
     saldosLicencias,
     feriados,
     memosNotas,
+    inventarioBienes,
+    actasCambioJefe,
   };
 }
 
@@ -1133,6 +1145,8 @@ export async function vaciarBaseDeDatosCompleta(
     db.novedadesDelegaciones,
     db.charlasPrevencion,
     db.memosNotas,
+    db.inventarioBienes,
+    db.actasCambioJefe,
   ];
 
   for (const table of tablasOperativas) {

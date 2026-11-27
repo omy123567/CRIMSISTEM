@@ -94,6 +94,7 @@ export const MODULOS_DISPONIBLES = [
   { id: 'informes-tecnicos', label: 'Informes Técnicos', desc: 'Oficios y Pericias Técnicas' },
   { id: 'numerario', label: 'Control de Folios', desc: 'Numerario y Asignación de Folios' },
   { id: 'memos-notas', label: 'Memos y Notas', desc: 'Memorándums, Nota V, Notas & Anexos' },
+  { id: 'inventario', label: 'Inventario y Cambio de Jefe', desc: 'Patrimonio, Bienes y Actas de Relevo' },
   { id: 'usuarios', label: 'Gestión de Usuarios', desc: 'Administración de Cuentas' },
   { id: 'auditoria', label: 'Auditoría del Sistema', desc: 'Trazabilidad y registro de eventos (Superusuario)' },
   { id: 'config', label: 'Configuración & Membrete', desc: 'Ajustes de Delegación' },

@@ -164,6 +164,7 @@ export function getDefaultTonalidadForModule(moduleId: string): TonalidadModulo 
   switch (moduleId) {
     case 'dashboard':
     case 'expedientes':
+    case 'inventario':
       return 'azul';
     case 'personal':
     case 'licencias':

@@ -41,6 +41,8 @@ export const ALLOWED_COLLECTIONS: readonly (keyof SispolDatabase)[] = [
   'saldosLicencias',
   'feriados',
   'memosNotas',
+  'inventarioBienes',
+  'actasCambioJefe',
 ];
 
 let cachedSecret: string | null = null;
@@ -433,6 +435,8 @@ const DELEGATION_SCOPED_COLLECTIONS = new Set<string>([
   'licenciasPoliciales',
   'saldosLicencias',
   'memosNotas',
+  'inventarioBienes',
+  'actasCambioJefe',
 ]);
 
 export type PerfilAccesoFolioServer = 'comun' | 'jefe' | 'mayoria_judicial';
@@ -1093,6 +1097,7 @@ export function applyIntegrityHashes(collection: string, item: any): any {
     collection === 'expedientes' ||
     collection === 'informesTecnicos' ||
     collection === 'memosNotas' ||
+    (collection === 'actasCambioJefe' && copy.estado === 'Cerrada y Firmada') ||
     (collection === 'partesGuardia' && copy.cerrado)
   ) {
     const payloadToHash = { ...copy };
